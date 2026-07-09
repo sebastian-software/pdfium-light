@@ -10,16 +10,26 @@ Chromium build instructions to get started, but replace Chromium's
 *   [Chromium Mac build instructions](https://chromium.googlesource.com/chromium/src/+/main/docs/mac_build_instructions.md)
 *   [Chromium Windows build instructions](https://chromium.googlesource.com/chromium/src/+/main/docs/windows_build_instructions.md)
 
-### CPU Architectures supported
+### Platforms supported
 
-The default architecture for Windows, Linux, and Mac is "`x64`". On Windows,
-"`x86`" is also supported. GN parameter "`target_cpu = "x86"`" can be used to
-override the default value. If you specify Android build, the default CPU
-architecture will be "`arm`".
+pdfium-light supports a deliberately smaller platform matrix than upstream
+PDFium:
 
-It is expected that there are still some places lurking in the code which will
-not function properly on big-endian architectures. Bugs and/or patches are
-welcome, however providing this support is **not** a priority at this time.
+* Linux x64 glibc;
+* Linux arm64 glibc;
+* Linux musl where the Chromium toolchain supports the target ABI;
+* macOS arm64;
+* Windows x64.
+
+Windows arm64 is a probe target. It should not be treated as unsupported until a
+full Chromium/PDFium toolchain probe has been recorded.
+
+macOS x64 / Intel and Windows x86 / 32-bit are out of scope and should not be
+advertised as supported targets. Mobile/browser-integrated targets, big-endian
+architectures, and legacy MSVC builds are also out of scope.
+
+See [Platform Support](docs/platform-support.md) for the detailed matrix and the
+current Windows arm64 probe status.
 
 ### Compilers supported
 
