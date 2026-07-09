@@ -42,6 +42,14 @@
 #define FPDF_PAGEOBJ_SHADING 4
 #define FPDF_PAGEOBJ_FORM 5
 
+// Conservative real redaction result codes.
+#define FPDF_REDACTION_SUCCESS 0
+#define FPDF_REDACTION_ERROR_INVALID_PAGE 1
+#define FPDF_REDACTION_ERROR_INVALID_RECT 2
+#define FPDF_REDACTION_ERROR_NO_CONTENT 3
+#define FPDF_REDACTION_ERROR_UNSUPPORTED_OBJECT 4
+#define FPDF_REDACTION_ERROR_UNSAFE_PARTIAL_INTERSECTION 5
+
 // The path segment constants.
 #define FPDF_SEGMENT_UNKNOWN -1
 #define FPDF_SEGMENT_LINETO 0
@@ -225,6 +233,24 @@ FPDFPage_InsertObjectAtIndex(FPDF_PAGE page,
 // FPDF_TEXTPAGE handles for |page| are no longer valid.
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 FPDFPage_RemoveObject(FPDF_PAGE page, FPDF_PAGEOBJECT page_object);
+
+// Experimental API.
+// Applies conservative real redactions to |page|.
+//
+//   page       - handle to a page.
+//   rects      - array of page-space redaction rectangles.
+//   rect_count - number of entries in |rects|.
+//
+// This removes only whole page objects that are fully covered by at least one
+// redaction rectangle. It does not draw overlay-only redactions. If any page
+// object partially intersects a redaction rectangle, or if an intersecting
+// object type cannot be safely removed as a whole, the call fails without
+// removing content and returns an explicit FPDF_REDACTION_* code.
+//
+// On FPDF_REDACTION_SUCCESS, call FPDFPage_GenerateContent() before saving.
+FPDF_EXPORT int FPDF_CALLCONV FPDFPage_ApplyRedactions(FPDF_PAGE page,
+                                                       const FS_RECTF* rects,
+                                                       unsigned long rect_count);
 
 // Get number of page objects inside |page|.
 //

@@ -29,6 +29,12 @@ underlines, strikeouts, squigglies, ink, links, stamps, geometric annotations,
 attachments, and redact marks. Widget annotations are not supported for
 creation, and `FPDF_ANNOT` rendering passes `bShowWidget=false`.
 
+`fpdf_edit.h` also exposes conservative real redaction through
+`FPDFPage_ApplyRedactions()`. The first supported policy removes only whole
+text, path, and image page objects that are fully covered by a supplied
+page-space rectangle; partial intersections and nested form/shading content
+return explicit error codes instead of producing overlay-only output.
+
 `//:pdfium_light_public_headers_test` compiles the full retained header set as
 an external consumer would, without `FPDF_IMPLEMENTATION`.
 
