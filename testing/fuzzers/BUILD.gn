@@ -28,14 +28,7 @@ fuzzer_list = [
   "pdf_scanlinecompositor_fuzzer",
   "pdf_streamparser_fuzzer",
   "pdf_xml_fuzzer",
-  "pdfium_fuzzer",
 ]
-if (pdf_enable_v8) {
-  fuzzer_list += [
-    "pdf_cjs_util_fuzzer",
-    "pdf_fx_date_helpers_fuzzer",
-  ]
-}
 if (is_clang) {
   # Fuzzers that use FuzzedDataProvider can only be built with Clang.
   fuzzer_list += [
@@ -83,15 +76,6 @@ source_set("fuzzer_init_public") {
     "../../core/fxcrt",
     "../../fpdfsdk",
   ]
-  if (pdf_enable_v8) {
-    configs += [ "//v8:external_startup_data" ]
-    deps += [
-      "../:test_support",
-      "../../fxjs",
-      "//v8",
-      "//v8:v8_libplatform",
-    ]
-  }
 
   # TODO(crbug.com/40031409): Fix code that adds exit-time destructors and
   # enable the diagnostic by removing this line.
@@ -106,20 +90,6 @@ if (is_component_build) {
       deps += [ ":${fuzzer}_impl" ]
     }
   }
-}
-
-source_set("fuzzer_helper") {
-  testonly = !is_component_build
-  sources = [
-    "pdfium_fuzzer_helper.cc",
-    "pdfium_fuzzer_helper.h",
-  ]
-  configs += [ ":fuzzer_config" ]
-  deps = [
-    "../../:pdfium_public_headers",
-    "../../core/fxcrt",
-    "../../fpdfsdk",
-  ]
 }
 
 source_set("fuzzer_utils") {
@@ -191,25 +161,6 @@ template("pdfium_fuzzer") {
         init_dep,
       ]
     }
-  }
-}
-
-if (pdf_enable_v8) {
-  pdfium_fuzzer("pdf_cjs_util_fuzzer") {
-    sources = [ "pdf_cjs_util_fuzzer.cc" ]
-    deps = [
-      "../../core/fxcrt",
-      "../../fpdfsdk",
-      "../../fxjs",
-    ]
-  }
-  pdfium_fuzzer("pdf_fx_date_helpers_fuzzer") {
-    sources = [ "pdf_fx_date_helpers_fuzzer.cc" ]
-    deps = [
-      "../../core/fxcrt",
-      "../../fpdfsdk",
-      "../../fxjs",
-    ]
   }
 }
 
@@ -338,10 +289,4 @@ pdfium_fuzzer("pdf_streamparser_fuzzer") {
 pdfium_fuzzer("pdf_xml_fuzzer") {
   sources = [ "pdf_xml_fuzzer.cc" ]
   deps = [ "../../core/fxcrt" ]
-}
-
-pdfium_fuzzer("pdfium_fuzzer") {
-  sources = [ "pdfium_fuzzer.cc" ]
-  deps = [ ":fuzzer_helper" ]
-  public_fuzzer = true
 }

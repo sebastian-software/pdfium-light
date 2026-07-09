@@ -434,7 +434,7 @@ def _CheckLibcxxRevision(input_api, output_api):
 
 
 def _CheckTestDuplicates(input_api, output_api):
-  """Checks that pixel and javascript tests don't contain duplicates.
+  """Checks that pixel tests do not contain duplicate .in/.pdf inputs.
   We use .in and .pdf files, having both can cause race conditions on the bots,
   which run the tests in parallel.
   """
@@ -443,8 +443,7 @@ def _CheckTestDuplicates(input_api, output_api):
   for f in input_api.AffectedFiles():
     if f.Action() == 'D':
       continue
-    if not f.LocalPath().startswith(('testing/resources/pixel/',
-        'testing/resources/javascript/')):
+    if not f.LocalPath().startswith('testing/resources/pixel/'):
       continue
     end_len = 0
     if f.LocalPath().endswith('.in'):

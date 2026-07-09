@@ -47,9 +47,6 @@ TEST_F(FPDFFlattenEmbedderTest, FlatWithBadFont) {
   ScopedPage page = LoadScopedPage(0);
   EXPECT_TRUE(page);
 
-  FORM_OnLButtonDown(form_handle(), page.get(), 0, 20, 30);
-  FORM_OnLButtonUp(form_handle(), page.get(), 0, 20, 30);
-
   EXPECT_EQ(FLATTEN_SUCCESS, FPDFPage_Flatten(page.get(), FLAT_PRINT));
   EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
 
@@ -123,64 +120,4 @@ TEST_F(FPDFFlattenEmbedderTest, Bug896366) {
   EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
 
   VerifySavedDocumentWithExpectationSuffix("bug_896366");
-}
-
-TEST_F(FPDFFlattenEmbedderTest, FlattenShouldRemoveAcroForm) {
-  ASSERT_TRUE(OpenDocument("text_form.pdf"));
-  ScopedPage page = LoadScopedPage(0);
-  ASSERT_TRUE(page);
-  EXPECT_EQ(FPDFPage_Flatten(page.get(), FLAT_NORMALDISPLAY), FLATTEN_SUCCESS);
-
-  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
-  ScopedSavedDoc saved_doc = OpenScopedSavedDocument();
-  ASSERT_TRUE(saved_doc);
-  EXPECT_EQ(FORMTYPE_NONE, FPDF_GetFormType(saved_doc.get()));
-}
-
-TEST_F(FPDFFlattenEmbedderTest, FlattenSharedAnnotArrayKeepsAcroForm) {
-  ASSERT_TRUE(OpenDocument("bug_498010830_shared_annots.pdf"));
-  ScopedPage page = LoadScopedPage(0);
-  ASSERT_TRUE(page);
-  EXPECT_EQ(FPDFPage_Flatten(page.get(), FLAT_NORMALDISPLAY), FLATTEN_SUCCESS);
-
-  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
-  {
-    ScopedSavedDoc saved_doc = OpenScopedSavedDocument();
-    ASSERT_TRUE(saved_doc);
-    EXPECT_EQ(FORMTYPE_ACRO_FORM, FPDF_GetFormType(saved_doc.get()));
-  }
-  ClearString();
-
-  ScopedPage page1 = LoadScopedPage(1);
-  ASSERT_TRUE(page1);
-  EXPECT_EQ(FPDFPage_Flatten(page1.get(), FLAT_NORMALDISPLAY), FLATTEN_SUCCESS);
-
-  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
-  ScopedSavedDoc saved_doc = OpenScopedSavedDocument();
-  ASSERT_TRUE(saved_doc);
-  EXPECT_EQ(FORMTYPE_NONE, FPDF_GetFormType(saved_doc.get()));
-}
-
-TEST_F(FPDFFlattenEmbedderTest, FlattenSharedWidgetAnnotKeepsAcroForm) {
-  ASSERT_TRUE(OpenDocument("bug_498010830_shared_widget.pdf"));
-  ScopedPage page = LoadScopedPage(0);
-  ASSERT_TRUE(page);
-  EXPECT_EQ(FPDFPage_Flatten(page.get(), FLAT_NORMALDISPLAY), FLATTEN_SUCCESS);
-
-  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
-  {
-    ScopedSavedDoc saved_doc = OpenScopedSavedDocument();
-    ASSERT_TRUE(saved_doc);
-    EXPECT_EQ(FORMTYPE_ACRO_FORM, FPDF_GetFormType(saved_doc.get()));
-  }
-  ClearString();
-
-  ScopedPage page1 = LoadScopedPage(1);
-  ASSERT_TRUE(page1);
-  EXPECT_EQ(FPDFPage_Flatten(page1.get(), FLAT_NORMALDISPLAY), FLATTEN_SUCCESS);
-
-  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
-  ScopedSavedDoc saved_doc = OpenScopedSavedDocument();
-  ASSERT_TRUE(saved_doc);
-  EXPECT_EQ(FORMTYPE_NONE, FPDF_GetFormType(saved_doc.get()));
 }

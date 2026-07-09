@@ -21,7 +21,6 @@
 #include "public/cpp/fpdf_scopers.h"
 #include "public/fpdf_dataavail.h"
 #include "public/fpdf_ext.h"
-#include "public/fpdf_formfill.h"
 #include "public/fpdf_save.h"
 #include "public/fpdfview.h"
 #include "testing/fake_file_access.h"
@@ -40,12 +39,9 @@ class TestLoader;
 // API tests against it.
 class EmbedderTest : public ::testing::Test,
                      public UNSUPPORT_INFO,
-                     public IPDF_JSPLATFORM,
-                     public FPDF_FORMFILLINFO,
                      public FPDF_FILEWRITE {
  public:
   enum class LinearizeOption { kDefaultLinearize, kMustLinearize };
-  enum class JavaScriptOption { kDisableJavaScript, kEnableJavaScript };
 
   class Delegate {
    public:
@@ -54,44 +50,6 @@ class EmbedderTest : public ::testing::Test,
     // Equivalent to UNSUPPORT_INFO::FSDK_UnSupport_Handler().
     virtual void UnsupportedHandler(int type) {}
 
-    // Equivalent to IPDF_JSPLATFORM::app_alert().
-    virtual int Alert(FPDF_WIDESTRING message,
-                      FPDF_WIDESTRING title,
-                      int type,
-                      int icon) {
-      return 0;
-    }
-
-    // Equivalent to FPDF_FORMFILLINFO::FFI_SetTimer().
-    virtual int SetTimer(int msecs, TimerCallback fn) { return 0; }
-
-    // Equivalent to FPDF_FORMFILLINFO::FFI_KillTimer().
-    virtual void KillTimer(int id) {}
-
-    // Equivalent to FPDF_FORMFILLINFO::FFI_GetPage().
-    virtual FPDF_PAGE GetPage(FPDF_FORMFILLINFO* info,
-                              FPDF_DOCUMENT document,
-                              int page_index);
-
-    // Equivalent to FPDF_FORMFILLINFO::FFI_DoURIAction().
-    virtual void DoURIAction(FPDF_BYTESTRING uri) {}
-
-    // Equivalent to FPDF_FORMFILLINFO::FFI_DoGoToAction().
-    virtual void DoGoToAction(FPDF_FORMFILLINFO* info,
-                              int page_index,
-                              int zoom_mode,
-                              float* pos_arry,
-                              int array_size) {}
-
-    // Equivalent to FPDF_FORMFILLINFO::FFI_OnFocusChange().
-    virtual void OnFocusChange(FPDF_FORMFILLINFO* info,
-                               FPDF_ANNOTATION annot,
-                               int page_index) {}
-
-    // Equivalent to FPDF_FORMFILLINFO::FFI_DoURIActionWithKeyboardModifier().
-    virtual void DoURIActionWithKeyboardModifier(FPDF_FORMFILLINFO* info,
-                                                 FPDF_BYTESTRING uri,
-                                                 int modifiers) {}
   };
 
   class ScopedSavedDoc {
@@ -161,50 +119,41 @@ class EmbedderTest : public ::testing::Test,
     delegate_ = delegate ? delegate : default_delegate_.get();
   }
 
-  void SetFormFillInfoVersion(int form_fill_info_version) {
-    form_fill_info_version_ = form_fill_info_version;
-  }
 
   void SetDocumentFromAvail();
   FPDF_DOCUMENT document() const { return document_.get(); }
   FPDF_DOCUMENT saved_document() const { return saved_document_.get(); }
-  FPDF_FORMHANDLE form_handle() const { return form_handle_.get(); }
-  FPDF_FORMHANDLE saved_form_handle() const { return saved_form_handle_.get(); }
 
   // Wrapper for FPDFAvail_Create() to set `avail_`.
   void CreateAvail(FX_FILEAVAIL* file_avail, FPDF_FILEACCESS* file);
   FPDF_AVAIL avail() { return avail_.get(); }
 
-  // Create an empty document, and its form fill environment.
+  // Create an empty document.
   void CreateEmptyDocument();
 
-  // Create an empty document without a form fill environment.
+  // Alias retained for tests that predate the removal of the form-fill runtime.
   void CreateEmptyDocumentWithoutFormFillEnvironment();
 
-  // Open the document specified by `filename`, and create its form fill
-  // environment, or return false on failure. The `filename` is relative to
-  // the test data directory where we store all the test files. `password` can
-  // be an empty string if the file is not password protected. If
-  // `javascript_opts` is kDisableJavascript, then the document will be given
-  // stubs in place of the real JS engine.
+  // Open the document specified by `filename`, or return false on failure.
+  // The `filename` is relative to the test data directory where we store all
+  // the test files. `password` can be an empty string if the file is not
+  // password protected.
   virtual bool OpenDocumentWithOptions(const std::string& filename,
                                        const ByteString& password,
-                                       LinearizeOption linearize_option,
-                                       JavaScriptOption javascript_option);
+                                       LinearizeOption linearize_option);
 
   // Variants provided for convenience.
   bool OpenDocument(const std::string& filename);
   bool OpenDocumentLinearized(const std::string& filename);
   bool OpenDocumentWithPassword(const std::string& filename,
                                 const ByteString& password);
-  bool OpenDocumentWithoutJavaScript(const std::string& filename);
 
   // Close the document from a previous OpenDocument() call. This happens
   // automatically at tear-down, and is usually not explicitly required,
   // unless testing multiple documents or duplicate destruction.
   void CloseDocument();
 
-  // Perform JavaScript actions that are to run at document open time.
+  // Retained as a no-op for tests that predate JavaScript removal.
   void DoOpenActions();
 
   // Determine the page numbers present in the document.
@@ -212,8 +161,7 @@ class EmbedderTest : public ::testing::Test,
   int GetPageCount();
 
   // Load a specific page of the open document with a given non-negative
-  // `page_index`. On success, fire form events for the page and return a
-  // ScopedPage with the page handle. On failure, return an empty ScopedPage.
+  // `page_index`. On success, return a ScopedPage with the page handle. On failure, return an empty ScopedPage.
   // The caller needs to let the ScopedPage go out of scope to properly unload
   // the page, and must do so before the page's document and `this` get
   // destroyed.
@@ -224,26 +172,21 @@ class EmbedderTest : public ::testing::Test,
   // Prefer LoadScopedPage() above.
   //
   // Load a specific page of the open document with a given non-negative
-  // `page_index`. On success, fire form events for the page and return a page
-  // handle. On failure, return nullptr.
+  // `page_index`. On success, return a page handle. On failure, return nullptr.
   // The caller does not own the returned page handle, but must call
   // UnloadPage() on it when done.
   // The caller cannot call this for a `page_index` if it already obtained and
   // holds the page handle for that page.
   FPDF_PAGE LoadPage(int page_index);
 
-  // Same as LoadPage(), but does not fire form events.
+  // Alias retained after form events were removed.
   FPDF_PAGE LoadPageNoEvents(int page_index);
 
-  // Fire form unload events and release the resources for a `page` obtained
-  // from LoadPage(). Further use of `page` is prohibited after calling this.
+  // Release the resources for a `page` obtained from LoadPage(). Further use of `page` is prohibited after calling this.
   void UnloadPage(FPDF_PAGE page);
 
-  // Same as UnloadPage(), but does not fire form events.
+  // Alias retained after form events were removed.
   void UnloadPageNoEvents(FPDF_PAGE page);
-
-  // Apply standard highlighting color/alpha to forms.
-  void SetInitialFormFieldHighlight(FPDF_FORMHANDLE form);
 
   // RenderLoadedPageWithFlags() with no flags.
   ScopedFPDFBitmap RenderLoadedPage(FPDF_PAGE page);
@@ -264,14 +207,7 @@ class EmbedderTest : public ::testing::Test,
   ScopedFPDFBitmap RenderSavedPageWithFlags(FPDF_PAGE page, int flags);
 
   // Convert `page` into a bitmap with the specified page rendering `flags`.
-  // The form handle associated with `page` should be passed in via `handle`.
-  // If `handle` is nullptr, then forms on the page will not be rendered.
-  //
-  // See public/fpdfview.h for a list of page rendering flags.
-  // If none of the above Render methods are appropriate, then use this one.
-  static ScopedFPDFBitmap RenderPageWithFlags(FPDF_PAGE page,
-                                              FPDF_FORMHANDLE handle,
-                                              int flags);
+  static ScopedFPDFBitmap RenderPageWithFlags(FPDF_PAGE page, int flags);
 
   // Simplified form of RenderPageWithFlags() with no handle and no flags.
   static ScopedFPDFBitmap RenderPage(FPDF_PAGE page);
@@ -293,14 +229,9 @@ class EmbedderTest : public ::testing::Test,
 
   bool OpenDocumentHelper(const ByteString& password,
                           LinearizeOption linearize_option,
-                          JavaScriptOption javascript_option,
                           FakeFileAccess* network_simulator,
                           ScopedFPDFDocument* document,
-                          ScopedFPDFAvail* avail,
-                          ScopedFPDFFormHandle* form_handle);
-
-  FPDF_FORMHANDLE SetupFormFillEnvironment(FPDF_DOCUMENT doc,
-                                           JavaScriptOption javascript_option);
+                          ScopedFPDFAvail* avail);
 
   // Return the hash of only the pixels in `bitmap`. i.e. Excluding the gap, if
   // any, at the end of a row where the stride is larger than width * bpp.
@@ -415,8 +346,8 @@ class EmbedderTest : public ::testing::Test,
   // in the destructor of the scoped methods.
   void CloseSavedDocument();
 
-  void UnloadPageCommon(FPDF_PAGE page, bool do_events);
-  FPDF_PAGE LoadPageCommon(int page_index, bool do_events);
+  void UnloadPageCommon(FPDF_PAGE page);
+  FPDF_PAGE LoadPageCommon(int page_index);
 
   ScopedFPDFBitmap VerifySavedRenderingCommon(FPDF_PAGE page);
   ScopedFPDFBitmap VerifySavedDocumentCommon();
@@ -424,11 +355,6 @@ class EmbedderTest : public ::testing::Test,
   std::unique_ptr<Delegate> default_delegate_;
   Delegate* delegate_;
 
-#ifdef PDF_ENABLE_XFA
-  int form_fill_info_version_ = 2;
-#else   // PDF_ENABLE_XFA
-  int form_fill_info_version_ = 1;
-#endif  // PDF_ENABLE_XFA
 
   // must outlive `loader_`.
   std::vector<uint8_t> file_contents_;
@@ -437,7 +363,6 @@ class EmbedderTest : public ::testing::Test,
   std::unique_ptr<FakeFileAccess> fake_file_access_;  // must outlive `avail_`.
   ScopedFPDFAvail avail_;
   ScopedFPDFDocument document_;
-  ScopedFPDFFormHandle form_handle_;
   PageNumberToHandleMap page_map_;
 
   FPDF_FILEACCESS saved_file_access_;  // must outlive `saved_avail_`.
@@ -445,7 +370,6 @@ class EmbedderTest : public ::testing::Test,
   std::unique_ptr<FakeFileAccess> saved_fake_file_access_;
   ScopedFPDFAvail saved_avail_;
   ScopedFPDFDocument saved_document_;
-  ScopedFPDFFormHandle saved_form_handle_;
   PageNumberToHandleMap saved_page_map_;
 
   std::string data_string_;

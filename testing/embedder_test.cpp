@@ -66,212 +66,6 @@ void UnsupportedHandlerTrampoline(UNSUPPORT_INFO* info, int type) {
   delegate->UnsupportedHandler(type);
 }
 
-int AlertTrampoline(IPDF_JSPLATFORM* platform,
-                    FPDF_WIDESTRING message,
-                    FPDF_WIDESTRING title,
-                    int type,
-                    int icon) {
-  auto* delegate = static_cast<EmbedderTest*>(platform)->GetDelegate();
-  return delegate->Alert(message, title, type, icon);
-}
-
-int SetTimerTrampoline(FPDF_FORMFILLINFO* info, int msecs, TimerCallback fn) {
-  auto* delegate = static_cast<EmbedderTest*>(info)->GetDelegate();
-  return delegate->SetTimer(msecs, fn);
-}
-
-void KillTimerTrampoline(FPDF_FORMFILLINFO* info, int id) {
-  auto* delegate = static_cast<EmbedderTest*>(info)->GetDelegate();
-  return delegate->KillTimer(id);
-}
-
-FPDF_PAGE GetPageTrampoline(FPDF_FORMFILLINFO* info,
-                            FPDF_DOCUMENT document,
-                            int page_index) {
-  auto* delegate = static_cast<EmbedderTest*>(info)->GetDelegate();
-  return delegate->GetPage(info, document, page_index);
-}
-
-void DoURIActionTrampoline(FPDF_FORMFILLINFO* info, FPDF_BYTESTRING uri) {
-  auto* delegate = static_cast<EmbedderTest*>(info)->GetDelegate();
-  return delegate->DoURIAction(uri);
-}
-
-void DoGoToActionTrampoline(FPDF_FORMFILLINFO* info,
-                            int page_index,
-                            int zoom_mode,
-                            float* pos_array,
-                            int array_size) {
-  auto* delegate = static_cast<EmbedderTest*>(info)->GetDelegate();
-  return delegate->DoGoToAction(info, page_index, zoom_mode, pos_array,
-                                array_size);
-}
-
-void OnFocusChangeTrampoline(FPDF_FORMFILLINFO* info,
-                             FPDF_ANNOTATION annot,
-                             int page_index) {
-  auto* delegate = static_cast<EmbedderTest*>(info)->GetDelegate();
-  return delegate->OnFocusChange(info, annot, page_index);
-}
-
-void DoURIActionWithKeyboardModifierTrampoline(FPDF_FORMFILLINFO* info,
-                                               FPDF_BYTESTRING uri,
-                                               int modifiers) {
-  auto* delegate = static_cast<EmbedderTest*>(info)->GetDelegate();
-  return delegate->DoURIActionWithKeyboardModifier(info, uri, modifiers);
-}
-
-// These do nothing (but must return a reasonable default value).
-void InvalidateStub(FPDF_FORMFILLINFO* pThis,
-                    FPDF_PAGE page,
-                    double left,
-                    double top,
-                    double right,
-                    double bottom) {}
-
-void OutputSelectedRectStub(FPDF_FORMFILLINFO* pThis,
-                            FPDF_PAGE page,
-                            double left,
-                            double top,
-                            double right,
-                            double bottom) {}
-
-void SetCursorStub(FPDF_FORMFILLINFO* pThis, int nCursorType) {}
-
-FPDF_SYSTEMTIME GetLocalTimeStub(FPDF_FORMFILLINFO* pThis) {
-  return {122, 11, 6, 28, 12, 59, 59, 500};
-}
-
-void OnChangeStub(FPDF_FORMFILLINFO* pThis) {}
-
-FPDF_PAGE GetCurrentPageStub(FPDF_FORMFILLINFO* pThis, FPDF_DOCUMENT document) {
-  return GetPageTrampoline(pThis, document, 0);
-}
-
-int GetRotationStub(FPDF_FORMFILLINFO* pThis, FPDF_PAGE page) {
-  return 0;
-}
-
-void ExecuteNamedActionStub(FPDF_FORMFILLINFO* pThis, FPDF_BYTESTRING name) {}
-
-void SetTextFieldFocusStub(FPDF_FORMFILLINFO* pThis,
-                           FPDF_WIDESTRING value,
-                           FPDF_DWORD valueLen,
-                           FPDF_BOOL is_focus) {}
-
-#ifdef PDF_ENABLE_XFA
-void DisplayCaretStub(FPDF_FORMFILLINFO* pThis,
-                      FPDF_PAGE page,
-                      FPDF_BOOL bVisible,
-                      double left,
-                      double top,
-                      double right,
-                      double bottom) {}
-
-int GetCurrentPageIndexStub(FPDF_FORMFILLINFO* pThis, FPDF_DOCUMENT document) {
-  return 0;
-}
-
-void SetCurrentPageStub(FPDF_FORMFILLINFO* pThis,
-                        FPDF_DOCUMENT document,
-                        int iCurPage) {}
-
-void GotoURLStub(FPDF_FORMFILLINFO* pThis,
-                 FPDF_DOCUMENT document,
-                 FPDF_WIDESTRING wsURL) {}
-
-void GetPageViewRectStub(FPDF_FORMFILLINFO* pThis,
-                         FPDF_PAGE page,
-                         double* left,
-                         double* top,
-                         double* right,
-                         double* bottom) {
-  *left = 0.0;
-  *top = 0.0;
-  *right = 512.0;
-  *bottom = 512.0;
-}
-
-void PageEventStub(FPDF_FORMFILLINFO* pThis,
-                   int page_count,
-                   FPDF_DWORD event_type) {}
-
-FPDF_BOOL PopupMenuStub(FPDF_FORMFILLINFO* pThis,
-                        FPDF_PAGE page,
-                        FPDF_WIDGET hWidget,
-                        int menuFlag,
-                        float x,
-                        float y) {
-  return true;
-}
-
-FPDF_FILEHANDLER* OpenFileStub(FPDF_FORMFILLINFO* pThis,
-                               int fileFlag,
-                               FPDF_WIDESTRING wsURL,
-                               const char* mode) {
-  return nullptr;
-}
-
-void EmailToStub(FPDF_FORMFILLINFO* pThis,
-                 FPDF_FILEHANDLER* fileHandler,
-                 FPDF_WIDESTRING pTo,
-                 FPDF_WIDESTRING pSubject,
-                 FPDF_WIDESTRING pCC,
-                 FPDF_WIDESTRING pBcc,
-                 FPDF_WIDESTRING pMsg) {}
-
-void UploadToStub(FPDF_FORMFILLINFO* pThis,
-                  FPDF_FILEHANDLER* fileHandler,
-                  int fileFlag,
-                  FPDF_WIDESTRING uploadTo) {}
-
-int GetPlatformStub(FPDF_FORMFILLINFO* pThis, void* platform, int length) {
-  return 0;
-}
-
-int GetLanguageStub(FPDF_FORMFILLINFO* pThis, void* language, int length) {
-  return 0;
-}
-
-FPDF_FILEHANDLER* DownloadFromURLStub(FPDF_FORMFILLINFO* pThis,
-                                      FPDF_WIDESTRING URL) {
-  static const char kString[] = "<body>secrets</body>";
-  static FPDF_FILEHANDLER kFakeFileHandler = {
-      nullptr,
-      [](void*) -> void {},
-      [](void*) -> FPDF_DWORD { return sizeof(kString) - 1; },
-      [](void*, FPDF_DWORD off, void* buffer, FPDF_DWORD size) -> FPDF_RESULT {
-        UNSAFE_TODO(FXSYS_memcpy(buffer, kString,
-                                 std::min<size_t>(size, sizeof(kString) - 1)));
-        return 0;
-      },
-      [](void*, FPDF_DWORD, const void*, FPDF_DWORD) -> FPDF_RESULT {
-        return -1;
-      },
-      [](void*) -> FPDF_RESULT { return 0; },
-      [](void*, FPDF_DWORD) -> FPDF_RESULT { return 0; }};
-  return &kFakeFileHandler;
-}
-
-FPDF_BOOL PostRequestURLStub(FPDF_FORMFILLINFO* pThis,
-                             FPDF_WIDESTRING wsURL,
-                             FPDF_WIDESTRING wsData,
-                             FPDF_WIDESTRING wsContentType,
-                             FPDF_WIDESTRING wsEncode,
-                             FPDF_WIDESTRING wsHeader,
-                             FPDF_BSTR* response) {
-  const char kString[] = "p\0o\0s\0t\0e\0d\0";
-  FPDF_BStr_Set(response, kString, sizeof(kString) - 1);
-  return true;
-}
-
-FPDF_BOOL PutRequestURLStub(FPDF_FORMFILLINFO* pThis,
-                            FPDF_WIDESTRING wsURL,
-                            FPDF_WIDESTRING wsData,
-                            FPDF_WIDESTRING wsEncode) {
-  return true;
-}
-#endif  // PDF_ENABLE_XFA
 
 std::string_view GetPlatformNameSuffix() {
 #if BUILDFLAG(IS_WIN)
@@ -583,44 +377,33 @@ void EmbedderTest::TearDown() {
 }
 
 void EmbedderTest::CreateEmptyDocument() {
-  CreateEmptyDocumentWithoutFormFillEnvironment();
-  form_handle_.reset(SetupFormFillEnvironment(
-      document(), JavaScriptOption::kEnableJavaScript));
-}
-
-void EmbedderTest::CreateEmptyDocumentWithoutFormFillEnvironment() {
   document_.reset(FPDF_CreateNewDocument());
   CHECK(document_);
 }
 
+void EmbedderTest::CreateEmptyDocumentWithoutFormFillEnvironment() {
+  CreateEmptyDocument();
+}
+
 bool EmbedderTest::OpenDocument(const std::string& filename) {
   return OpenDocumentWithOptions(filename, "",
-                                 LinearizeOption::kDefaultLinearize,
-                                 JavaScriptOption::kEnableJavaScript);
+                                 LinearizeOption::kDefaultLinearize);
 }
 
 bool EmbedderTest::OpenDocumentLinearized(const std::string& filename) {
-  return OpenDocumentWithOptions(filename, "", LinearizeOption::kMustLinearize,
-                                 JavaScriptOption::kEnableJavaScript);
+  return OpenDocumentWithOptions(filename, "", LinearizeOption::kMustLinearize);
 }
 
 bool EmbedderTest::OpenDocumentWithPassword(const std::string& filename,
                                             const ByteString& password) {
   return OpenDocumentWithOptions(filename, password,
-                                 LinearizeOption::kDefaultLinearize,
-                                 JavaScriptOption::kEnableJavaScript);
+                                 LinearizeOption::kDefaultLinearize);
 }
 
-bool EmbedderTest::OpenDocumentWithoutJavaScript(const std::string& filename) {
-  return OpenDocumentWithOptions(filename, "",
-                                 LinearizeOption::kDefaultLinearize,
-                                 JavaScriptOption::kDisableJavaScript);
-}
 
 bool EmbedderTest::OpenDocumentWithOptions(const std::string& filename,
                                            const ByteString& password,
-                                           LinearizeOption linearize_option,
-                                           JavaScriptOption javascript_option) {
+                                           LinearizeOption linearize_option) {
   std::string file_path = PathService::GetTestFilePath(filename);
   if (file_path.empty()) {
     return false;
@@ -641,18 +424,15 @@ bool EmbedderTest::OpenDocumentWithOptions(const std::string& filename,
   };
 
   fake_file_access_ = std::make_unique<FakeFileAccess>(&file_access_);
-  return OpenDocumentHelper(password, linearize_option, javascript_option,
-                            fake_file_access_.get(), &document_, &avail_,
-                            &form_handle_);
+  return OpenDocumentHelper(password, linearize_option, fake_file_access_.get(),
+                            &document_, &avail_);
 }
 
 bool EmbedderTest::OpenDocumentHelper(const ByteString& password,
                                       LinearizeOption linearize_option,
-                                      JavaScriptOption javascript_option,
                                       FakeFileAccess* network_simulator,
                                       ScopedFPDFDocument* document,
-                                      ScopedFPDFAvail* avail,
-                                      ScopedFPDFFormHandle* form_handle) {
+                                      ScopedFPDFAvail* avail) {
   network_simulator->AddSegment(0, 1024);
   network_simulator->SetRequestedDataAvailable();
   avail->reset(FPDFAvail_Create(network_simulator->GetFileAvail(),
@@ -710,19 +490,11 @@ bool EmbedderTest::OpenDocumentHelper(const ByteString& password,
       return false;
     }
   }
-  form_handle->reset(SetupFormFillEnvironment(document_ptr, javascript_option));
-
-  int doc_type = FPDF_GetFormType(document_ptr);
-  if (doc_type == FORMTYPE_XFA_FULL || doc_type == FORMTYPE_XFA_FOREGROUND) {
-    FPDF_LoadXFA(document_ptr);
-  }
 
   return true;
 }
 
 void EmbedderTest::CloseDocument() {
-  FORM_DoDocumentAAction(form_handle(), FPDFDOC_AACTION_WC);
-  form_handle_.reset();
   document_.reset();
   avail_.reset();
   fake_file_access_.reset();
@@ -731,67 +503,7 @@ void EmbedderTest::CloseDocument() {
   file_contents_ = {};
 }
 
-FPDF_FORMHANDLE EmbedderTest::SetupFormFillEnvironment(
-    FPDF_DOCUMENT doc,
-    JavaScriptOption javascript_option) {
-  IPDF_JSPLATFORM* platform = static_cast<IPDF_JSPLATFORM*>(this);
-  *platform = {};
-  platform->version = 3;
-  platform->app_alert = AlertTrampoline;
-
-  FPDF_FORMFILLINFO* formfillinfo = static_cast<FPDF_FORMFILLINFO*>(this);
-  *formfillinfo = {};
-  formfillinfo->version = form_fill_info_version_;
-  formfillinfo->FFI_Invalidate = InvalidateStub;
-  formfillinfo->FFI_OutputSelectedRect = OutputSelectedRectStub;
-  formfillinfo->FFI_SetCursor = SetCursorStub;
-  formfillinfo->FFI_SetTimer = SetTimerTrampoline;
-  formfillinfo->FFI_KillTimer = KillTimerTrampoline;
-  formfillinfo->FFI_GetLocalTime = GetLocalTimeStub;
-  formfillinfo->FFI_OnChange = OnChangeStub;
-  formfillinfo->FFI_GetPage = GetPageTrampoline;
-  formfillinfo->FFI_GetCurrentPage = GetCurrentPageStub;
-  formfillinfo->FFI_GetRotation = GetRotationStub;
-  formfillinfo->FFI_ExecuteNamedAction = ExecuteNamedActionStub;
-  formfillinfo->FFI_SetTextFieldFocus = SetTextFieldFocusStub;
-  formfillinfo->FFI_DoURIAction = DoURIActionTrampoline;
-  formfillinfo->FFI_DoGoToAction = DoGoToActionTrampoline;
-#ifdef PDF_ENABLE_XFA
-  formfillinfo->FFI_DisplayCaret = DisplayCaretStub;
-  formfillinfo->FFI_GetCurrentPageIndex = GetCurrentPageIndexStub;
-  formfillinfo->FFI_SetCurrentPage = SetCurrentPageStub;
-  formfillinfo->FFI_GotoURL = GotoURLStub;
-  formfillinfo->FFI_GetPageViewRect = GetPageViewRectStub;
-  formfillinfo->FFI_PageEvent = PageEventStub;
-  formfillinfo->FFI_PopupMenu = PopupMenuStub;
-  formfillinfo->FFI_OpenFile = OpenFileStub;
-  formfillinfo->FFI_EmailTo = EmailToStub;
-  formfillinfo->FFI_UploadTo = UploadToStub;
-  formfillinfo->FFI_GetPlatform = GetPlatformStub;
-  formfillinfo->FFI_GetLanguage = GetLanguageStub;
-  formfillinfo->FFI_DownloadFromURL = DownloadFromURLStub;
-  formfillinfo->FFI_PostRequestURL = PostRequestURLStub;
-  formfillinfo->FFI_PutRequestURL = PutRequestURLStub;
-#endif  // PDF_ENABLE_XFA
-  formfillinfo->FFI_OnFocusChange = OnFocusChangeTrampoline;
-  formfillinfo->FFI_DoURIActionWithKeyboardModifier =
-      DoURIActionWithKeyboardModifierTrampoline;
-
-  if (javascript_option == JavaScriptOption::kEnableJavaScript) {
-    formfillinfo->m_pJsPlatform = platform;
-  }
-
-  FPDF_FORMHANDLE form_handle =
-      FPDFDOC_InitFormFillEnvironment(doc, formfillinfo);
-  SetInitialFormFieldHighlight(form_handle);
-  return form_handle;
-}
-
-void EmbedderTest::DoOpenActions() {
-  CHECK(form_handle());
-  FORM_DoDocumentJSAction(form_handle());
-  FORM_DoDocumentOpenAction(form_handle());
-}
+void EmbedderTest::DoOpenActions() {}
 
 int EmbedderTest::GetFirstPageNum() {
   int first_page = FPDFAvail_GetFirstPageNum(document());
@@ -814,15 +526,14 @@ EmbedderTest::ScopedPage EmbedderTest::LoadScopedPage(int page_index) {
 }
 
 FPDF_PAGE EmbedderTest::LoadPage(int page_index) {
-  return LoadPageCommon(page_index, /*do_events=*/true);
+  return LoadPageCommon(page_index);
 }
 
 FPDF_PAGE EmbedderTest::LoadPageNoEvents(int page_index) {
-  return LoadPageCommon(page_index, /*do_events=*/false);
+  return LoadPageCommon(page_index);
 }
 
-FPDF_PAGE EmbedderTest::LoadPageCommon(int page_index, bool do_events) {
-  CHECK(form_handle());
+FPDF_PAGE EmbedderTest::LoadPageCommon(int page_index) {
   CHECK_GE(page_index, 0);
   CHECK(!pdfium::Contains(page_map_, page_index));
 
@@ -830,40 +541,25 @@ FPDF_PAGE EmbedderTest::LoadPageCommon(int page_index, bool do_events) {
   if (!page) {
     return nullptr;
   }
-
-  if (do_events) {
-    FORM_OnAfterLoadPage(page, form_handle());
-    FORM_DoPageAAction(page, form_handle(), FPDFPAGE_AACTION_OPEN);
-  }
   page_map_[page_index] = page;
   return page;
 }
 
 void EmbedderTest::UnloadPage(FPDF_PAGE page) {
-  UnloadPageCommon(page, true);
+  UnloadPageCommon(page);
 }
 
 void EmbedderTest::UnloadPageNoEvents(FPDF_PAGE page) {
-  UnloadPageCommon(page, false);
+  UnloadPageCommon(page);
 }
 
-void EmbedderTest::UnloadPageCommon(FPDF_PAGE page, bool do_events) {
-  CHECK(form_handle());
+void EmbedderTest::UnloadPageCommon(FPDF_PAGE page) {
   int page_index = GetPageNumberForLoadedPage(page);
   CHECK_GE(page_index, 0);
-
-  if (do_events) {
-    FORM_DoPageAAction(page, form_handle(), FPDFPAGE_AACTION_CLOSE);
-    FORM_OnBeforeClosePage(page, form_handle());
-  }
   FPDF_ClosePage(page);
   page_map_.erase(page_index);
 }
 
-void EmbedderTest::SetInitialFormFieldHighlight(FPDF_FORMHANDLE form) {
-  FPDF_SetFormFieldHighlightColor(form, FPDF_FORMFIELD_UNKNOWN, 0xFFE4DD);
-  FPDF_SetFormFieldHighlightAlpha(form, 100);
-}
 
 ScopedFPDFBitmap EmbedderTest::RenderLoadedPage(FPDF_PAGE page) {
   return RenderLoadedPageWithFlags(page, 0);
@@ -873,7 +569,7 @@ ScopedFPDFBitmap EmbedderTest::RenderLoadedPageWithFlags(FPDF_PAGE page,
                                                          int flags) {
   int page_index = GetPageNumberForLoadedPage(page);
   CHECK_GE(page_index, 0);
-  return RenderPageWithFlags(page, form_handle(), flags);
+  return RenderPageWithFlags(page, flags);
 }
 
 ScopedFPDFBitmap EmbedderTest::RenderSavedPage(FPDF_PAGE page) {
@@ -884,13 +580,11 @@ ScopedFPDFBitmap EmbedderTest::RenderSavedPageWithFlags(FPDF_PAGE page,
                                                         int flags) {
   int page_index = GetPageNumberForSavedPage(page);
   CHECK_GE(page_index, 0);
-  return RenderPageWithFlags(page, saved_form_handle(), flags);
+  return RenderPageWithFlags(page, flags);
 }
 
 // static
-ScopedFPDFBitmap EmbedderTest::RenderPageWithFlags(FPDF_PAGE page,
-                                                   FPDF_FORMHANDLE handle,
-                                                   int flags) {
+ScopedFPDFBitmap EmbedderTest::RenderPageWithFlags(FPDF_PAGE page, int flags) {
   int width = static_cast<int>(FPDF_GetPageWidthF(page));
   int height = static_cast<int>(FPDF_GetPageHeightF(page));
   int alpha = FPDFPage_HasTransparency(page) ? 1 : 0;
@@ -900,13 +594,12 @@ ScopedFPDFBitmap EmbedderTest::RenderPageWithFlags(FPDF_PAGE page,
     return nullptr;
   }
   FPDF_RenderPageBitmap(bitmap.get(), page, 0, 0, width, height, 0, flags);
-  FPDF_FFLDraw(handle, bitmap.get(), page, 0, 0, width, height, 0, flags);
   return bitmap;
 }
 
 // static
 ScopedFPDFBitmap EmbedderTest::RenderPage(FPDF_PAGE page) {
-  return RenderPageWithFlags(page, nullptr, 0);
+  return RenderPageWithFlags(page, 0);
 }
 
 #if BUILDFLAG(IS_WIN)
@@ -1007,16 +700,14 @@ FPDF_DOCUMENT EmbedderTest::OpenSavedDocumentWithPassword(
       std::make_unique<FakeFileAccess>(&saved_file_access_);
 
   EXPECT_TRUE(OpenDocumentHelper(
-      password, LinearizeOption::kDefaultLinearize,
-      JavaScriptOption::kEnableJavaScript, saved_fake_file_access_.get(),
-      &saved_document_, &saved_avail_, &saved_form_handle_));
+      password, LinearizeOption::kDefaultLinearize, saved_fake_file_access_.get(),
+      &saved_document_, &saved_avail_));
   return saved_document();
 }
 
 void EmbedderTest::CloseSavedDocument() {
   CHECK(saved_document());
 
-  saved_form_handle_.reset();
   saved_document_.reset();
   saved_avail_.reset();
 }
@@ -1027,7 +718,6 @@ EmbedderTest::ScopedSavedPage EmbedderTest::LoadScopedSavedPage(
 }
 
 FPDF_PAGE EmbedderTest::LoadSavedPage(int page_index) {
-  CHECK(saved_form_handle());
   CHECK_GE(page_index, 0);
   CHECK(!pdfium::Contains(saved_page_map_, page_index));
 
@@ -1035,21 +725,13 @@ FPDF_PAGE EmbedderTest::LoadSavedPage(int page_index) {
   if (!page) {
     return nullptr;
   }
-
-  FORM_OnAfterLoadPage(page, saved_form_handle());
-  FORM_DoPageAAction(page, saved_form_handle(), FPDFPAGE_AACTION_OPEN);
   saved_page_map_[page_index] = page;
   return page;
 }
 
 void EmbedderTest::CloseSavedPage(FPDF_PAGE page) {
-  CHECK(saved_form_handle());
-
   int page_index = GetPageNumberForSavedPage(page);
   CHECK_GE(page_index, 0);
-
-  FORM_DoPageAAction(page, saved_form_handle(), FPDFPAGE_AACTION_CLOSE);
-  FORM_OnBeforeClosePage(page, saved_form_handle());
   FPDF_ClosePage(page);
 
   saved_page_map_.erase(page_index);
@@ -1122,13 +804,6 @@ void EmbedderTest::CreateAvail(FX_FILEAVAIL* file_avail,
   avail_.reset(FPDFAvail_Create(file_avail, file));
 }
 
-FPDF_PAGE EmbedderTest::Delegate::GetPage(FPDF_FORMFILLINFO* info,
-                                          FPDF_DOCUMENT document,
-                                          int page_index) {
-  EmbedderTest* test = static_cast<EmbedderTest*>(info);
-  auto it = test->page_map_.find(page_index);
-  return it != test->page_map_.end() ? it->second : nullptr;
-}
 
 // static
 std::string EmbedderTest::HashBitmap(FPDF_BITMAP bitmap) {

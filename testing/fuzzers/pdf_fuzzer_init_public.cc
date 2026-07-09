@@ -6,31 +6,9 @@
 
 #include <string.h>  // For memset()
 
-#include <string>
-
 #include "core/fxcrt/compiler_specific.h"
 #include "core/fxcrt/fx_memcpy_wrappers.h"
 #include "testing/fuzzers/pdfium_fuzzer_util.h"
-
-#ifdef PDF_ENABLE_V8
-#include "testing/free_deleter.h"
-#include "testing/v8_initializer.h"
-#include "v8/include/v8-platform.h"
-#ifdef PDF_ENABLE_XFA
-#include "testing/fuzzers/xfa_process_state.h"
-#include "v8/include/v8-array-buffer.h"
-#include "v8/include/v8-isolate.h"
-#endif  // PDF_ENABLE_XFA
-#endif  // PDF_ENABLE_V8
-
-#ifdef _WIN32
-#include <windows.h>
-#elif defined(__APPLE__)
-#include <mach-o/dyld.h>
-#else  // Linux
-#include <linux/limits.h>
-#include <unistd.h>
-#endif  // _WIN32
 
 namespace {
 
@@ -39,53 +17,9 @@ namespace {
 // avoid problems with fuzzer initialization and termination.
 PDFFuzzerInitPublic g_instance;
 
-#ifdef PDF_ENABLE_V8
-std::string ProgramPath() {
-  std::string result;
-#ifdef _WIN32
-  char path[MAX_PATH];
-  DWORD len = GetModuleFileNameA(nullptr, path, MAX_PATH);
-  if (len != 0) {
-    result = std::string(path, len);
-  }
-#elif defined(__APPLE__)
-  char path[PATH_MAX];
-  unsigned int len = PATH_MAX;
-  if (!_NSGetExecutablePath(path, &len)) {
-    std::unique_ptr<char, pdfium::FreeDeleter> resolved_path(
-        realpath(path, nullptr));
-    if (resolved_path.get()) {
-      result = std::string(resolved_path.get());
-    }
-  }
-#else  // Linux
-  char path[PATH_MAX];
-  ssize_t len = readlink("/proc/self/exe", path, PATH_MAX);
-  if (len > 0) {
-    result = std::string(path, len);
-  }
-#endif
-  return result;
-}
-#endif  // PDF_ENABLE_V8
-
 }  // namespace
 
 PDFFuzzerInitPublic::PDFFuzzerInitPublic() {
-#ifdef PDF_ENABLE_V8
-#ifdef V8_USE_EXTERNAL_STARTUP_DATA
-  platform_ = InitializeV8ForPDFiumWithStartupData(
-      ProgramPath(), std::string(), std::string(), &snapshot_blob_);
-#else   // V8_USE_EXTERNAL_STARTUP_DATA
-  platform_ = InitializeV8ForPDFium(ProgramPath(), std::string());
-#endif  // V8_USE_EXTERNAL_STARTUP_DATA
-#ifdef PDF_ENABLE_XFA
-  allocator_.reset(v8::ArrayBuffer::Allocator::NewDefaultAllocator());
-  v8::Isolate::CreateParams create_params;
-  create_params.array_buffer_allocator = allocator_.get();
-  isolate_.reset(v8::Isolate::New(create_params));
-#endif  // PDF_ENABLE_XFA
-#endif  // PDF_ENABLE_V8
   UNSAFE_TODO(FXSYS_memset(&config_, '\0', sizeof(config_)));
   config_.version = 1;
   config_.m_pUserFontPaths = nullptr;
@@ -100,12 +34,6 @@ PDFFuzzerInitPublic::PDFFuzzerInitPublic() {
   unsupport_info_.version = 1;
   unsupport_info_.FSDK_UnSupport_Handler = [](UNSUPPORT_INFO*, int) {};
   FSDK_SetUnSpObjProcessHandler(&unsupport_info_);
-
-#ifdef PDF_ENABLE_XFA
-  xfa_process_state_ =
-      std::make_unique<XFAProcessState>(platform_.get(), isolate_.get());
-  FPDF_SetFuzzerPerProcessState(xfa_process_state_.get());
-#endif
 }
 
 PDFFuzzerInitPublic::~PDFFuzzerInitPublic() {

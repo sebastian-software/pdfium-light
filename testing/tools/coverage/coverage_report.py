@@ -34,32 +34,6 @@ COVERAGE_TESTS = {
         TestSpec('pdfium_unittests', False, []),
     'pdfium_embeddertests':
         TestSpec('pdfium_embeddertests', False, []),
-    'corpus_tests':
-        TestSpec('run_corpus_tests.py', True, []),
-    'corpus_tests_javascript_disabled':
-        TestSpec('run_corpus_tests.py', True, ['--disable-javascript']),
-    'corpus_tests_xfa_disabled':
-        TestSpec('run_corpus_tests.py', True, ['--disable-xfa']),
-    'corpus_tests_render_oneshot':
-        TestSpec('run_corpus_tests.py', True, ['--render-oneshot']),
-    'corpus_tests_reverse_byte_order':
-        TestSpec('run_corpus_tests.py', True, ['--reverse-byte-order']),
-    'javascript_tests':
-        TestSpec('run_javascript_tests.py', True, []),
-    'javascript_tests_javascript_disabled':
-        TestSpec('run_javascript_tests.py', True, ['--disable-javascript']),
-    'javascript_tests_xfa_disabled':
-        TestSpec('run_javascript_tests.py', True, ['--disable-xfa']),
-    'pixel_tests':
-        TestSpec('run_pixel_tests.py', True, []),
-    'pixel_tests_javascript_disabled':
-        TestSpec('run_pixel_tests.py', True, ['--disable-javascript']),
-    'pixel_tests_xfa_disabled':
-        TestSpec('run_pixel_tests.py', True, ['--disable-xfa']),
-    'pixel_tests_render_oneshot':
-        TestSpec('run_pixel_tests.py', True, ['--render-oneshot']),
-    'pixel_tests_reverse_byte_order':
-        TestSpec('run_pixel_tests.py', True, ['--reverse-byte-order']),
 }
 
 
@@ -154,20 +128,13 @@ class CoverageExecutor:
 
   def calculate_coverage_tests(self, args):
     """Determine which tests should be run."""
-    testing_tools_directory = os.path.join(self.source_directory, 'testing',
-                                           'tools')
     tests = args['tests'] if args['tests'] else COVERAGE_TESTS.keys()
     coverage_tests = {}
     build_targets = set()
     for name in tests:
       test_spec = COVERAGE_TESTS[name]
-      if test_spec.use_test_runner:
-        binary_path = os.path.join(testing_tools_directory, test_spec.binary)
-        build_targets.add('pdfium_diff')
-        build_targets.add('pdfium_test')
-      else:
-        binary_path = os.path.join(self.build_directory, test_spec.binary)
-        build_targets.add(name)
+      binary_path = os.path.join(self.build_directory, test_spec.binary)
+      build_targets.add(name)
       coverage_tests[name] = TestSpec(binary_path, test_spec.use_test_runner,
                                       test_spec.opt_args)
 
@@ -251,7 +218,6 @@ class CoverageExecutor:
     coverage_args += ['-f', 'core']
     coverage_args += ['-f', 'fpdfsdk']
     coverage_args += ['-f', 'fxbarcode']
-    coverage_args += ['-f', 'fxjs']
     coverage_args += ['-f', 'public']
     coverage_args += ['-f', 'samples']
     coverage_args += ['-f', 'xfa']

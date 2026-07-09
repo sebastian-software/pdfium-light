@@ -85,13 +85,8 @@ TEST_F(FPDFDocEmbedderTest, MultipleSamePage) {
     ref.reset(FPDF_LoadPage(document(), 0));
     unique_pages.insert(ref.get());
   }
-#ifdef PDF_ENABLE_XFA
-  EXPECT_EQ(1u, unique_pages.size());
-  EXPECT_EQ(1u, doc->GetParsedPageCountForTesting());
-#else   // PDF_ENABLE_XFA
-  EXPECT_EQ(4u, unique_pages.size());
+EXPECT_EQ(4u, unique_pages.size());
   EXPECT_EQ(4u, doc->GetParsedPageCountForTesting());
-#endif  // PDF_ENABLE_XFA
 }
 
 TEST_F(FPDFDocEmbedderTest, DestGetPageIndex) {
@@ -943,35 +938,6 @@ TEST_F(FPDFDocEmbedderTest, GetMetaTextFromNewDocument) {
   EXPECT_EQ(2u, FPDF_GetMetaText(empty_doc.get(), "Title", buf, sizeof(buf)));
 }
 
-TEST_F(FPDFDocEmbedderTest, GetPageAAction) {
-  ASSERT_TRUE(OpenDocument("get_page_aaction.pdf"));
-  ScopedPage page = LoadScopedPage(0);
-  EXPECT_TRUE(page);
-
-  EXPECT_FALSE(FPDF_GetPageAAction(nullptr, FPDFPAGE_AACTION_OPEN));
-  EXPECT_FALSE(FPDF_GetPageAAction(page.get(), FPDFPAGE_AACTION_CLOSE));
-  EXPECT_FALSE(FPDF_GetPageAAction(page.get(), -1));
-  EXPECT_FALSE(FPDF_GetPageAAction(page.get(), 999));
-
-  FPDF_ACTION action = FPDF_GetPageAAction(page.get(), FPDFPAGE_AACTION_OPEN);
-  EXPECT_EQ(static_cast<unsigned long>(PDFACTION_EMBEDDEDGOTO),
-            FPDFAction_GetType(action));
-
-  const char kExpectedResult[] = "\\\\127.0.0.1\\c$\\Program Files\\test.exe";
-  const unsigned long kExpectedLength = sizeof(kExpectedResult);
-  char buf[1024];
-
-  unsigned long bufsize = FPDFAction_GetFilePath(action, nullptr, 0);
-  EXPECT_EQ(kExpectedLength, bufsize);
-  EXPECT_EQ(kExpectedLength, FPDFAction_GetFilePath(action, buf, bufsize));
-  EXPECT_STREQ(kExpectedResult, buf);
-
-  ScopedPage page1 = LoadScopedPage(1);
-
-  EXPECT_TRUE(page1.get());
-  EXPECT_FALSE(FPDF_GetPageAAction(page1.get(), -1));
-}
-
 TEST_F(FPDFDocEmbedderTest, NoPageLabels) {
   ASSERT_TRUE(OpenDocument("about_blank.pdf"));
   EXPECT_EQ(1, FPDF_GetPageCount(document()));
@@ -1015,17 +981,3 @@ TEST_F(FPDFDocEmbedderTest, GetPageLabels) {
   ASSERT_EQ(0u, FPDF_GetPageLabel(document(), 7, buf, sizeof(buf)));
   ASSERT_EQ(0u, FPDF_GetPageLabel(document(), 8, buf, sizeof(buf)));
 }
-
-#ifdef PDF_ENABLE_XFA
-TEST_F(FPDFDocEmbedderTest, GetXFALinks) {
-  ASSERT_TRUE(OpenDocument("simple_xfa.pdf"));
-
-  ScopedFPDFPage page(FPDF_LoadPage(document(), 0));
-  ASSERT_TRUE(page);
-
-  FPDFLink_GetLinkAtPoint(page.get(), 150, 360);
-  FPDFLink_GetLinkAtPoint(page.get(), 150, 420);
-
-  // Test passes if it doesn't crash. See https://crbug.com/840922
-}
-#endif  // PDF_ENABLE_XFA
