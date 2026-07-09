@@ -88,16 +88,6 @@ source_set("fpdfsdk") {
     "formfiller",
   ]
   visibility = [ "../*" ]
-
-  if (pdf_enable_xfa) {
-    deps += [
-      "../xfa/fgas/font",
-      "../xfa/fxfa",
-      "../xfa/fxfa/parser",
-      "fpdfxfa",
-    ]
-    allow_circular_includes_from += [ "fpdfxfa" ]
-  }
 }
 
 pdfium_unittest_source_set("unittests") {

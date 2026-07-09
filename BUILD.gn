@@ -107,24 +107,6 @@ config("pdfium_common_config") {
       ]
       defines += [ "PDF_ENABLE_UNOWNED_PTR_EXCLUSION" ]
     }
-
-    # Catch misuse of cppgc in XFA.
-    if (pdf_enable_xfa) {
-      cflags += [
-        "-Xclang",
-        "-add-plugin",
-        "-Xclang",
-        "blink-gc-plugin",
-      ]
-
-      # Disable GC plugin forbidding off-heap collections of GCed:
-      cflags += [
-        "-Xclang",
-        "-plugin-arg-blink-gc-plugin",
-        "-Xclang",
-        "disable-off-heap-collections-of-gced-check",
-      ]
-    }
   }
 }
 
@@ -263,14 +245,6 @@ component("pdfium") {
     "core/fxcrt",
   ]
 
-  if (pdf_enable_xfa) {
-    deps += [
-      "fpdfsdk/fpdfxfa",
-      "xfa/fxfa",
-      "xfa/fxfa/parser",
-    ]
-  }
-
   if (is_win) {
     libs += [
       "advapi32.lib",
@@ -307,10 +281,8 @@ group("pdfium_unittest_deps") {
   visibility += [
     "core/*",
     "fpdfsdk/*",
-    "fxbarcode/*",
     "fxjs/*",
     "testing/image_diff/*",
-    "xfa/*",
   ]
 }
 
@@ -355,7 +327,6 @@ group("pdfium_embeddertest_deps") {
     "core/*",
     "fpdfsdk/*",
     "fxjs/*",
-    "xfa/*",
   ]
 }
 

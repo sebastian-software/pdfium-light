@@ -17,8 +17,8 @@ pdf_enable_brotli_override = false
 # remains only so the public build arg fails with a clear assertion if enabled.
 pdf_enable_v8_override = false
 
-# Build PDFium either with or without XFA Forms support.
-# Default: Without XFA support.
+# XFA is outside the pdfium-light static-document scope. This legacy override
+# remains only so the public build arg fails with a clear assertion if enabled.
 pdf_enable_xfa_override = false
 
 # Build PDFium with PartitionAlloc support, directing `fxcrt` to use

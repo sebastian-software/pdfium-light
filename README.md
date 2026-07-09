@@ -75,9 +75,8 @@ depot\_tools checkout.
 
 ### Selecting build configuration
 
-PDFium may be built either with or without JavaScript support, and with
-or without XFA forms support.  Both of these features are enabled by
-default. Also note that the XFA feature requires JavaScript.
+pdfium-light does not include JavaScript or XFA form support. Its supported
+configuration is a static PDF render, inspect, edit, and save API.
 
 Configuration is done by executing `gn args <directory>` to configure the build.
 This will launch an editor in which you can set the following arguments.
@@ -95,8 +94,9 @@ pdf_use_skia = false
 # Set true to enable experimental Fontations backend.
 pdf_enable_fontations = false
 
-pdf_enable_xfa = true  # Set false to remove XFA support (implies JS support).
-pdf_enable_v8 = true  # Set false to remove Javascript support.
+pdf_enable_light = true  # Default. Exposes only the supported static API.
+pdf_enable_xfa = false   # XFA has been removed.
+pdf_enable_v8 = false    # JavaScript execution has been removed.
 is_component_build = false # Disable component build (Though it should work)
 ```
 

@@ -37,13 +37,14 @@ an external consumer would, without `FPDF_IMPLEMENTATION`.
 The current `fpdfsdk` source set still combines static APIs with
 `cpdfsdk_*` viewer code and has direct dependencies on `fxjs`, `formfiller`,
 and `pwl`. The top-level `pdfium` target also depends directly on `fxjs` and
-`fpdfsdk/formfiller`; when XFA is enabled it adds `fpdfsdk/fpdfxfa` and XFA
-targets. These are internal transitional dependencies, not part of the light
-public contract.
+`fpdfsdk/formfiller`. These are internal transitional dependencies, not part
+of the light public contract.
 
 - #5 removes the JS/V8 branch. Only the non-executing `fxjs` stub remains
   temporarily for Formfill.
-- #3 removes the XFA branch, including `fxjs/xfa` after #5.
+- #3 removed the XFA branch, including `xfa/`, `fpdfsdk/fpdfxfa`,
+  `fxjs/xfa`, and XFA-only barcode support. `pdf_enable_xfa=true` now fails
+  configuration explicitly.
 - #4 removes Formfill/PWL and splits the viewer-dependent `fpdfsdk` code from
   retained static API implementations.
 - #6 removes the form-specific implementations and implementation-only
