@@ -26,11 +26,12 @@
 #include <windows.h>
 #endif
 
-#ifdef PDF_ENABLE_XFA
+#if defined(PDF_ENABLE_XFA) && \
+    (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 // PDF_USE_XFA is set in confirmation that this version of PDFium can support
 // XFA forms as requested by the PDF_ENABLE_XFA setting.
 #define PDF_USE_XFA
-#endif  // PDF_ENABLE_XFA
+#endif  // defined(PDF_ENABLE_XFA) && (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 
 // PDF object types
 #define FPDF_OBJECT_UNKNOWN 0
@@ -69,9 +70,13 @@ typedef struct fpdf_clippath_t__* FPDF_CLIPPATH;
 typedef struct fpdf_dest_t__* FPDF_DEST;
 typedef struct fpdf_document_t__* FPDF_DOCUMENT;
 typedef struct fpdf_font_t__* FPDF_FONT;
+#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 typedef struct fpdf_form_handle_t__* FPDF_FORMHANDLE;
+#endif
 typedef const struct fpdf_glyphpath_t__* FPDF_GLYPHPATH;
+#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 typedef struct fpdf_javascript_action_t* FPDF_JAVASCRIPT_ACTION;
+#endif
 typedef struct fpdf_link_t__* FPDF_LINK;
 typedef struct fpdf_page_t__* FPDF_PAGE;
 typedef struct fpdf_pagelink_t__* FPDF_PAGELINK;
@@ -118,13 +123,15 @@ typedef const char* FPDF_BYTESTRING;
 // character uses 2 bytes (except surrogation), with the low byte first.
 typedef const FPDF_WCHAR* FPDF_WIDESTRING;
 
-// Structure for persisting a string beyond the duration of a callback.
+// XFA-only structure for persisting a string beyond the duration of a callback.
 // Note: although represented as a char*, string may be interpreted as
 // a UTF-16LE formated string. Used only by XFA callbacks.
+#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 typedef struct FPDF_BSTR_ {
   char* str;  // String buffer, manipulate only with FPDF_BStr_* methods.
   int len;    // Length of the string, in bytes.
 } FPDF_BSTR;
+#endif
 
 // For Windows programmers: In most cases it's OK to treat FPDF_WIDESTRING as a
 // Windows unicode string, however, special care needs to be taken if you
@@ -492,10 +499,11 @@ typedef struct {
   void* m_Param;
 } FPDF_FILEACCESS;
 
-// Structure for file reading or writing (I/O).
+// XFA-only structure for file reading or writing (I/O).
 //
 // Note: This is a handler and should be implemented by callers,
 // and is only used from XFA.
+#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 typedef struct FPDF_FILEHANDLER_ {
   // User-defined data.
   // Note: Callers can use this field to track controls.
@@ -571,6 +579,7 @@ typedef struct FPDF_FILEHANDLER_ {
   //       0 for success, other value for failure.
   FPDF_RESULT (*Truncate)(void* clientData, FPDF_DWORD size);
 } FPDF_FILEHANDLER;
+#endif
 
 // Function: FPDF_LoadCustomDocument
 //          Load PDF document from a custom access descriptor.
@@ -616,10 +625,11 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDF_GetFileVersion(FPDF_DOCUMENT doc,
 #define FPDF_ERR_PASSWORD 4   // Password required or incorrect password.
 #define FPDF_ERR_SECURITY 5   // Unsupported security scheme.
 #define FPDF_ERR_PAGE 6       // Page not found or content error.
-#ifdef PDF_ENABLE_XFA
+#if defined(PDF_ENABLE_XFA) && \
+    (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 #define FPDF_ERR_XFALOAD 7    // Load XFA error.
 #define FPDF_ERR_XFALAYOUT 8  // Layout XFA error.
-#endif  // PDF_ENABLE_XFA
+#endif  // defined(PDF_ENABLE_XFA) && (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 
 // Function: FPDF_GetLastError
 //          Get last error code when a function fails.
@@ -1399,6 +1409,7 @@ FPDF_EXPORT FPDF_DEST FPDF_CALLCONV FPDF_GetNamedDest(FPDF_DOCUMENT document,
                                                       void* buffer,
                                                       long* buflen);
 
+// XFA-only API.
 // Experimental API.
 // Function: FPDF_GetXFAPacketCount
 //          Get the number of valid packets in the XFA entry.
@@ -1406,6 +1417,7 @@ FPDF_EXPORT FPDF_DEST FPDF_CALLCONV FPDF_GetNamedDest(FPDF_DOCUMENT document,
 //          document - Handle to the document.
 // Return value:
 //          The number of valid packets, or -1 on error.
+#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 FPDF_EXPORT int FPDF_CALLCONV FPDF_GetXFAPacketCount(FPDF_DOCUMENT document);
 
 // Experimental API.
@@ -1457,8 +1469,10 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDF_GetXFAPacketContent(
     void* buffer,
     unsigned long buflen,
     unsigned long* out_buflen);
+#endif
 
-#ifdef PDF_ENABLE_V8
+#if defined(PDF_ENABLE_V8) && \
+    (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 // Function: FPDF_GetRecommendedV8Flags
 //          Returns a space-separated string of command line flags that are
 //          recommended to be passed into V8 via V8::SetFlagsFromString()
@@ -1487,9 +1501,10 @@ FPDF_EXPORT const char* FPDF_CALLCONV FPDF_GetRecommendedV8Flags();
 //          Can only be called when the library is in an uninitialized or
 //          destroyed state.
 FPDF_EXPORT void* FPDF_CALLCONV FPDF_GetArrayBufferAllocatorSharedInstance();
-#endif  // PDF_ENABLE_V8
+#endif  // defined(PDF_ENABLE_V8) && (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 
-#ifdef PDF_ENABLE_XFA
+#if defined(PDF_ENABLE_XFA) && \
+    (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 // Function: FPDF_BStr_Init
 //          Helper function to initialize a FPDF_BSTR.
 FPDF_EXPORT FPDF_RESULT FPDF_CALLCONV FPDF_BStr_Init(FPDF_BSTR* bstr);
@@ -1503,7 +1518,7 @@ FPDF_EXPORT FPDF_RESULT FPDF_CALLCONV FPDF_BStr_Set(FPDF_BSTR* bstr,
 // Function: FPDF_BStr_Clear
 //          Helper function to clear a FPDF_BSTR.
 FPDF_EXPORT FPDF_RESULT FPDF_CALLCONV FPDF_BStr_Clear(FPDF_BSTR* bstr);
-#endif  // PDF_ENABLE_XFA
+#endif  // defined(PDF_ENABLE_XFA) && (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 
 #ifdef __cplusplus
 }

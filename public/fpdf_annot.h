@@ -10,8 +10,12 @@
 // NOLINTNEXTLINE(build/include)
 #include "fpdfview.h"
 
+// The implementation still includes formfill while the removal is staged, but
+// a light consumer must not acquire the interactive API transitively.
+#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 // NOLINTNEXTLINE(build/include)
 #include "fpdf_formfill.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,6 +68,9 @@ extern "C" {
 #define FPDF_ANNOT_APPEARANCEMODE_DOWN 2
 #define FPDF_ANNOT_APPEARANCEMODE_COUNT 3
 
+// Form-only helpers remain visible to the implementation until the formfill
+// removal is complete, but are not part of the light public API.
+#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 // Refer to PDF Reference version 1.7 table 8.70 for field flags common to all
 // interactive form field types.
 #define FPDF_FORMFLAG_NONE 0
@@ -91,6 +98,7 @@ extern "C" {
 #define FPDF_ANNOT_AACTION_FORMAT 13
 #define FPDF_ANNOT_AACTION_VALIDATE 14
 #define FPDF_ANNOT_AACTION_CALCULATE 15
+#endif
 
 typedef enum FPDFANNOT_COLORTYPE {
   FPDFANNOT_COLORTYPE_Color = 0,
@@ -505,6 +513,7 @@ FPDFAnnot_GetBorder(FPDF_ANNOTATION annot,
                     float* vertical_radius,
                     float* border_width);
 
+// Form-only API.
 // Experimental API.
 // Get the JavaScript of an event of the annotation's additional actions.
 // |buffer| is only modified if |buflen| is large enough to hold the whole
@@ -523,12 +532,14 @@ FPDFAnnot_GetBorder(FPDF_ANNOTATION annot,
 //
 // Returns the length of the string value in bytes, including the 2-byte
 // null terminator.
+#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 FPDF_EXPORT unsigned long FPDF_CALLCONV
 FPDFAnnot_GetFormAdditionalActionJavaScript(FPDF_FORMHANDLE hHandle,
                                             FPDF_ANNOTATION annot,
                                             int event,
                                             FPDF_WCHAR* buffer,
                                             unsigned long buflen);
+#endif
 
 // Experimental API.
 // Check if |annot|'s dictionary has |key| as a key.
@@ -655,6 +666,7 @@ FPDFAnnot_GetAP(FPDF_ANNOTATION annot,
 FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV
 FPDFAnnot_GetLinkedAnnot(FPDF_ANNOTATION annot, FPDF_BYTESTRING key);
 
+// Form-only APIs.
 // Experimental API.
 // Get the annotation flags of |annot|.
 //
@@ -681,6 +693,7 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_SetFlags(FPDF_ANNOTATION annot,
 //    annot       -   handle to an interactive form annotation.
 //
 // Returns the annotation flags specific to interactive forms.
+#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 FPDF_EXPORT int FPDF_CALLCONV
 FPDFAnnot_GetFormFieldFlags(FPDF_FORMHANDLE handle,
                             FPDF_ANNOTATION annot);
@@ -953,6 +966,7 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 FPDFAnnot_GetFocusableSubtypes(FPDF_FORMHANDLE hHandle,
                                FPDF_ANNOTATION_SUBTYPE* subtypes,
                                size_t count);
+#endif
 
 // Experimental API.
 // Gets FPDF_LINK object for |annot|. Intended to use for link annotations.
@@ -963,6 +977,7 @@ FPDFAnnot_GetFocusableSubtypes(FPDF_FORMHANDLE hHandle,
 // if the input annot is NULL or input annot's subtype is not link.
 FPDF_EXPORT FPDF_LINK FPDF_CALLCONV FPDFAnnot_GetLink(FPDF_ANNOTATION annot);
 
+// Form-only APIs.
 // Experimental API.
 // Gets the count of annotations in the |annot|'s control group.
 // A group of interactive form annotations is collectively called a form
@@ -974,6 +989,7 @@ FPDF_EXPORT FPDF_LINK FPDF_CALLCONV FPDFAnnot_GetLink(FPDF_ANNOTATION annot);
 //   annot   - handle to an annotation.
 //
 // Returns number of controls in its control group or -1 on error.
+#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 FPDF_EXPORT int FPDF_CALLCONV
 FPDFAnnot_GetFormControlCount(FPDF_FORMHANDLE hHandle, FPDF_ANNOTATION annot);
 
@@ -1010,6 +1026,7 @@ FPDFAnnot_GetFormFieldExportValue(FPDF_FORMHANDLE hHandle,
                                   FPDF_ANNOTATION annot,
                                   FPDF_WCHAR* buffer,
                                   unsigned long buflen);
+#endif
 
 // Experimental API.
 // Add a URI action to |annot|, overwriting the existing action, if any.

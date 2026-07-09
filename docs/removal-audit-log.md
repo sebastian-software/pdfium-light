@@ -20,6 +20,7 @@ behavior was checked afterward.
 
 | Status | Area | Public API | Implementation / dependency | Reason | Validation expected |
 | --- | --- | --- | --- | --- | --- |
+| in-progress | Light build/API boundary | Light export manifest excludes `fpdf_formfill.h`, `fpdf_fwlevent.h`, and `fpdf_javascript.h`; `fpdf_annot.h` neither includes formfill nor exposes form helpers to light consumers | `fpdfsdk` still directly depends on `fxjs`, `formfiller`, and `pwl`; the top-level target retains them until #3–#5 land | Establish a compile-time public boundary before removing monolithic implementation paths. | Build `//:pdfium_light_public_headers_test`; confirm the light manifest contains no direct interactive header. |
 | planned | XFA runtime | XFA-related declarations in `fpdfview.h`, `fpdf_formfill.h` | `xfa/`, `fpdfsdk/fpdfxfa/`, `fxjs/xfa/`, XFA-only codec paths | XFA is an interactive form runtime and is outside the static-document scope. | Build without XFA targets; render ordinary non-XFA PDFs; ensure XFA headers are not exported. |
 | planned | AcroForm filling and widget interaction | `fpdf_formfill.h`, `fpdf_fwlevent.h`, form-specific APIs in `fpdf_annot.h` | `fpdfsdk/formfiller/`, `fpdfsdk/pwl/`, widget focus/event/timer paths | The project will not support filling forms, widget interaction, or viewer-style input handling. | Static rendering still works; non-widget annotations still render; removed form headers no longer compile for callers. |
 | planned | Embedded JavaScript execution | V8-related declarations in `fpdfview.h`, `fpdf_javascript.h` if not retained for static inspection | V8-backed `fxjs` implementation, V8 deps, JS samples/tests | JavaScript is interactive runtime behavior and should not execute inside pdfium-light. | Build graph has no V8 dependency; retained APIs do not initialize or execute JS. |
@@ -43,4 +44,3 @@ redaction implementation entry should record:
 - proof that redacted text is not extractable after save;
 - render-before/render-after validation;
 - known unsupported cases.
-
