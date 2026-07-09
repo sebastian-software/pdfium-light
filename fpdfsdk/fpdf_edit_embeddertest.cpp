@@ -68,6 +68,21 @@ constexpr char kLoadedTextPng[] = "loaded_text";
 
 constexpr char kRedRectanglePng[] = "red_rectangle";
 
+std::u16string ExtractPageText(FPDF_PAGE page) {
+  ScopedFPDFTextPage text_page(FPDFText_LoadPage(page));
+  if (!text_page) {
+    return {};
+  }
+
+  std::u16string text;
+  const int char_count = FPDFText_CountChars(text_page.get());
+  for (int i = 0; i < char_count; ++i) {
+    text.push_back(
+        static_cast<char16_t>(FPDFText_GetUnicode(text_page.get(), i)));
+  }
+  return text;
+}
+
 // In embedded_images.pdf.
 constexpr char kEmbeddedImage33Checksum[] = "cb3637934bb3b95a6e4ae1ea9eb9e56e";
 constexpr char kEmbeddedImage33Png[] = "embedded_images_33";
@@ -1332,6 +1347,76 @@ TEST_F(FPDFEditEmbedderTest, RemoveTextObject) {
   EXPECT_THAT(GetString(), Not(HasSubstr("/F1")));
   EXPECT_THAT(GetString(), Not(HasSubstr("/F2")));
   EXPECT_THAT(GetString(), Not(HasSubstr("/Times-Roman")));
+}
+
+TEST_F(FPDFEditEmbedderTest, ApplyRedactionsRemovesCoveredTextAndSaves) {
+  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  ASSERT_EQ(2, FPDFPage_CountObjects(page.get()));
+  FPDF_PAGEOBJECT text_object = FPDFPage_GetObject(page.get(), 0);
+  ASSERT_TRUE(text_object);
+  ASSERT_EQ(FPDF_PAGEOBJ_TEXT, FPDFPageObj_GetType(text_object));
+
+  float left;
+  float bottom;
+  float right;
+  float top;
+  ASSERT_TRUE(FPDFPageObj_GetBounds(text_object, &left, &bottom, &right, &top));
+  const FS_RECTF redaction_rect{
+      .left = left - 1.0f,
+      .top = top + 1.0f,
+      .right = right + 1.0f,
+      .bottom = bottom - 1.0f,
+  };
+
+  EXPECT_EQ(FPDF_REDACTION_SUCCESS,
+            FPDFPage_ApplyRedactions(page.get(), &redaction_rect, 1));
+  EXPECT_EQ(1, FPDFPage_CountObjects(page.get()));
+  ASSERT_TRUE(FPDFPage_GenerateContent(page.get()));
+  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+
+  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_document);
+  ScopedSavedPage saved_page = LoadScopedSavedPage(0);
+  ASSERT_TRUE(saved_page);
+  ScopedFPDFBitmap saved_bitmap = RenderSavedPage(saved_page.get());
+  CompareBitmapWithExpectationSuffix(saved_bitmap.get(),
+                                     kHelloWorldRemovedHelloWorldPng);
+
+  const std::u16string saved_text = ExtractPageText(saved_page.get());
+  EXPECT_EQ(std::u16string::npos, saved_text.find(u"Hello, world!"));
+  EXPECT_NE(std::u16string::npos, saved_text.find(u"Goodbye, world!"));
+}
+
+TEST_F(FPDFEditEmbedderTest, ApplyRedactionsRejectsPartialTextIntersection) {
+  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  ASSERT_EQ(2, FPDFPage_CountObjects(page.get()));
+  FPDF_PAGEOBJECT text_object = FPDFPage_GetObject(page.get(), 0);
+  ASSERT_TRUE(text_object);
+
+  float left;
+  float bottom;
+  float right;
+  float top;
+  ASSERT_TRUE(FPDFPageObj_GetBounds(text_object, &left, &bottom, &right, &top));
+  const float middle_y = (top + bottom) / 2.0f;
+  const FS_RECTF partial_rect{
+      .left = left,
+      .top = middle_y,
+      .right = right,
+      .bottom = bottom,
+  };
+
+  EXPECT_EQ(FPDF_REDACTION_ERROR_UNSAFE_PARTIAL_INTERSECTION,
+            FPDFPage_ApplyRedactions(page.get(), &partial_rect, 1));
+  EXPECT_EQ(2, FPDFPage_CountObjects(page.get()));
+  EXPECT_NE(std::u16string::npos,
+            ExtractPageText(page.get()).find(u"Hello, world!"));
 }
 
 TEST_F(FPDFEditEmbedderTest,

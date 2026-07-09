@@ -126,6 +126,56 @@ RetainPtr<CPDF_Dictionary> GetOrCreateMarkParamsDict(FPDF_DOCUMENT document,
   return pParams;
 }
 
+struct NormalizedRedactionRect {
+  float left = 0;
+  float bottom = 0;
+  float right = 0;
+  float top = 0;
+};
+
+bool IsValidRedactionRect(const FS_RECTF& rect) {
+  return rect.left < rect.right && rect.bottom < rect.top;
+}
+
+NormalizedRedactionRect NormalizeRedactionRect(const FS_RECTF& rect) {
+  return NormalizedRedactionRect{
+      .left = rect.left,
+      .bottom = rect.bottom,
+      .right = rect.right,
+      .top = rect.top,
+  };
+}
+
+bool RedactionRectsIntersect(const NormalizedRedactionRect& redaction_rect,
+                             const CFX_FloatRect& object_rect) {
+  return redaction_rect.left < object_rect.right &&
+         redaction_rect.right > object_rect.left &&
+         redaction_rect.bottom < object_rect.top &&
+         redaction_rect.top > object_rect.bottom;
+}
+
+bool RedactionRectContains(const NormalizedRedactionRect& redaction_rect,
+                           const CFX_FloatRect& object_rect) {
+  return redaction_rect.left <= object_rect.left &&
+         redaction_rect.right >= object_rect.right &&
+         redaction_rect.bottom <= object_rect.bottom &&
+         redaction_rect.top >= object_rect.top;
+}
+
+bool IsSafelyRemovableForRedaction(const CPDF_PageObject& page_object) {
+  switch (page_object.GetType()) {
+    case CPDF_PageObject::Type::kText:
+    case CPDF_PageObject::Type::kPath:
+    case CPDF_PageObject::Type::kImage:
+      return true;
+    case CPDF_PageObject::Type::kShading:
+    case CPDF_PageObject::Type::kForm:
+      return false;
+  }
+  NOTREACHED();
+  return false;
+}
+
 bool PageObjectContainsMark(CPDF_PageObject* pPageObj,
                             FPDF_PAGEOBJECTMARK mark) {
   const CPDF_ContentMarkItem* pMarkItem =
@@ -349,6 +399,71 @@ FPDFPage_RemoveObject(FPDF_PAGE page, FPDF_PAGEOBJECT page_object) {
 
   // Release ownership to the caller.
   return !!pPage->RemovePageObject(pPageObj).release();
+}
+
+FPDF_EXPORT int FPDF_CALLCONV FPDFPage_ApplyRedactions(
+    FPDF_PAGE page,
+    const FS_RECTF* rects,
+    unsigned long rect_count) {
+  CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
+  if (!IsPageObject(pPage)) {
+    return FPDF_REDACTION_ERROR_INVALID_PAGE;
+  }
+  if (!rects || rect_count == 0) {
+    return FPDF_REDACTION_ERROR_INVALID_RECT;
+  }
+
+  std::vector<NormalizedRedactionRect> redaction_rects;
+  redaction_rects.reserve(rect_count);
+  for (unsigned long i = 0; i < rect_count; ++i) {
+    const FS_RECTF& rect = UNSAFE_BUFFERS(rects[i]);
+    if (!IsValidRedactionRect(rect)) {
+      return FPDF_REDACTION_ERROR_INVALID_RECT;
+    }
+    redaction_rects.push_back(NormalizeRedactionRect(rect));
+  }
+
+  std::vector<CPDF_PageObject*> objects_to_remove;
+  for (const auto& page_object_holder : *pPage) {
+    CPDF_PageObject& page_object = *page_object_holder;
+    if (!page_object.IsActive()) {
+      continue;
+    }
+
+    const CFX_FloatRect& object_rect = page_object.GetRect();
+    bool intersects = false;
+    bool fully_covered = false;
+    for (const NormalizedRedactionRect& redaction_rect : redaction_rects) {
+      if (!RedactionRectsIntersect(redaction_rect, object_rect)) {
+        continue;
+      }
+      intersects = true;
+      if (RedactionRectContains(redaction_rect, object_rect)) {
+        fully_covered = true;
+        break;
+      }
+    }
+
+    if (!intersects) {
+      continue;
+    }
+    if (!fully_covered) {
+      return FPDF_REDACTION_ERROR_UNSAFE_PARTIAL_INTERSECTION;
+    }
+    if (!IsSafelyRemovableForRedaction(page_object)) {
+      return FPDF_REDACTION_ERROR_UNSUPPORTED_OBJECT;
+    }
+    objects_to_remove.push_back(&page_object);
+  }
+
+  if (objects_to_remove.empty()) {
+    return FPDF_REDACTION_ERROR_NO_CONTENT;
+  }
+
+  for (CPDF_PageObject* page_object : objects_to_remove) {
+    pPage->RemovePageObject(page_object);
+  }
+  return FPDF_REDACTION_SUCCESS;
 }
 
 FPDF_EXPORT int FPDF_CALLCONV FPDFPage_CountObjects(FPDF_PAGE page) {

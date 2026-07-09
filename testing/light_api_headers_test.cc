@@ -45,6 +45,11 @@ void CompileStaticAnnotationSurface(FPDF_PAGE page,
   FPDFPage_CloseAnnot(created);
 }
 
+void CompileRedactionSurface(FPDF_PAGE page, const FS_RECTF* rects) {
+  int result = FPDFPage_ApplyRedactions(page, rects, 1);
+  (void)result;
+}
+
 int main() {
   return 0;
 }

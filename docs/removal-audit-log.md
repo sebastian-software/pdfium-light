@@ -44,3 +44,9 @@ redaction implementation entry should record:
 - proof that redacted text is not extractable after save;
 - render-before/render-after validation;
 - known unsupported cases.
+
+## Redaction Implementation Notes
+
+| Status | Area | Public API | Implementation / dependency | Reason | Validation expected |
+| --- | --- | --- | --- | --- | --- |
+| implemented | Conservative whole-object redaction | `FPDFPage_ApplyRedactions()` in `fpdf_edit.h` with explicit `FPDF_REDACTION_*` result codes | Removes fully covered text, path, and image page objects; rejects partial intersections, shading, and nested form XObjects without modifying content | pdfium-light must remove underlying content and must not report success for overlay-only or unsafe redaction cases. | Embedder coverage saves and reloads a redacted document, verifies removed text is not extractable, verifies rendering matches object removal, and verifies partial text intersection returns `FPDF_REDACTION_ERROR_UNSAFE_PARTIAL_INTERSECTION`. |
