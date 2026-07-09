@@ -7,7 +7,7 @@
 # Each column (except column 0) can contain a comma-separated list of values.
 #
 # Column 0: test file name
-# Column 1: platform: *, win, mac, mac_arm, mac_x86, linux
+# Column 1: platform: *, win, mac, mac_arm, linux
 # Column 2: v8 support: *, nov8, v8
 # Column 3: xfa support: *, noxfa, xfa
 # Column 4: rendering support: *, agg, gdi, skia
@@ -16,8 +16,8 @@
 # lines to suppress more cases.  Within each column, any one of the
 # comma-separated values must match in order for the column to "match".
 # The filenames and keywords are case-sensitive.
-# One exception is the column 1, where "mac" is a shorthand that matches either
-# "mac_arm" or "mac_x86".
+# One exception is the column 1, where "mac" is a shorthand that matches the
+# supported macOS platform.
 #
 # Try to keep the file alphabetized within each category of test.
 
@@ -168,7 +168,6 @@ new_stamp3.pdf mac * * skia
 new_textmarkup2.pdf mac * * skia
 new_textmarkup8.pdf mac * * skia
 path_5_pattern.pdf mac * * skia
-path_9.pdf mac_x86 * * skia
 quick_start_guide.pdf mac * * skia
 shading_2_15.pdf mac * * skia
 shading_2_17.pdf mac * * skia

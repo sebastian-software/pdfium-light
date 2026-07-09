@@ -30,6 +30,8 @@ The command checks:
   `pdfium_light_public_headers_test`;
 - absence of the removed `pdfium_test` and `fxjs` build targets from retained
   top-level build files;
+- absence of stale macOS x86-only expectation fallbacks, suppressions, and
+  golden PNGs;
 - source-level smoke coverage markers for render, text, edit/save,
   annotation, and redaction behavior;
 - syntax-only compilation of the retained public header compile test and the
@@ -60,7 +62,7 @@ ninja -C out/light pdfium_light_validation
 For the broader retained test/fuzzer set, run:
 
 ```bash
-ninja -C out/light pdfium pdfium_all
+ninja -C out/light pdfium_all
 ```
 
 Run the retained test binaries:

@@ -53,7 +53,7 @@ RETAINED_BUILD_PATTERNS = {
         "BUILD.gn",
         'group("pdfium_light_validation")',
     ),
-    "aggregate light validation target": ("BUILD.gn", 'group("pdfium_all")'),
+    "broader retained aggregate target": ("BUILD.gn", 'group("pdfium_all")'),
     "fpdfsdk embedder test target": (
         "fpdfsdk/BUILD.gn",
         'pdfium_embeddertest_source_set("embeddertests")',
@@ -225,6 +225,49 @@ def check_build_targets(root: Path) -> None:
                 raise AssertionError(f"{relative_path} still references {pattern}")
 
 
+def check_platform_cleanup(root: Path) -> None:
+    result = subprocess.run(
+        ["git", "ls-files"],
+        cwd=root,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    files = result.stdout.splitlines()
+    x86_expectations = [
+        path
+        for path in files
+        if path.startswith("testing/resources/embedder_tests/")
+        and ("_mac_x86" in path or path.endswith("_x86.png"))
+    ]
+    if x86_expectations:
+        raise AssertionError(
+            "stale x86-only golden expectations remain: "
+            + ", ".join(sorted(x86_expectations))
+        )
+
+    for relative_path in (
+        "testing/embedder_test.cpp",
+        "testing/embedder_test.h",
+        "testing/SUPPRESSIONS",
+        "testing/SUPPRESSIONS_EXACT_MATCHING",
+        "testing/SUPPRESSIONS_IMAGE_DIFF",
+        "testing/tools/common.py",
+        "testing/tools/suppressor.py",
+    ):
+        text = read_text(root, relative_path)
+        for marker in (
+            "GetCpuArchSuffix",
+            "mac_x86",
+            "_mac_x86.png",
+            "return 'x86'",
+        ):
+            if marker in text:
+                raise AssertionError(
+                    f"{relative_path} still contains unsupported-platform marker {marker}"
+                )
+
+
 def check_smoke_coverage(root: Path) -> None:
     for label, (relative_path, patterns) in SMOKE_COVERAGE.items():
         text = read_text(root, relative_path)
@@ -260,6 +303,7 @@ def main(argv: list[str]) -> int:
         ("public header manifest and removed API absence", check_public_headers),
         ("retained build target names", check_build_targets),
         ("smoke coverage markers", check_smoke_coverage),
+        ("unsupported platform cleanup", check_platform_cleanup),
     )
 
     try:

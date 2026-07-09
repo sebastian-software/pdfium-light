@@ -143,6 +143,7 @@ python3 testing/tools/validate_light.py
 
 The retained light validation targets are:
 
+ * pdfium\_light\_public\_headers\_test
  * pdfium\_unittests
  * pdfium\_embeddertests
 
