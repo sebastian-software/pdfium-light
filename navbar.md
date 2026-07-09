@@ -9,5 +9,6 @@ found in the LICENSE file.
 * [Home](/README.md)
 * [Getting Started](/docs/getting-started.md)
 * [Platform Support](/docs/platform-support.md)
+* [Validation](/docs/validation.md)
 
 [home]: /README.md

@@ -129,19 +129,28 @@ Build the library with:
 `ninja -C <directory> pdfium`
 
 Build the retained light validation targets with:
-`ninja -C <directory> pdfium_all`
+`ninja -C <directory> pdfium_light_validation`
 
 
 ## Testing
 
+The repeatable pdfium-light validation gate is documented in
+[Validation](docs/validation.md). In this reduced checkout, run:
+
+```bash
+python3 testing/tools/validate_light.py
+```
+
 The retained light validation targets are:
 
+ * pdfium\_light\_public\_headers\_test
  * pdfium\_unittests
  * pdfium\_embeddertests
 
-Run them through `pdfium_all` or individually from the configured Ninja output
-directory. The legacy `pdfium_test` executable and the corpus, JavaScript, and
-pixel runners that depend on it are not part of pdfium-light.
+Run them through `pdfium_light_validation` or individually from the configured
+Ninja output directory. Use `pdfium_all` when you also want the broader retained
+diff/fuzzer set. The legacy `pdfium_test` executable and the corpus,
+JavaScript, and pixel runners that depend on it are not part of pdfium-light.
 
 ### `.in` files
 

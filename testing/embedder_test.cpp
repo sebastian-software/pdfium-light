@@ -77,13 +77,6 @@ std::string_view GetPlatformNameSuffix() {
 #endif
 }
 
-std::string_view GetCpuArchSuffix() {
-#if BUILDFLAG(IS_APPLE) && !defined(ARCH_CPU_ARM64)
-  return "_x86";
-#else
-  return "";
-#endif  // BUILDFLAG(IS_APPLE) && !defined(ARCH_CPU_ARM64)
-}
 
 int GetPlatformMaxPixelDelta() {
 #if BUILDFLAG(IS_APPLE)
@@ -110,9 +103,6 @@ std::vector<std::string> GetEmbedderTestExpectationsWithSuffixPath(
     std::string_view expectation_png_name) {
   const std::string basename(expectation_png_name);
   const std::string platform_suffix(GetPlatformNameSuffix());
-  const std::string cpu_arch_suffix(GetCpuArchSuffix());
-  const bool has_cpu_arch_suffix = !cpu_arch_suffix.empty();
-
   std::string renderer = "_agg";
 #if defined(PDF_USE_SKIA)
   if (CFX_GEModule::Get()->UseSkiaRenderer()) {
@@ -121,18 +111,11 @@ std::vector<std::string> GetEmbedderTestExpectationsWithSuffixPath(
 #endif
 
   std::vector<std::string> expectation_names;
-  expectation_names.reserve(has_cpu_arch_suffix ? 6 : 4);
+  expectation_names.reserve(4);
 
-  if (has_cpu_arch_suffix) {
-    expectation_names.push_back(basename + renderer + platform_suffix +
-                                cpu_arch_suffix);
-  }
   expectation_names.push_back(basename + renderer + platform_suffix);
   expectation_names.push_back(basename + renderer);
 
-  if (has_cpu_arch_suffix) {
-    expectation_names.push_back(basename + platform_suffix + cpu_arch_suffix);
-  }
   expectation_names.push_back(basename + platform_suffix);
   expectation_names.push_back(basename);
 
