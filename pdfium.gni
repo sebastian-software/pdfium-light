@@ -29,7 +29,7 @@ declare_args() {
   # Retained only to reject legacy V8-enabled configurations clearly.
   pdf_enable_v8 = pdf_enable_v8_override
 
-  # Build PDFium either with or without XFA Forms support.
+  # Retained only to reject legacy XFA-enabled configurations clearly.
   pdf_enable_xfa = pdf_enable_xfa_override
 
   # If XFA, also support bmp codec. Ignored if not XFA.
@@ -113,6 +113,8 @@ assert(!pdf_is_complete_lib || !is_component_build,
 
 assert(!pdf_enable_v8,
        "pdfium-light has removed V8 and JavaScript execution support")
+
+assert(!pdf_enable_xfa, "pdfium-light has removed the XFA runtime")
 
 assert(pdf_use_agg || pdf_use_skia,
        "At least one of pdf_use_agg or pdf_use_skia must be true")

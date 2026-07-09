@@ -11,7 +11,6 @@ source_set("fxcrt") {
     "../*",
     "../../:*",
     "../../fpdfsdk/*",
-    "../../fxbarcode:*",
     "../../fxjs:*",
     "../../testing:*",
     "../../testing/fuzzers/*",
@@ -20,7 +19,6 @@ source_set("fxcrt") {
     "../../third_party:fx_lcms2",
     "../../third_party:fx_libopenjpeg",
     "../../third_party:fx_tiff",
-    "../../xfa/*",
   ]
   sources = [
     "autonuller.h",
@@ -182,12 +180,6 @@ source_set("fxcrt") {
       "win/win_util.h",
     ]
   }
-  if (pdf_enable_xfa) {
-    sources += [
-      "cfx_memorystream.cpp",
-      "cfx_memorystream.h",
-    ]
-  }
 }
 
 source_set("test_support") {
@@ -275,10 +267,6 @@ pdfium_unittest_source_set("unittests") {
   pdfium_root_dir = "../../"
   if (pdf_use_partition_alloc) {
     deps += [ "//base/allocator/partition_allocator/src/partition_alloc" ]
-  }
-  if (pdf_enable_xfa) {
-    sources += [ "cfx_memorystream_unittest.cpp" ]
-    deps += [ "../fpdfapi/parser" ]
   }
   if (is_posix) {
     sources += [ "mapped_data_bytes_unittest.cpp" ]
