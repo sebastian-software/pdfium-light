@@ -271,12 +271,8 @@ RetainPtr<CPDF_Dictionary> SetExtGStateInResourceDict(
   return pResourceDict;
 }
 
-
-}  // namespace
-
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
-FPDFAnnot_IsSupportedSubtype(FPDF_ANNOTATION_SUBTYPE subtype) {
-  // The supported subtypes must also be communicated in the user doc.
+constexpr bool IsSupportedStaticAnnotationSubtype(
+    FPDF_ANNOTATION_SUBTYPE subtype) {
   switch (subtype) {
     case FPDF_ANNOT_CIRCLE:
     case FPDF_ANNOT_FILEATTACHMENT:
@@ -295,6 +291,18 @@ FPDFAnnot_IsSupportedSubtype(FPDF_ANNOTATION_SUBTYPE subtype) {
     default:
       return false;
   }
+}
+
+static_assert(IsSupportedStaticAnnotationSubtype(FPDF_ANNOT_HIGHLIGHT));
+static_assert(IsSupportedStaticAnnotationSubtype(FPDF_ANNOT_FREETEXT));
+static_assert(IsSupportedStaticAnnotationSubtype(FPDF_ANNOT_INK));
+static_assert(!IsSupportedStaticAnnotationSubtype(FPDF_ANNOT_WIDGET));
+
+}  // namespace
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDFAnnot_IsSupportedSubtype(FPDF_ANNOTATION_SUBTYPE subtype) {
+  return IsSupportedStaticAnnotationSubtype(subtype);
 }
 
 FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV

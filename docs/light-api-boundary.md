@@ -24,6 +24,10 @@ ordinary annotations, and page transforms. It includes:
 
 `fpdf_formfill.h`, `fpdf_fwlevent.h`, and `fpdf_javascript.h` have been
 removed. `fpdf_annot.h` contains only the ordinary, non-widget annotation API.
+The retained annotation surface covers text notes, freetext, highlights,
+underlines, strikeouts, squigglies, ink, links, stamps, geometric annotations,
+attachments, and redact marks. Widget annotations are not supported for
+creation, and `FPDF_ANNOT` rendering passes `bShowWidget=false`.
 
 `//:pdfium_light_public_headers_test` compiles the full retained header set as
 an external consumer would, without `FPDF_IMPLEMENTATION`.
