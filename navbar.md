@@ -8,5 +8,6 @@ found in the LICENSE file.
 
 * [Home](/README.md)
 * [Getting Started](/docs/getting-started.md)
+* [Platform Support](/docs/platform-support.md)
 
 [home]: /README.md

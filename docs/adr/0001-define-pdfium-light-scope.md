@@ -99,12 +99,11 @@ XObject editing, can be added after the conservative path is correct.
 
 ## Platform Policy
 
-The planned platform scope is:
+The platform scope is documented for users in [`docs/platform-support.md`](../platform-support.md). The current policy is:
 
 - primary: Linux x64 glibc, Linux arm64 glibc, Linux musl, macOS arm64,
   Windows x64;
-- probe: Windows arm64, if the existing Chromium/PDFium toolchain supports it
-  without disproportionate project-specific work;
+- probe: Windows arm64. The current local probe is blocked by missing GN/build metadata, so a full gclient/CI probe is still required before promoting or rejecting it;
 - out of scope: macOS x64/Intel, Windows x86/32-bit, mobile platforms,
   big-endian targets, and legacy MSVC support.
 
