@@ -33,6 +33,7 @@ using ScopedFPDFDocument =
 using ScopedFPDFFont =
     std::unique_ptr<std::remove_pointer<FPDF_FONT>::type, FPDFFontDeleter>;
 
+#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 using ScopedFPDFFormHandle =
     std::unique_ptr<std::remove_pointer<FPDF_FORMHANDLE>::type,
                     FPDFFormHandleDeleter>;
@@ -40,6 +41,7 @@ using ScopedFPDFFormHandle =
 using ScopedFPDFJavaScriptAction =
     std::unique_ptr<std::remove_pointer<FPDF_JAVASCRIPT_ACTION>::type,
                     FPDFJavaScriptActionDeleter>;
+#endif
 
 using ScopedFPDFPage =
     std::unique_ptr<std::remove_pointer<FPDF_PAGE>::type, FPDFPageDeleter>;

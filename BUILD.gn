@@ -136,6 +136,10 @@ config("pdfium_implementation_config") {
 config("pdfium_public_config") {
   defines = []
 
+  if (pdf_enable_light) {
+    defines += [ "PDFIUM_LIGHT" ]
+  }
+
   if (pdf_enable_brotli) {
     defines += [ "PDF_ENABLE_BROTLI" ]
   }
@@ -199,32 +203,42 @@ config("pdfium_noshorten_config") {
   }
 }
 
+pdfium_light_public_headers = [
+  "public/cpp/fpdf_deleters.h",
+  "public/cpp/fpdf_scopers.h",
+  "public/fpdf_annot.h",
+  "public/fpdf_attachment.h",
+  "public/fpdf_catalog.h",
+  "public/fpdf_dataavail.h",
+  "public/fpdf_doc.h",
+  "public/fpdf_edit.h",
+  "public/fpdf_ext.h",
+  "public/fpdf_flatten.h",
+  "public/fpdf_ppo.h",
+  "public/fpdf_progressive.h",
+  "public/fpdf_save.h",
+  "public/fpdf_searchex.h",
+  "public/fpdf_signature.h",
+  "public/fpdf_structtree.h",
+  "public/fpdf_sysfontinfo.h",
+  "public/fpdf_text.h",
+  "public/fpdf_thumbnail.h",
+  "public/fpdf_transformpage.h",
+  "public/fpdfview.h",
+]
+
+pdfium_legacy_interactive_public_headers = [
+  "public/fpdf_formfill.h",
+  "public/fpdf_fwlevent.h",
+  "public/fpdf_javascript.h",
+]
+
 source_set("pdfium_public_headers_impl") {
-  sources = [
-    "public/cpp/fpdf_deleters.h",
-    "public/cpp/fpdf_scopers.h",
-    "public/fpdf_annot.h",
-    "public/fpdf_attachment.h",
-    "public/fpdf_catalog.h",
-    "public/fpdf_dataavail.h",
-    "public/fpdf_doc.h",
-    "public/fpdf_edit.h",
-    "public/fpdf_ext.h",
-    "public/fpdf_flatten.h",
-    "public/fpdf_formfill.h",
-    "public/fpdf_fwlevent.h",
-    "public/fpdf_javascript.h",
-    "public/fpdf_ppo.h",
-    "public/fpdf_progressive.h",
-    "public/fpdf_save.h",
-    "public/fpdf_searchex.h",
-    "public/fpdf_signature.h",
-    "public/fpdf_structtree.h",
-    "public/fpdf_sysfontinfo.h",
-    "public/fpdf_text.h",
-    "public/fpdf_transformpage.h",
-    "public/fpdfview.h",
-  ]
+  sources =
+      pdfium_light_public_headers + pdfium_legacy_interactive_public_headers
+  if (pdf_enable_light) {
+    sources -= pdfium_legacy_interactive_public_headers
+  }
 }
 
 group("pdfium_public_headers") {
@@ -233,6 +247,17 @@ group("pdfium_public_headers") {
     ":pdfium_public_config",
     ":pdfium_implementation_config",
   ]
+}
+
+if (pdf_enable_light) {
+  source_set("pdfium_light_public_headers_test") {
+    testonly = true
+    sources = [ "testing/light_api_headers_test.cc" ]
+    configs += [
+      ":pdfium_common_config",
+      ":pdfium_public_config",
+    ]
+  }
 }
 
 component("pdfium") {
