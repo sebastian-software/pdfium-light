@@ -32,7 +32,6 @@
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fxcrt/cfx_memorystream.h"
 #include "fpdfsdk/fpdfxfa/cpdfxfa_context.h"
-#include "public/fpdf_formfill.h"
 #endif
 
 static_assert(FPDF_INCREMENTAL == CPDF_Creator::CreateFlags::kIncremental);

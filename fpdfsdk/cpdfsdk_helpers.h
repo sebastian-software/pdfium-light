@@ -41,8 +41,6 @@ class CPDF_StructElement;
 class CPDF_StructTree;
 class CPDF_TextPage;
 class CPDF_TextPageFind;
-class CPDFSDK_FormFillEnvironment;
-class CPDFSDK_InteractiveForm;
 struct CPDF_JavaScript;
 struct XObjectContext;
 
@@ -227,15 +225,6 @@ inline CPDF_TextPageFind* CPDFTextPageFindFromFPDFSchHandle(
   return reinterpret_cast<CPDF_TextPageFind*>(handle);
 }
 
-inline FPDF_FORMHANDLE FPDFFormHandleFromCPDFSDKFormFillEnvironment(
-    CPDFSDK_FormFillEnvironment* handle) {
-  return reinterpret_cast<FPDF_FORMHANDLE>(handle);
-}
-inline CPDFSDK_FormFillEnvironment*
-CPDFSDKFormFillEnvironmentFromFPDFFormHandle(FPDF_FORMHANDLE handle) {
-  return reinterpret_cast<CPDFSDK_FormFillEnvironment*>(handle);
-}
-
 inline FPDF_SIGNATURE FPDFSignatureFromCPDFDictionary(
     const CPDF_Dictionary* dictionary) {
   return reinterpret_cast<FPDF_SIGNATURE>(dictionary);
@@ -262,8 +251,6 @@ FXDIB_Format FXDIBFormatFromFPDFFormat(int format);
 // - When Skia is not available or not enabled at runtime, make sure `bitmap` is
 //   not pre-multiplied.
 void ValidateBitmapPremultiplyState(CFX_DIBitmap* bitmap);
-
-CPDFSDK_InteractiveForm* FormHandleToInteractiveForm(FPDF_FORMHANDLE hHandle);
 
 // PRECONDITIONS: `wide_string` must be terminated by a NUL FPDF_WCHAR.
 UNSAFE_BUFFER_USAGE ByteString

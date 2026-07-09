@@ -1,6 +1,0 @@
-This directory contains the temporary non-executing event-context stub used by
-Formfill during the staged pdfium-light scope reduction.
-
-pdfium-light does not include V8, execute embedded JavaScript, or expose a
-JavaScript API. The remaining stub is removed together with Formfill/PWL in
-issue #4.

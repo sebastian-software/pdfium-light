@@ -34,7 +34,6 @@
 #include "core/fxcrt/span_util.h"
 #include "core/fxge/dib/fx_dib.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
-#include "public/fpdf_formfill.h"
 
 namespace {
 
@@ -502,31 +501,6 @@ FPDFLink_GetQuadPoints(FPDF_LINK link_annot,
 
   return GetQuadPointsAtIndex(std::move(pArray),
                               static_cast<size_t>(quad_index), quad_points);
-}
-
-FPDF_EXPORT FPDF_ACTION FPDF_CALLCONV FPDF_GetPageAAction(FPDF_PAGE page,
-                                                          int aa_type) {
-  CPDF_Page* pdf_page = CPDFPageFromFPDFPage(page);
-  if (!pdf_page) {
-    return nullptr;
-  }
-
-  CPDF_AAction aa(pdf_page->GetDict()->GetDictFor(pdfium::form_fields::kAA));
-  CPDF_AAction::AActionType type;
-  if (aa_type == FPDFPAGE_AACTION_OPEN) {
-    type = CPDF_AAction::kOpenPage;
-  } else if (aa_type == FPDFPAGE_AACTION_CLOSE) {
-    type = CPDF_AAction::kClosePage;
-  } else {
-    return nullptr;
-  }
-
-  if (!aa.ActionExist(type)) {
-    return nullptr;
-  }
-
-  CPDF_Action action = aa.GetAction(type);
-  return FPDFActionFromCPDFDictionary(action.GetDict());
 }
 
 FPDF_EXPORT unsigned long FPDF_CALLCONV

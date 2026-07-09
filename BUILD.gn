@@ -189,17 +189,8 @@ pdfium_light_public_headers = [
   "public/fpdfview.h",
 ]
 
-pdfium_legacy_interactive_public_headers = [
-  "public/fpdf_formfill.h",
-  "public/fpdf_fwlevent.h",
-]
-
 source_set("pdfium_public_headers_impl") {
-  sources =
-      pdfium_light_public_headers + pdfium_legacy_interactive_public_headers
-  if (pdf_enable_light) {
-    sources -= pdfium_legacy_interactive_public_headers
-  }
+  sources = pdfium_light_public_headers
 }
 
 group("pdfium_public_headers") {
@@ -236,8 +227,6 @@ component("pdfium") {
     "core/fxcrt",
     "core/fxge",
     "fpdfsdk",
-    "fpdfsdk/formfiller",
-    "fxjs",
   ]
 
   public_deps = [
@@ -281,7 +270,6 @@ group("pdfium_unittest_deps") {
   visibility += [
     "core/*",
     "fpdfsdk/*",
-    "fxjs/*",
     "testing/image_diff/*",
   ]
 }
@@ -326,7 +314,6 @@ group("pdfium_embeddertest_deps") {
   visibility += [
     "core/*",
     "fpdfsdk/*",
-    "fxjs/*",
   ]
 }
 
@@ -342,8 +329,6 @@ test("pdfium_embeddertests") {
     "core/fxcrt",
     "core/fxge:embeddertests",
     "fpdfsdk:embeddertests",
-    "fpdfsdk/formfiller:embeddertests",
-    "fpdfsdk/pwl:embeddertests",
     "testing/image_diff",
     "//testing/gmock",
     "//testing/gtest",

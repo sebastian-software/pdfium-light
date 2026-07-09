@@ -8,9 +8,6 @@
 #include "public/fpdf_annot.h"
 #include "public/fpdf_dataavail.h"
 #include "public/fpdf_edit.h"
-#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
-#include "public/fpdf_formfill.h"
-#endif
 #include "public/fpdf_structtree.h"
 #include "public/fpdf_text.h"
 #include "public/fpdf_transformpage.h"
@@ -43,15 +40,6 @@ struct FPDFDocumentDeleter {
 struct FPDFFontDeleter {
   inline void operator()(FPDF_FONT font) { FPDFFont_Close(font); }
 };
-
-#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
-struct FPDFFormHandleDeleter {
-  inline void operator()(FPDF_FORMHANDLE form) {
-    FPDFDOC_ExitFormFillEnvironment(form);
-  }
-};
-
-#endif
 
 struct FPDFPageDeleter {
   inline void operator()(FPDF_PAGE page) { FPDF_ClosePage(page); }
