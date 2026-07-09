@@ -74,9 +74,6 @@ typedef struct fpdf_font_t__* FPDF_FONT;
 typedef struct fpdf_form_handle_t__* FPDF_FORMHANDLE;
 #endif
 typedef const struct fpdf_glyphpath_t__* FPDF_GLYPHPATH;
-#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
-typedef struct fpdf_javascript_action_t* FPDF_JAVASCRIPT_ACTION;
-#endif
 typedef struct fpdf_link_t__* FPDF_LINK;
 typedef struct fpdf_page_t__* FPDF_PAGE;
 typedef struct fpdf_pagelink_t__* FPDF_PAGELINK;
@@ -270,22 +267,6 @@ typedef struct FPDF_LIBRARY_CONFIG_ {
   // The Array may be NULL itself to use the default paths. May be ignored
   // entirely depending upon the platform.
   const char** m_pUserFontPaths;
-
-  // Version 2.
-
-  // Pointer to the v8::Isolate to use, or NULL to force PDFium to create one.
-  void* m_pIsolate;
-
-  // The embedder data slot to use in the v8::Isolate to store PDFium's
-  // per-isolate data. The value needs to be in the range
-  // [0, |v8::Internals::kNumIsolateDataLots|). Note that 0 is fine for most
-  // embedders.
-  unsigned int m_v8EmbedderSlot;
-
-  // Version 3 - Experimental.
-
-  // Pointer to the V8::Platform to use.
-  void* m_pPlatform;
 
   // Version 4 - Experimental.
 
@@ -1470,38 +1451,6 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDF_GetXFAPacketContent(
     unsigned long buflen,
     unsigned long* out_buflen);
 #endif
-
-#if defined(PDF_ENABLE_V8) && \
-    (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
-// Function: FPDF_GetRecommendedV8Flags
-//          Returns a space-separated string of command line flags that are
-//          recommended to be passed into V8 via V8::SetFlagsFromString()
-//          prior to initializing the PDFium library.
-// Parameters:
-//          None.
-// Return value:
-//          NUL-terminated string of the form "--flag1 --flag2".
-//          The caller must not attempt to modify or free the result.
-FPDF_EXPORT const char* FPDF_CALLCONV FPDF_GetRecommendedV8Flags();
-
-// Experimental API.
-// Function: FPDF_GetArrayBufferAllocatorSharedInstance()
-//          Helper function for initializing V8 isolates that will
-//          use PDFium's internal memory management.
-// Parameters:
-//          None.
-// Return Value:
-//          Pointer to a suitable v8::ArrayBuffer::Allocator, returned
-//          as void for C compatibility.
-// Notes:
-//          Use is optional, but allows external creation of isolates
-//          matching the ones PDFium will make when none is provided
-//          via |FPDF_LIBRARY_CONFIG::m_pIsolate|.
-//
-//          Can only be called when the library is in an uninitialized or
-//          destroyed state.
-FPDF_EXPORT void* FPDF_CALLCONV FPDF_GetArrayBufferAllocatorSharedInstance();
-#endif  // defined(PDF_ENABLE_V8) && (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 
 #if defined(PDF_ENABLE_XFA) && \
     (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))

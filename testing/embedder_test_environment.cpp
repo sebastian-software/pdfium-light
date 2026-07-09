@@ -43,16 +43,6 @@ void EmbedderTestEnvironment::SetUp() {
       .version = version_,
       .m_pUserFontPaths = test_fonts_.font_paths(),
 
-#ifdef PDF_ENABLE_V8
-      .m_pIsolate = V8TestEnvironment::GetInstance()->isolate(),
-      .m_v8EmbedderSlot = 0,
-      .m_pPlatform = V8TestEnvironment::GetInstance()->platform(),
-#else   // PDF_ENABLE_V8
-      .m_pIsolate = nullptr,
-      .m_v8EmbedderSlot = 0,
-      .m_pPlatform = nullptr,
-#endif  // PDF_ENABLE_V8
-
       .m_RendererType = renderer_type_,
       .m_FontLibraryType = fontations_ ? FPDF_FONTBACKENDTYPE_FONTATIONS
                                        : FPDF_FONTBACKENDTYPE_FREETYPE,

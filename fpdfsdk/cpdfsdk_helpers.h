@@ -127,15 +127,6 @@ inline CPDF_Font* CPDFFontFromFPDFFont(FPDF_FONT font) {
   return reinterpret_cast<CPDF_Font*>(font);
 }
 
-inline FPDF_JAVASCRIPT_ACTION FPDFJavaScriptActionFromCPDFJavaScriptAction(
-    CPDF_JavaScript* javascript) {
-  return reinterpret_cast<FPDF_JAVASCRIPT_ACTION>(javascript);
-}
-inline CPDF_JavaScript* CPDFJavaScriptActionFromFPDFJavaScriptAction(
-    FPDF_JAVASCRIPT_ACTION javascript) {
-  return reinterpret_cast<CPDF_JavaScript*>(javascript);
-}
-
 inline FPDF_LINK FPDFLinkFromCPDFDictionary(CPDF_Dictionary* link) {
   return reinterpret_cast<FPDF_LINK>(link);
 }

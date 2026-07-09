@@ -23,9 +23,9 @@ ordinary annotations, and page transforms. It includes:
 - `public/cpp/fpdf_deleters.h` and `public/cpp/fpdf_scopers.h`, excluding
   form and JavaScript helpers in light mode.
 
-`fpdf_formfill.h`, `fpdf_fwlevent.h`, and `fpdf_javascript.h` are not part of
-the light export. `fpdf_annot.h` does not pull in `fpdf_formfill.h` for a light
-consumer and hides its form-specific helpers. #6 removes their implementations
+`fpdf_formfill.h` and `fpdf_fwlevent.h` are not part of the light export.
+`fpdf_javascript.h` has been removed. `fpdf_annot.h` does not pull in
+`fpdf_formfill.h` for a light consumer and hides its form-specific helpers. #6 removes their implementations
 and the temporary implementation-only declarations after Formfill/PWL is gone,
 without withdrawing ordinary annotation support.
 
@@ -41,7 +41,8 @@ and `pwl`. The top-level `pdfium` target also depends directly on `fxjs` and
 targets. These are internal transitional dependencies, not part of the light
 public contract.
 
-- #5 removes the JS/V8 branch and lets `fxjs` leave the retained graph.
+- #5 removes the JS/V8 branch. Only the non-executing `fxjs` stub remains
+  temporarily for Formfill.
 - #3 removes the XFA branch, including `fxjs/xfa` after #5.
 - #4 removes Formfill/PWL and splits the viewer-dependent `fpdfsdk` code from
   retained static API implementations.

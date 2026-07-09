@@ -2011,9 +2011,6 @@ TEST_F(FPDFViewEmbedderTest, Bug2087) {
   const FPDF_LIBRARY_CONFIG kAggConfig = {
       .version = 5,
       .m_pUserFontPaths = nullptr,
-      .m_pIsolate = nullptr,
-      .m_v8EmbedderSlot = 0,
-      .m_pPlatform = nullptr,
       .m_RendererType = FPDF_RENDERERTYPE_AGG,
       .m_FontLibraryType = FPDF_FONTBACKENDTYPE_FREETYPE,
   };
@@ -2032,8 +2029,6 @@ TEST_F(FPDFViewEmbedderTest, Bug2087) {
   const FPDF_LIBRARY_CONFIG kSkiaConfig = {
       .version = 2,
       .m_pUserFontPaths = nullptr,
-      .m_pIsolate = nullptr,
-      .m_v8EmbedderSlot = 0,
   };
   FPDF_InitLibraryWithConfig(&kSkiaConfig);
   ASSERT_TRUE(OpenDocument("rectangles.pdf"));

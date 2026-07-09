@@ -87,15 +87,8 @@ PDFFuzzerInitPublic::PDFFuzzerInitPublic() {
 #endif  // PDF_ENABLE_XFA
 #endif  // PDF_ENABLE_V8
   UNSAFE_TODO(FXSYS_memset(&config_, '\0', sizeof(config_)));
-  config_.version = 4;
+  config_.version = 1;
   config_.m_pUserFontPaths = nullptr;
-  config_.m_pPlatform = nullptr;
-  config_.m_pIsolate = nullptr;
-  config_.m_v8EmbedderSlot = 0;
-#ifdef PDF_ENABLE_V8
-  config_.m_pPlatform = platform_.get();
-  config_.m_pIsolate = isolate_.get();
-#endif  // PDF_ENABLE_V8
 #if defined(PDF_USE_SKIA)
   config_.m_RendererType = FPDF_RENDERERTYPE_SKIA;
 #else

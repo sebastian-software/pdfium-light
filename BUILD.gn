@@ -144,26 +144,6 @@ config("pdfium_public_config") {
     defines += [ "PDF_ENABLE_BROTLI" ]
   }
 
-  if (pdf_enable_v8) {
-    defines += [ "PDF_ENABLE_V8" ]
-
-    if (pdf_enable_xfa) {
-      defines += [ "PDF_ENABLE_XFA" ]
-      if (pdf_enable_xfa_bmp) {
-        defines += [ "PDF_ENABLE_XFA_BMP" ]
-      }
-      if (pdf_enable_xfa_gif) {
-        defines += [ "PDF_ENABLE_XFA_GIF" ]
-      }
-      if (pdf_enable_xfa_png) {
-        defines += [ "PDF_ENABLE_XFA_PNG" ]
-      }
-      if (pdf_enable_xfa_tiff) {
-        defines += [ "PDF_ENABLE_XFA_TIFF" ]
-      }
-    }
-  }
-
   if (pdf_use_agg) {
     defines += [ "PDF_USE_AGG" ]
   }
@@ -230,7 +210,6 @@ pdfium_light_public_headers = [
 pdfium_legacy_interactive_public_headers = [
   "public/fpdf_formfill.h",
   "public/fpdf_fwlevent.h",
-  "public/fpdf_javascript.h",
 ]
 
 source_set("pdfium_public_headers_impl") {
@@ -361,26 +340,6 @@ test("pdfium_unittests") {
   if (is_android) {
     use_raw_android_executable = true
   }
-  if (pdf_enable_v8) {
-    configs += [ "//v8:external_startup_data" ]
-    deps += [
-      "fxjs:unittests",
-      "//v8",
-    ]
-    if (pdf_enable_xfa) {
-      deps += [
-        "core/fxcrt/css:unittests",
-        "fxbarcode:unittests",
-        "xfa/fde:unittests",
-        "xfa/fgas/crt:unittests",
-        "xfa/fgas/font:unittests",
-        "xfa/fgas/layout:unittests",
-        "xfa/fxfa:unittests",
-        "xfa/fxfa/formcalc:unittests",
-        "xfa/fxfa/parser:unittests",
-      ]
-    }
-  }
 }
 
 group("pdfium_embeddertest_deps") {
@@ -429,23 +388,6 @@ test("pdfium_embeddertests") {
   if (build_with_chromium && pdf_use_skia) {
     deps += [ "testing:discardable_memory_allocator" ]
     configs += [ "testing:pdfium_in_chromium_config" ]
-  }
-
-  if (pdf_enable_v8) {
-    deps += [
-      "fxjs:embeddertests",
-      "//v8",
-    ]
-    configs += [ "//v8:external_startup_data" ]
-  }
-
-  if (pdf_enable_xfa) {
-    deps += [
-      "fpdfsdk/fpdfxfa:embeddertests",
-      "xfa/fwl:embeddertests",
-      "xfa/fxfa/layout:embeddertests",
-      "xfa/fxfa/parser:embeddertests",
-    ]
   }
 }
 

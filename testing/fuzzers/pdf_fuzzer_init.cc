@@ -9,10 +9,8 @@
 // Initialize the library once for all runs of the fuzzer.
 struct TestCase {
   TestCase() {
-    config.version = 2;
+    config.version = 1;
     config.m_pUserFontPaths = nullptr;
-    config.m_pIsolate = nullptr;
-    config.m_v8EmbedderSlot = 0;
     FPDF_InitLibraryWithConfig(&config);
   }
   FPDF_LIBRARY_CONFIG config = {};
