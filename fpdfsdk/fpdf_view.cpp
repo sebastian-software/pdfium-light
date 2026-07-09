@@ -57,15 +57,10 @@
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "fpdfsdk/cpdfsdk_pageview.h"
 #include "fpdfsdk/cpdfsdk_renderpage.h"
-#include "fxjs/ijs_runtime.h"
 #include "public/fpdf_formfill.h"
 
 #if defined(PDF_ENABLE_BROTLI)
 #include "core/fxcodec/brotli/brotli_decoder.h"
-#endif
-
-#ifdef PDF_ENABLE_V8
-#include "fxjs/cfx_v8_array_buffer_allocator.h"
 #endif
 
 #ifdef PDF_ENABLE_XFA
@@ -248,11 +243,6 @@ FPDF_InitLibraryWithConfig(const FPDF_LIBRARY_CONFIG* config) {
   CPDFXFA_ModuleInit();
 #endif  // PDF_ENABLE_XFA
 
-  if (config && config->version >= 2) {
-    void* platform = config->version >= 3 ? config->m_pPlatform : nullptr;
-    IJS_Runtime::Initialize(config->m_v8EmbedderSlot, config->m_pIsolate,
-                            platform);
-  }
   g_bLibraryInitialized = true;
 }
 
@@ -262,8 +252,6 @@ FPDF_EXPORT void FPDF_CALLCONV FPDF_DestroyLibrary() {
   }
 
   // Note: we teardown/destroy things in reverse order.
-  IJS_Runtime::Destroy();
-
 #ifdef PDF_ENABLE_XFA
   CPDFXFA_ModuleDestroy();
 #endif  // PDF_ENABLE_XFA
@@ -1297,23 +1285,6 @@ FPDF_GetNamedDestByName(FPDF_DOCUMENT document, FPDF_BYTESTRING name) {
   // Unretained reference in public API. NOLINTNEXTLINE
   return FPDFDestFromCPDFArray(CPDF_NameTree::LookupNamedDest(doc, dest_name));
 }
-
-#ifdef PDF_ENABLE_V8
-FPDF_EXPORT const char* FPDF_CALLCONV FPDF_GetRecommendedV8Flags() {
-  // Use interpreted JS only to avoid RWX pages in our address space. Also,
-  // --jitless implies --no-expose-wasm, which reduce exposure since no PDF
-  // should contain web assembly.
-  return "--jitless";
-}
-
-FPDF_EXPORT void* FPDF_CALLCONV FPDF_GetArrayBufferAllocatorSharedInstance() {
-  // Deliberately leaked. This allocator is used outside of the library
-  // initialization / destruction lifecycle, and the caller does not take
-  // ownership of the object. Thus there is no existing way to delete this.
-  static auto* s_allocator = new CFX_V8ArrayBufferAllocator();
-  return s_allocator;
-}
-#endif  // PDF_ENABLE_V8
 
 #ifdef PDF_ENABLE_XFA
 FPDF_EXPORT FPDF_RESULT FPDF_CALLCONV FPDF_BStr_Init(FPDF_BSTR* bstr) {

@@ -38,9 +38,6 @@ using ScopedFPDFFormHandle =
     std::unique_ptr<std::remove_pointer<FPDF_FORMHANDLE>::type,
                     FPDFFormHandleDeleter>;
 
-using ScopedFPDFJavaScriptAction =
-    std::unique_ptr<std::remove_pointer<FPDF_JAVASCRIPT_ACTION>::type,
-                    FPDFJavaScriptActionDeleter>;
 #endif
 
 using ScopedFPDFPage =

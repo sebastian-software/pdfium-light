@@ -19,7 +19,6 @@
 #include "public/fpdf_flatten.h"
 #include "public/fpdf_formfill.h"
 #include "public/fpdf_fwlevent.h"
-#include "public/fpdf_javascript.h"
 #include "public/fpdf_ppo.h"
 #include "public/fpdf_progressive.h"
 #include "public/fpdf_save.h"
@@ -343,13 +342,6 @@ int CheckPDFiumCApi() {
     CHK(FPDF_RemoveFormFieldHighlight);
     CHK(FPDF_SetFormFieldHighlightAlpha);
     CHK(FPDF_SetFormFieldHighlightColor);
-
-    // fpdf_javascript.h
-    CHK(FPDFDoc_CloseJavaScriptAction);
-    CHK(FPDFDoc_GetJavaScriptAction);
-    CHK(FPDFDoc_GetJavaScriptActionCount);
-    CHK(FPDFJavaScriptAction_GetName);
-    CHK(FPDFJavaScriptAction_GetScript);
 
     // fpdf_ppo.h
     CHK(FPDF_CloseXObject);

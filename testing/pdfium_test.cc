@@ -2001,9 +2001,6 @@ int main(int argc, const char* argv[]) {
   FPDF_LIBRARY_CONFIG config;
   config.version = 6;
   config.m_pUserFontPaths = nullptr;
-  config.m_pIsolate = nullptr;
-  config.m_v8EmbedderSlot = 0;
-  config.m_pPlatform = nullptr;
   config.m_FontLibraryType = FPDF_FONTBACKENDTYPE_FREETYPE;
 #ifdef PDF_ENABLE_BROTLI
   config.m_BrotliEnabled = options.enable_brotli;

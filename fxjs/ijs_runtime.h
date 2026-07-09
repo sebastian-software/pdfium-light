@@ -18,9 +18,8 @@ class CJS_Runtime;
 class CPDFSDK_FormFillEnvironment;
 class IJS_EventContext;
 
-// Owns the FJXS objects needed to actually execute JS, if possible. This
-// virtual interface is backed by either an actual JS runtime, or a stub,
-// when JS is not present.
+// Provides the event-context facade still needed by formfill until it is
+// removed. It is backed only by a non-executing stub runtime.
 class IJS_Runtime {
  public:
   struct JS_Error {
@@ -46,8 +45,6 @@ class IJS_Runtime {
     UnownedPtr<IJS_EventContext> context_;
   };
 
-  static void Initialize(unsigned int slot, void* isolate, void* platform);
-  static void Destroy();
   static std::unique_ptr<IJS_Runtime> Create(
       CPDFSDK_FormFillEnvironment* pFormFillEnv);
 

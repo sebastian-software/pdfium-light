@@ -10,7 +10,6 @@
 #include "public/fpdf_edit.h"
 #if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
 #include "public/fpdf_formfill.h"
-#include "public/fpdf_javascript.h"
 #endif
 #include "public/fpdf_structtree.h"
 #include "public/fpdf_text.h"
@@ -52,11 +51,6 @@ struct FPDFFormHandleDeleter {
   }
 };
 
-struct FPDFJavaScriptActionDeleter {
-  inline void operator()(FPDF_JAVASCRIPT_ACTION javascript) {
-    FPDFDoc_CloseJavaScriptAction(javascript);
-  }
-};
 #endif
 
 struct FPDFPageDeleter {
