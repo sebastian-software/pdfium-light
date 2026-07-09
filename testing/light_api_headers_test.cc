@@ -27,6 +27,24 @@
 #include "public/fpdf_transformpage.h"
 #include "public/fpdfview.h"
 
+void CompileStaticAnnotationSurface(FPDF_PAGE page,
+                                    FPDF_ANNOTATION annotation,
+                                    FS_RECTF* rect,
+                                    unsigned int* color_component) {
+  FPDF_ANNOTATION created = FPDFPage_CreateAnnot(page, FPDF_ANNOT_HIGHLIGHT);
+  FPDFAnnot_SetColor(annotation, FPDFANNOT_COLORTYPE_Color,
+                     /*R=*/0, /*G=*/0, /*B=*/0, /*A=*/255);
+  FPDFAnnot_GetColor(annotation, FPDFANNOT_COLORTYPE_Color, color_component,
+                     color_component, color_component, color_component);
+  FPDFAnnot_SetRect(annotation, rect);
+  FPDFAnnot_GetRect(annotation, rect);
+  FPDFAnnot_IsSupportedSubtype(FPDF_ANNOT_HIGHLIGHT);
+  FPDFAnnot_IsSupportedSubtype(FPDF_ANNOT_FREETEXT);
+  FPDFAnnot_IsSupportedSubtype(FPDF_ANNOT_INK);
+  FPDFAnnot_IsSupportedSubtype(FPDF_ANNOT_WIDGET);
+  FPDFPage_CloseAnnot(created);
+}
+
 int main() {
   return 0;
 }
