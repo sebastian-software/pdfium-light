@@ -210,6 +210,16 @@ if (pdf_enable_light) {
       ":pdfium_public_config",
     ]
   }
+
+  group("pdfium_light_validation") {
+    testonly = true
+    deps = [
+      ":pdfium",
+      ":pdfium_embeddertests",
+      ":pdfium_light_public_headers_test",
+      ":pdfium_unittests",
+    ]
+  }
 }
 
 component("pdfium") {

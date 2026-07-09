@@ -126,7 +126,8 @@ Removals should be staged:
 
 ## Validation Expectations
 
-Each removal stage should prove:
+Each removal stage should run the gate in
+[`docs/validation.md`](../validation.md) and prove:
 
 - the retained public headers compile for supported platforms;
 - the retained library builds without V8, XFA, form filler, and PWL targets;
@@ -144,4 +145,3 @@ maintenance burden for the intended static-document use case.
 It also makes pdfium-light intentionally incompatible with consumers that need
 forms, XFA, JavaScript, or PDF viewer-style interaction. Those consumers should
 use full PDFium instead.
-
