@@ -142,8 +142,7 @@ TEST_F(CPDFSecurityHandlerEmbedderTest, PasswordAfterGenerateSave) {
   constexpr char kBasename[] = "encrypted";
   {
     ASSERT_TRUE(OpenDocumentWithOptions("encrypted.pdf", "5678",
-                                        LinearizeOption::kMustLinearize,
-                                        JavaScriptOption::kEnableJavaScript));
+                                        LinearizeOption::kMustLinearize));
     ScopedPage page = LoadScopedPage(0);
     ASSERT_TRUE(page);
     FPDF_PAGEOBJECT red_rect = FPDFPageObj_CreateNewRect(10, 10, 20, 20);

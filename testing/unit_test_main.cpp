@@ -10,13 +10,6 @@
 #include "testing/allocator_shim_config.h"
 #endif
 
-#ifdef PDF_ENABLE_V8
-#include "testing/v8_test_environment.h"
-#ifdef PDF_ENABLE_XFA
-#include "testing/xfa_test_environment.h"
-#endif  // PDF_ENABLE_XFA
-#endif  // PDF_ENABLE_V8
-
 // Can't use gtest-provided main since we need to initialize partition
 // alloc before invoking any test, and add test environments.
 int main(int argc, char** argv) {
@@ -26,15 +19,6 @@ int main(int argc, char** argv) {
 
   // PDF test environment will be deleted by gtest.
   AddGlobalTestEnvironment(new PDFTestEnvironment());
-
-#ifdef PDF_ENABLE_V8
-  // V8 test environment will be deleted by gtest.
-  AddGlobalTestEnvironment(new V8TestEnvironment(argv[0]));
-#ifdef PDF_ENABLE_XFA
-  // XFA test environment will be deleted by gtest.
-  AddGlobalTestEnvironment(new XFATestEnvironment());
-#endif  // PDF_ENABLE_XFA
-#endif  // PDF_ENABLE_V8
 
   testing::InitGoogleTest(&argc, argv);
   testing::InitGoogleMock(&argc, argv);

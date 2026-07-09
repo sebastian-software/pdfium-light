@@ -85,7 +85,7 @@ To run different tests than the default set, including running just a single
 test, you can specify the test names on the command line. The list of supported
 tests can be found by running the script with `--help`.
 
-For example, running all of the tests that don't use pdfium_test:
+For example, running the retained light test binaries:
 
 ```shell
 testing/tools/coverage/coverage_report.py pdfium_unittests pdfium_embeddertests

@@ -100,9 +100,6 @@ pdf_enable_v8 = false    # JavaScript execution has been removed.
 is_component_build = false # Disable component build (Though it should work)
 ```
 
-In order to minimize the build time for embedder applications, test executables
-like `pdfium_test` are not built by default. To build these, add the argument
-`pdf_is_standalone = true`.
 
 By default, the entire project builds with C++20.
 
@@ -118,59 +115,23 @@ use\_sysroot as indicated above.
 
 ## Building the code
 
-You can build the standalone test program by running:
-`ninja -C <directory> pdfium_test`
-You can build the entire product (which includes a few unit tests) by running:
+Build the library with:
+`ninja -C <directory> pdfium`
+
+Build the retained light validation targets with:
 `ninja -C <directory> pdfium_all`
 
-## Running the standalone test program
-
-The pdfium\_test program supports reading, parsing, and rasterizing the pages of
-a .pdf file to .ppm or .png output image files (Windows supports two other
-formats). For example: `<directory>/pdfium_test --ppm path/to/myfile.pdf`. Note
-that this will write output images to `path/to/myfile.pdf.<n>.ppm`.
-Run `pdfium_test --help` to see all the options.
 
 ## Testing
 
-There are currently several test suites that can be run:
+The retained light validation targets are:
 
  * pdfium\_unittests
  * pdfium\_embeddertests
- * testing/tools/run\_corpus\_tests.py
- * testing/tools/run\_javascript\_tests.py
- * testing/tools/run\_pixel\_tests.py
 
-It is possible the tests in the `testing` directory can fail due to font
-differences on the various platforms. These tests are reliable on the bots. If
-you see failures, it can be a good idea to run the tests on the tip-of-tree
-checkout to see if the same failures appear.
-
-### Pixel Tests
-
-If your change affects rendering, a pixel test should be added. Simply add a
-`.in` or `.pdf` file in `testing/resources/pixel` and the pixel runner will
-pick it up at the next run.
-
-Make sure that your test case doesn't have any copyright issues. It should also
-be a minimal test case focusing on the bug that renders the same way in many
-PDF viewers. Try to avoid binary data in streams by using the `ASCIIHexDecode`
-simply because it makes the PDF more readable in a text editor.
-
-To try out your new test, you can call the `run_pixel_tests.py` script:
-
-```bash
-$ ./testing/tools/run_pixel_tests.py your_new_file.in
-```
-
-To generate the expected image, you can use the `make_expected.sh` script:
-
-```bash
-$ ./testing/tools/make_expected.sh your_new_file.pdf
-```
-
-Please make sure to have `optipng` installed which optimized the file size of
-the resulting png.
+Run them through `pdfium_all` or individually from the configured Ninja output
+directory. The legacy `pdfium_test` executable and the corpus, JavaScript, and
+pixel runners that depend on it are not part of pdfium-light.
 
 ### `.in` files
 

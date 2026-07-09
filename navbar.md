@@ -8,7 +8,5 @@ found in the LICENSE file.
 
 * [Home](/README.md)
 * [Getting Started](/docs/getting-started.md)
-* [V8 Getting Started](/docs/v8-getting-started.md)
-* [SafetyNet](/docs/safetynet.md)
 
 [home]: /README.md

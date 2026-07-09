@@ -1197,12 +1197,7 @@ TEST_F(FPDFViewEmbedderTest, FPDFGetPageSizeByIndexF) {
   EXPECT_FLOAT_EQ(300.0f, size.height);
 
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document());
-#ifdef PDF_ENABLE_XFA
-  // TODO(tsepez): XFA must obtain this size without parsing.
-  EXPECT_EQ(1u, doc->GetParsedPageCountForTesting());
-#else   // PDF_ENABLE_XFA
-  EXPECT_EQ(0u, doc->GetParsedPageCountForTesting());
-#endif  // PDF_ENABLE_XFA
+EXPECT_EQ(0u, doc->GetParsedPageCountForTesting());
 
   // Double-check against values from when page is actually parsed.
   ScopedPage page = LoadScopedPage(0);
@@ -1234,12 +1229,7 @@ TEST_F(FPDFViewEmbedderTest, FPDFGetPageSizeByIndex) {
   EXPECT_EQ(300.0, height);
 
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document());
-#ifdef PDF_ENABLE_XFA
-  // TODO(tsepez): XFA must obtain this size without parsing.
-  EXPECT_EQ(1u, doc->GetParsedPageCountForTesting());
-#else   // PDF_ENABLE_XFA
-  EXPECT_EQ(0u, doc->GetParsedPageCountForTesting());
-#endif  // PDF_ENABLE_XFA
+EXPECT_EQ(0u, doc->GetParsedPageCountForTesting());
 
   // Double-check against values from when page is actually parsed.
   ScopedPage page = LoadScopedPage(0);
@@ -1277,96 +1267,6 @@ TEST_F(FPDFViewEmbedderTest, CroppedNoOverlapPageSize) {
   EXPECT_DOUBLE_EQ(0.0, height);
 }
 
-TEST_F(FPDFViewEmbedderTest, GetXFAArrayData) {
-  static constexpr struct {
-    int index;
-    const char* name;
-    size_t content_length;
-    const char* content_checksum;
-  } kTestCases[]{
-      {0, "preamble", 124u, "71be364e53292596412242bfcdb46eab"},
-      {1, "config", 642u, "bcd1ca1d420ee31a561273a54a06435f"},
-      {2, "template", 541u, "0f48cb2fa1bb9cbf9eee802d66e81bf4"},
-      {3, "localeSet", 3455u, "bb1f253d3e5c719ac0da87d055bc164e"},
-      {4, "postamble", 11u, "6b79e25da35d86634ea27c38f64cf243"},
-  };
-
-  ASSERT_TRUE(OpenDocument("simple_xfa.pdf"));
-  ASSERT_EQ(static_cast<int>(std::size(kTestCases)),
-            FPDF_GetXFAPacketCount(document()));
-
-  for (const auto& testcase : kTestCases) {
-    char name_buffer[20] = {};
-    ASSERT_EQ(strlen(testcase.name) + 1,
-              FPDF_GetXFAPacketName(document(), testcase.index, nullptr, 0));
-    EXPECT_EQ(strlen(testcase.name) + 1,
-              FPDF_GetXFAPacketName(document(), testcase.index, name_buffer,
-                                    sizeof(name_buffer)));
-    EXPECT_STREQ(testcase.name, name_buffer);
-
-    unsigned long buflen;
-    ASSERT_TRUE(FPDF_GetXFAPacketContent(document(), testcase.index, nullptr, 0,
-                                         &buflen));
-    ASSERT_EQ(testcase.content_length, buflen);
-    std::vector<uint8_t> data_buffer(buflen);
-    EXPECT_TRUE(FPDF_GetXFAPacketContent(document(), testcase.index,
-                                         data_buffer.data(), data_buffer.size(),
-                                         &buflen));
-    EXPECT_EQ(testcase.content_length, buflen);
-    EXPECT_EQ(testcase.content_checksum, GenerateMD5Base16(data_buffer));
-  }
-
-  // Test bad parameters.
-  EXPECT_EQ(-1, FPDF_GetXFAPacketCount(nullptr));
-
-  EXPECT_EQ(0u, FPDF_GetXFAPacketName(nullptr, 0, nullptr, 0));
-  EXPECT_EQ(0u, FPDF_GetXFAPacketName(document(), -1, nullptr, 0));
-  EXPECT_EQ(
-      0u, FPDF_GetXFAPacketName(document(), std::size(kTestCases), nullptr, 0));
-
-  unsigned long buflen = 123;
-  EXPECT_FALSE(FPDF_GetXFAPacketContent(nullptr, 0, nullptr, 0, &buflen));
-  EXPECT_EQ(123u, buflen);
-  EXPECT_FALSE(FPDF_GetXFAPacketContent(document(), -1, nullptr, 0, &buflen));
-  EXPECT_EQ(123u, buflen);
-  EXPECT_FALSE(FPDF_GetXFAPacketContent(document(), std::size(kTestCases),
-                                        nullptr, 0, &buflen));
-  EXPECT_EQ(123u, buflen);
-  EXPECT_FALSE(FPDF_GetXFAPacketContent(document(), 0, nullptr, 0, nullptr));
-}
-
-TEST_F(FPDFViewEmbedderTest, GetXFAStreamData) {
-  ASSERT_TRUE(OpenDocument("bug_1265.pdf"));
-
-  ASSERT_EQ(1, FPDF_GetXFAPacketCount(document()));
-
-  char name_buffer[20] = {};
-  ASSERT_EQ(1u, FPDF_GetXFAPacketName(document(), 0, nullptr, 0));
-  EXPECT_EQ(1u, FPDF_GetXFAPacketName(document(), 0, name_buffer,
-                                      sizeof(name_buffer)));
-  EXPECT_STREQ("", name_buffer);
-
-  unsigned long buflen;
-  ASSERT_TRUE(FPDF_GetXFAPacketContent(document(), 0, nullptr, 0, &buflen));
-  ASSERT_EQ(121u, buflen);
-  std::vector<uint8_t> data_buffer(buflen);
-  EXPECT_TRUE(FPDF_GetXFAPacketContent(document(), 0, data_buffer.data(),
-                                       data_buffer.size(), &buflen));
-  EXPECT_EQ(121u, buflen);
-  EXPECT_EQ("8f912eaa1e66c9341cb3032ede71e147", GenerateMD5Base16(data_buffer));
-}
-
-TEST_F(FPDFViewEmbedderTest, GetXFADataForNoForm) {
-  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
-
-  EXPECT_EQ(0, FPDF_GetXFAPacketCount(document()));
-}
-
-TEST_F(FPDFViewEmbedderTest, GetXFADataForAcroForm) {
-  ASSERT_TRUE(OpenDocument("text_form.pdf"));
-
-  EXPECT_EQ(0, FPDF_GetXFAPacketCount(document()));
-}
 
 class RecordUnsupportedErrorDelegate final : public EmbedderTest::Delegate {
  public:
@@ -1965,16 +1865,6 @@ TEST_F(FPDFViewEmbedderTest, GetTrailerEndsWhitespace) {
   EXPECT_EQ(kExpectedEnds, ends);
 }
 
-TEST_F(FPDFViewEmbedderTest, RenderXfaPage) {
-  ASSERT_TRUE(OpenDocument("simple_xfa.pdf"));
-
-  ScopedPage page = LoadScopedPage(0);
-  ASSERT_TRUE(page);
-
-  // Should always be blank, as we're not testing `FPDF_FFLDraw()` here.
-  TestRenderPageBitmapWithFlags(page.get(), 0, pdfium::kBlankPage612By792Png);
-}
-
 #if defined(PDF_USE_SKIA)
 TEST_F(FPDFViewEmbedderTest, RenderPageToSkp) {
   if (!CFX_GEModule::Get()->UseSkiaRenderer()) {
@@ -1987,20 +1877,6 @@ TEST_F(FPDFViewEmbedderTest, RenderPageToSkp) {
   ASSERT_TRUE(page);
 
   TestRenderPageSkp(page.get(), pdfium::kRectanglesPng);
-}
-
-TEST_F(FPDFViewEmbedderTest, RenderXfaPageToSkp) {
-  if (!CFX_GEModule::Get()->UseSkiaRenderer()) {
-    GTEST_SKIP() << "FPDF_RenderPageSkp() only makes sense with Skia";
-  }
-
-  ASSERT_TRUE(OpenDocument("simple_xfa.pdf"));
-
-  ScopedPage page = LoadScopedPage(0);
-  ASSERT_TRUE(page);
-
-  // Should always be blank, as we're not testing `FPDF_FFLRecord()` here.
-  TestRenderPageSkp(page.get(), pdfium::kBlankPage612By792Png);
 }
 
 TEST_F(FPDFViewEmbedderTest, Bug2087) {

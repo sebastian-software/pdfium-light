@@ -158,27 +158,27 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFAvail_IsPageAvail(FPDF_AVAIL avail,
                                                     int page_index,
                                                     FX_DOWNLOADHINTS* hints);
 
-// Check if form data is ready for initialization, if not, get the
+// Check if form data is available to the incremental loader, if not, get the
 // |FX_DOWNLOADHINTS|.
 //
 //   avail - handle to document availability provider.
-//   hints - pointer to a download hints interface. Populated if form is not
-//           ready for initialization.
+//   hints - pointer to a download hints interface. Populated if form data is not
+//           available yet.
 //
 // Returns one of:
-//   PDF_FORM_ERROR: A common eror, in general incorrect parameters.
+//   PDF_FORM_ERROR: A common error, in general incorrect parameters.
 //   PDF_FORM_NOTAVAIL: Data not available.
-//   PDF_FORM_AVAIL: Data available.
+//   PDF_FORM_AVAIL: Form data available.
 //   PDF_FORM_NOTEXIST: No form data.
 //
 // This function can be called only after FPDFAvail_GetDocument() is called.
 // The application should call this function whenever new data arrives and
-// process all the generated download |hints|, if any, until the function
+// process all the generated download |hints|, if any, until the function returns
 // |PDF_FORM_ERROR|, |PDF_FORM_AVAIL| or |PDF_FORM_NOTEXIST|.
-// if hints is nullptr, the function just check current form availability.
+// If hints is nullptr, the function just checks current form-data availability.
 //
-// Applications can then perform page loading. It is recommend to call
-// FPDFDOC_InitFormFillEnvironment() when |PDF_FORM_AVAIL| is returned.
+// pdfium-light does not expose a form-fill environment. Applications can use
+// this result only as an availability hint before page-count/page-loading APIs.
 FPDF_EXPORT int FPDF_CALLCONV FPDFAvail_IsFormAvail(FPDF_AVAIL avail,
                                                     FX_DOWNLOADHINTS* hints);
 
