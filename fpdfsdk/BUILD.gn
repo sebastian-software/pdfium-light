@@ -7,34 +7,16 @@ import("../testing/test.gni")
 
 source_set("fpdfsdk") {
   sources = [
-    "cpdfsdk_annot.cpp",
-    "cpdfsdk_annot.h",
-    "cpdfsdk_annotiteration.cpp",
-    "cpdfsdk_annotiteration.h",
-    "cpdfsdk_annotiterator.cpp",
-    "cpdfsdk_annotiterator.h",
-    "cpdfsdk_appstream.cpp",
-    "cpdfsdk_appstream.h",
-    "cpdfsdk_baannot.cpp",
-    "cpdfsdk_baannot.h",
     "cpdfsdk_customaccess.cpp",
     "cpdfsdk_customaccess.h",
     "cpdfsdk_filewriteadapter.cpp",
     "cpdfsdk_filewriteadapter.h",
-    "cpdfsdk_formfillenvironment.cpp",
-    "cpdfsdk_formfillenvironment.h",
     "cpdfsdk_helpers.cpp",
     "cpdfsdk_helpers.h",
-    "cpdfsdk_interactiveform.cpp",
-    "cpdfsdk_interactiveform.h",
-    "cpdfsdk_pageview.cpp",
-    "cpdfsdk_pageview.h",
     "cpdfsdk_pauseadapter.cpp",
     "cpdfsdk_pauseadapter.h",
     "cpdfsdk_renderpage.cpp",
     "cpdfsdk_renderpage.h",
-    "cpdfsdk_widget.cpp",
-    "cpdfsdk_widget.h",
     "fpdf_annot.cpp",
     "fpdf_attachment.cpp",
     "fpdf_catalog.cpp",
@@ -46,7 +28,6 @@ source_set("fpdfsdk") {
     "fpdf_edittext.cpp",
     "fpdf_ext.cpp",
     "fpdf_flatten.cpp",
-    "fpdf_formfill.cpp",
     "fpdf_ppo.cpp",
     "fpdf_progressive.cpp",
     "fpdf_save.cpp",
@@ -79,13 +60,6 @@ source_set("fpdfsdk") {
     "../core/fxcodec",
     "../core/fxcrt",
     "../core/fxge",
-    "../fxjs",
-    "formfiller",
-    "pwl",
-  ]
-  allow_circular_includes_from = [
-    "../fxjs",
-    "formfiller",
   ]
   visibility = [ "../*" ]
 }
@@ -96,7 +70,6 @@ pdfium_unittest_source_set("unittests") {
     "fpdf_catalog_unittest.cpp",
     "fpdf_doc_unittest.cpp",
     "fpdf_edit_unittest.cpp",
-    "fpdf_view_unittest.cpp",
   ]
   deps = [
     ":fpdfsdk",
@@ -113,9 +86,6 @@ pdfium_unittest_source_set("unittests") {
 
 pdfium_embeddertest_source_set("embeddertests") {
   sources = [
-    "cpdfsdk_annotiterator_embeddertest.cpp",
-    "cpdfsdk_baannot_embeddertest.cpp",
-    "fpdf_annot_embeddertest.cpp",
     "fpdf_attachment_embeddertest.cpp",
     "fpdf_catalog_embeddertest.cpp",
     "fpdf_dataavail_embeddertest.cpp",
@@ -126,7 +96,6 @@ pdfium_embeddertest_source_set("embeddertests") {
     "fpdf_editpath_embeddertest.cpp",
     "fpdf_ext_embeddertest.cpp",
     "fpdf_flatten_embeddertest.cpp",
-    "fpdf_formfill_embeddertest.cpp",
     "fpdf_ppo_embeddertest.cpp",
     "fpdf_save_embeddertest.cpp",
     "fpdf_searchex_embeddertest.cpp",
@@ -136,8 +105,6 @@ pdfium_embeddertest_source_set("embeddertests") {
     "fpdf_text_embeddertest.cpp",
     "fpdf_thumbnail_embeddertest.cpp",
     "fpdf_transformpage_embeddertest.cpp",
-    "fpdf_view_c_api_test.c",
-    "fpdf_view_c_api_test.h",
     "fpdf_view_embeddertest.cpp",
   ]
   deps = [

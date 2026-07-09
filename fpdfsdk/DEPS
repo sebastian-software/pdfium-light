@@ -1,6 +1,5 @@
 include_rules = [
   '+core',
-  '+fxjs',
   '+public',
   '+v8',
 ]

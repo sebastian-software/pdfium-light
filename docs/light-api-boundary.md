@@ -20,35 +20,26 @@ ordinary annotations, and page transforms. It includes:
 - `fpdf_dataavail.h`, `fpdf_progressive.h`, `fpdf_searchex.h`,
   `fpdf_sysfontinfo.h`, and `fpdf_thumbnail.h` where they support static
   loading, rendering, search, or font configuration;
-- `public/cpp/fpdf_deleters.h` and `public/cpp/fpdf_scopers.h`, excluding
-  form and JavaScript helpers in light mode.
+- `public/cpp/fpdf_deleters.h` and `public/cpp/fpdf_scopers.h`.
 
-`fpdf_formfill.h` and `fpdf_fwlevent.h` are not part of the light export.
-`fpdf_javascript.h` has been removed. `fpdf_annot.h` does not pull in
-`fpdf_formfill.h` for a light consumer and hides its form-specific helpers. #6 removes their implementations
-and the temporary implementation-only declarations after Formfill/PWL is gone,
-without withdrawing ordinary annotation support.
+`fpdf_formfill.h`, `fpdf_fwlevent.h`, and `fpdf_javascript.h` have been
+removed. `fpdf_annot.h` contains only the ordinary, non-widget annotation API.
 
 `//:pdfium_light_public_headers_test` compiles the full retained header set as
 an external consumer would, without `FPDF_IMPLEMENTATION`.
 
 ## Removal seams
 
-The current `fpdfsdk` source set still combines static APIs with
-`cpdfsdk_*` viewer code and has direct dependencies on `fxjs`, `formfiller`,
-and `pwl`. The top-level `pdfium` target also depends directly on `fxjs` and
-`fpdfsdk/formfiller`. These are internal transitional dependencies, not part
-of the light public contract.
+The retained `fpdfsdk` source set implements static document APIs only. The
+interactive form-fill environment, widget event layer, PWL controls, and
+JavaScript callback paths are absent from the build graph.
 
-- #5 removes the JS/V8 branch. Only the non-executing `fxjs` stub remains
-  temporarily for Formfill.
+- #5 removes the JS/V8 branch.
 - #3 removed the XFA branch, including `xfa/`, `fpdfsdk/fpdfxfa`,
   `fxjs/xfa`, and XFA-only barcode support. `pdf_enable_xfa=true` now fails
   configuration explicitly.
-- #4 removes Formfill/PWL and splits the viewer-dependent `fpdfsdk` code from
-  retained static API implementations.
-- #6 removes the form-specific implementations and implementation-only
-  declarations in `fpdf_annot.h` while keeping ordinary annotations.
+- #4 removes Formfill/PWL, widget interaction, and form-specific annotation
+  APIs while keeping ordinary annotations.
 
 The audit log records removal status and validation evidence. A header hidden
 from this manifest is not evidence that its implementation has been deleted.

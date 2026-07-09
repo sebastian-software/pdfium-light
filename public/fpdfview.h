@@ -26,12 +26,6 @@
 #include <windows.h>
 #endif
 
-#if defined(PDF_ENABLE_XFA) && \
-    (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
-// PDF_USE_XFA is set in confirmation that this version of PDFium can support
-// XFA forms as requested by the PDF_ENABLE_XFA setting.
-#define PDF_USE_XFA
-#endif  // defined(PDF_ENABLE_XFA) && (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 
 // PDF object types
 #define FPDF_OBJECT_UNKNOWN 0
@@ -70,9 +64,6 @@ typedef struct fpdf_clippath_t__* FPDF_CLIPPATH;
 typedef struct fpdf_dest_t__* FPDF_DEST;
 typedef struct fpdf_document_t__* FPDF_DOCUMENT;
 typedef struct fpdf_font_t__* FPDF_FONT;
-#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
-typedef struct fpdf_form_handle_t__* FPDF_FORMHANDLE;
-#endif
 typedef const struct fpdf_glyphpath_t__* FPDF_GLYPHPATH;
 typedef struct fpdf_link_t__* FPDF_LINK;
 typedef struct fpdf_page_t__* FPDF_PAGE;
@@ -119,16 +110,6 @@ typedef const char* FPDF_BYTESTRING;
 // The public PDFium API always uses UTF-16LE encoded wide strings, each
 // character uses 2 bytes (except surrogation), with the low byte first.
 typedef const FPDF_WCHAR* FPDF_WIDESTRING;
-
-// XFA-only structure for persisting a string beyond the duration of a callback.
-// Note: although represented as a char*, string may be interpreted as
-// a UTF-16LE formated string. Used only by XFA callbacks.
-#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
-typedef struct FPDF_BSTR_ {
-  char* str;  // String buffer, manipulate only with FPDF_BStr_* methods.
-  int len;    // Length of the string, in bytes.
-} FPDF_BSTR;
-#endif
 
 // For Windows programmers: In most cases it's OK to treat FPDF_WIDESTRING as a
 // Windows unicode string, however, special care needs to be taken if you
@@ -424,10 +405,6 @@ FPDF_LoadDocument(FPDF_STRING file_path, FPDF_BYTESTRING password);
 //
 //          See the comments for FPDF_LoadDocument() regarding the encoding for
 //          |password|.
-// Notes:
-//          If PDFium is built with the XFA module, the application should call
-//          FPDF_LoadXFA() function after the PDF document loaded to support XFA
-//          fields defined in the fpdfformfill.h file.
 FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
 FPDF_LoadMemDocument(const void* data_buf, int size, FPDF_BYTESTRING password);
 
@@ -449,10 +426,6 @@ FPDF_LoadMemDocument(const void* data_buf, int size, FPDF_BYTESTRING password);
 //
 //          See the comments for FPDF_LoadDocument() regarding the encoding for
 //          |password|.
-// Notes:
-//          If PDFium is built with the XFA module, the application should call
-//          FPDF_LoadXFA() function after the PDF document loaded to support XFA
-//          fields defined in the fpdfformfill.h file.
 FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
 FPDF_LoadMemDocument64(const void* data_buf,
                        size_t size,
@@ -480,87 +453,6 @@ typedef struct {
   void* m_Param;
 } FPDF_FILEACCESS;
 
-// XFA-only structure for file reading or writing (I/O).
-//
-// Note: This is a handler and should be implemented by callers,
-// and is only used from XFA.
-#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
-typedef struct FPDF_FILEHANDLER_ {
-  // User-defined data.
-  // Note: Callers can use this field to track controls.
-  void* clientData;
-
-  // Callback function to release the current file stream object.
-  //
-  // Parameters:
-  //       clientData   -  Pointer to user-defined data.
-  // Returns:
-  //       None.
-  void (*Release)(void* clientData);
-
-  // Callback function to retrieve the current file stream size.
-  //
-  // Parameters:
-  //       clientData   -  Pointer to user-defined data.
-  // Returns:
-  //       Size of file stream.
-  FPDF_DWORD (*GetSize)(void* clientData);
-
-  // Callback function to read data from the current file stream.
-  //
-  // Parameters:
-  //       clientData   -  Pointer to user-defined data.
-  //       offset       -  Offset position starts from the beginning of file
-  //                       stream. This parameter indicates reading position.
-  //       buffer       -  Memory buffer to store data which are read from
-  //                       file stream. This parameter should not be NULL.
-  //       size         -  Size of data which should be read from file stream,
-  //                       in bytes. The buffer indicated by |buffer| must be
-  //                       large enough to store specified data.
-  // Returns:
-  //       0 for success, other value for failure.
-  FPDF_RESULT (*ReadBlock)(void* clientData,
-                           FPDF_DWORD offset,
-                           void* buffer,
-                           FPDF_DWORD size);
-
-  // Callback function to write data into the current file stream.
-  //
-  // Parameters:
-  //       clientData   -  Pointer to user-defined data.
-  //       offset       -  Offset position starts from the beginning of file
-  //                       stream. This parameter indicates writing position.
-  //       buffer       -  Memory buffer contains data which is written into
-  //                       file stream. This parameter should not be NULL.
-  //       size         -  Size of data which should be written into file
-  //                       stream, in bytes.
-  // Returns:
-  //       0 for success, other value for failure.
-  FPDF_RESULT (*WriteBlock)(void* clientData,
-                            FPDF_DWORD offset,
-                            const void* buffer,
-                            FPDF_DWORD size);
-  // Callback function to flush all internal accessing buffers.
-  //
-  // Parameters:
-  //       clientData   -  Pointer to user-defined data.
-  // Returns:
-  //       0 for success, other value for failure.
-  FPDF_RESULT (*Flush)(void* clientData);
-
-  // Callback function to change file size.
-  //
-  // Description:
-  //       This function is called under writing mode usually. Implementer
-  //       can determine whether to realize it based on application requests.
-  // Parameters:
-  //       clientData   -  Pointer to user-defined data.
-  //       size         -  New size of file stream, in bytes.
-  // Returns:
-  //       0 for success, other value for failure.
-  FPDF_RESULT (*Truncate)(void* clientData, FPDF_DWORD size);
-} FPDF_FILEHANDLER;
-#endif
 
 // Function: FPDF_LoadCustomDocument
 //          Load PDF document from a custom access descriptor.
@@ -578,10 +470,6 @@ typedef struct FPDF_FILEHANDLER_ {
 //
 //          See the comments for FPDF_LoadDocument() regarding the encoding for
 //          |password|.
-// Notes:
-//          If PDFium is built with the XFA module, the application should call
-//          FPDF_LoadXFA() function after the PDF document loaded to support XFA
-//          fields defined in the fpdfformfill.h file.
 FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
 FPDF_LoadCustomDocument(FPDF_FILEACCESS* pFileAccess, FPDF_BYTESTRING password);
 
@@ -606,11 +494,6 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDF_GetFileVersion(FPDF_DOCUMENT doc,
 #define FPDF_ERR_PASSWORD 4   // Password required or incorrect password.
 #define FPDF_ERR_SECURITY 5   // Unsupported security scheme.
 #define FPDF_ERR_PAGE 6       // Page not found or content error.
-#if defined(PDF_ENABLE_XFA) && \
-    (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
-#define FPDF_ERR_XFALOAD 7    // Load XFA error.
-#define FPDF_ERR_XFALAYOUT 8  // Layout XFA error.
-#endif  // defined(PDF_ENABLE_XFA) && (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 
 // Function: FPDF_GetLastError
 //          Get last error code when a function fails.
@@ -1390,84 +1273,7 @@ FPDF_EXPORT FPDF_DEST FPDF_CALLCONV FPDF_GetNamedDest(FPDF_DOCUMENT document,
                                                       void* buffer,
                                                       long* buflen);
 
-// XFA-only API.
-// Experimental API.
-// Function: FPDF_GetXFAPacketCount
-//          Get the number of valid packets in the XFA entry.
-// Parameters:
-//          document - Handle to the document.
-// Return value:
-//          The number of valid packets, or -1 on error.
-#if !defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION)
-FPDF_EXPORT int FPDF_CALLCONV FPDF_GetXFAPacketCount(FPDF_DOCUMENT document);
 
-// Experimental API.
-// Function: FPDF_GetXFAPacketName
-//          Get the name of a packet in the XFA array.
-// Parameters:
-//          document - Handle to the document.
-//          index    - Index number of the packet. 0 for the first packet.
-//          buffer   - Buffer for holding the name of the XFA packet.
-//          buflen   - Length of |buffer| in bytes.
-// Return value:
-//          The length of the packet name in bytes, or 0 on error.
-//
-// |document| must be valid and |index| must be in the range [0, N), where N is
-// the value returned by FPDF_GetXFAPacketCount().
-// |buffer| is only modified if it is non-NULL and |buflen| is greater than or
-// equal to the length of the packet name. The packet name includes a
-// terminating NUL character. |buffer| is unmodified on error.
-FPDF_EXPORT unsigned long FPDF_CALLCONV FPDF_GetXFAPacketName(
-    FPDF_DOCUMENT document,
-    int index,
-    void* buffer,
-    unsigned long buflen);
-
-// Experimental API.
-// Function: FPDF_GetXFAPacketContent
-//          Get the content of a packet in the XFA array.
-// Parameters:
-//          document   - Handle to the document.
-//          index      - Index number of the packet. 0 for the first packet.
-//          buffer     - Buffer for holding the content of the XFA packet.
-//          buflen     - Length of |buffer| in bytes.
-//          out_buflen - Pointer to the variable that will receive the minimum
-//                       buffer size needed to contain the content of the XFA
-//                       packet.
-// Return value:
-//          Whether the operation succeeded or not.
-//
-// |document| must be valid and |index| must be in the range [0, N), where N is
-// the value returned by FPDF_GetXFAPacketCount(). |out_buflen| must not be
-// NULL. When the aforementioned arguments are valid, the operation succeeds,
-// and |out_buflen| receives the content size. |buffer| is only modified if
-// |buffer| is non-null and long enough to contain the content. Callers must
-// check both the return value and the input |buflen| is no less than the
-// returned |out_buflen| before using the data in |buffer|.
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDF_GetXFAPacketContent(
-    FPDF_DOCUMENT document,
-    int index,
-    void* buffer,
-    unsigned long buflen,
-    unsigned long* out_buflen);
-#endif
-
-#if defined(PDF_ENABLE_XFA) && \
-    (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
-// Function: FPDF_BStr_Init
-//          Helper function to initialize a FPDF_BSTR.
-FPDF_EXPORT FPDF_RESULT FPDF_CALLCONV FPDF_BStr_Init(FPDF_BSTR* bstr);
-
-// Function: FPDF_BStr_Set
-//          Helper function to copy string data into the FPDF_BSTR.
-FPDF_EXPORT FPDF_RESULT FPDF_CALLCONV FPDF_BStr_Set(FPDF_BSTR* bstr,
-                                                    const char* cstr,
-                                                    int length);
-
-// Function: FPDF_BStr_Clear
-//          Helper function to clear a FPDF_BSTR.
-FPDF_EXPORT FPDF_RESULT FPDF_CALLCONV FPDF_BStr_Clear(FPDF_BSTR* bstr);
-#endif  // defined(PDF_ENABLE_XFA) && (!defined(PDFIUM_LIGHT) || defined(FPDF_IMPLEMENTATION))
 
 #ifdef __cplusplus
 }

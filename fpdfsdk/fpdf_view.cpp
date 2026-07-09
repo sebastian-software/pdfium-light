@@ -57,7 +57,6 @@
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "fpdfsdk/cpdfsdk_pageview.h"
 #include "fpdfsdk/cpdfsdk_renderpage.h"
-#include "public/fpdf_formfill.h"
 
 #if defined(PDF_ENABLE_BROTLI)
 #include "core/fxcodec/brotli/brotli_decoder.h"
@@ -108,61 +107,6 @@ static_assert(static_cast<int>(CFX_GEModule::RendererType::kSkia) ==
 namespace {
 
 bool g_bLibraryInitialized = false;
-
-RetainPtr<const CPDF_Object> GetXFAEntryFromDocument(const CPDF_Document* doc) {
-  const CPDF_Dictionary* root = doc->GetRoot();
-  if (!root) {
-    return nullptr;
-  }
-
-  RetainPtr<const CPDF_Dictionary> acro_form =
-      root->GetDictFor(pdfium::catalog::kAcroForm);
-  return acro_form ? acro_form->GetObjectFor("XFA") : nullptr;
-}
-
-struct XFAPacket {
-  ByteString name;
-  RetainPtr<const CPDF_Stream> data;
-};
-
-std::vector<XFAPacket> GetXFAPackets(RetainPtr<const CPDF_Object> xfa_object) {
-  std::vector<XFAPacket> packets;
-
-  if (!xfa_object) {
-    return packets;
-  }
-
-  RetainPtr<const CPDF_Stream> xfa_stream = ToStream(xfa_object->GetDirect());
-  if (xfa_stream) {
-    packets.push_back({"", std::move(xfa_stream)});
-    return packets;
-  }
-
-  RetainPtr<const CPDF_Array> xfa_array = ToArray(xfa_object->GetDirect());
-  if (!xfa_array) {
-    return packets;
-  }
-
-  packets.reserve(1 + (xfa_array->size() / 2));
-  for (size_t i = 0; i < xfa_array->size(); i += 2) {
-    if (i + 1 == xfa_array->size()) {
-      break;
-    }
-
-    RetainPtr<const CPDF_String> name = xfa_array->GetStringAt(i);
-    if (!name) {
-      continue;
-    }
-
-    RetainPtr<const CPDF_Stream> data = xfa_array->GetStreamAt(i + 1);
-    if (!data) {
-      continue;
-    }
-
-    packets.push_back({name->GetString(), std::move(data)});
-  }
-  return packets;
-}
 
 FPDF_DOCUMENT LoadDocumentImpl(RetainPtr<IFX_SeekableReadStream> pFileAccess,
                                FPDF_BYTESTRING password) {
@@ -286,47 +230,6 @@ FPDF_LoadDocument(FPDF_STRING file_path, FPDF_BYTESTRING password) {
   // other side of this API.
   return LoadDocumentImpl(CFX_FileAccessStream::CreateFromFilename(file_path),
                           password);
-}
-
-FPDF_EXPORT int FPDF_CALLCONV FPDF_GetFormType(FPDF_DOCUMENT document) {
-  const CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  if (!doc) {
-    return FORMTYPE_NONE;
-  }
-
-  const CPDF_Dictionary* pRoot = doc->GetRoot();
-  if (!pRoot) {
-    return FORMTYPE_NONE;
-  }
-
-  RetainPtr<const CPDF_Dictionary> pAcroForm =
-      pRoot->GetDictFor(pdfium::catalog::kAcroForm);
-  if (!pAcroForm) {
-    return FORMTYPE_NONE;
-  }
-
-  RetainPtr<const CPDF_Object> pXFA = pAcroForm->GetObjectFor("XFA");
-  if (!pXFA) {
-    return FORMTYPE_ACRO_FORM;
-  }
-
-  bool bNeedsRendering = pRoot->GetBooleanFor("NeedsRendering", false);
-  return bNeedsRendering ? FORMTYPE_XFA_FULL : FORMTYPE_XFA_FOREGROUND;
-}
-
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDF_LoadXFA(FPDF_DOCUMENT document) {
-#ifdef PDF_ENABLE_XFA
-  auto* doc = CPDFDocumentFromFPDFDocument(document);
-  if (!doc) {
-    return false;
-  }
-
-  auto* context = static_cast<CPDFXFA_Context*>(doc->GetExtension());
-  if (context) {
-    return context->LoadXFADoc();
-  }
-#endif  // PDF_ENABLE_XFA
-  return false;
 }
 
 FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
@@ -1286,61 +1189,6 @@ FPDF_GetNamedDestByName(FPDF_DOCUMENT document, FPDF_BYTESTRING name) {
   return FPDFDestFromCPDFArray(CPDF_NameTree::LookupNamedDest(doc, dest_name));
 }
 
-#ifdef PDF_ENABLE_XFA
-FPDF_EXPORT FPDF_RESULT FPDF_CALLCONV FPDF_BStr_Init(FPDF_BSTR* bstr) {
-  if (!bstr) {
-    return -1;
-  }
-
-  bstr->str = nullptr;
-  bstr->len = 0;
-  return 0;
-}
-
-FPDF_EXPORT FPDF_RESULT FPDF_CALLCONV FPDF_BStr_Set(FPDF_BSTR* bstr,
-                                                    const char* cstr,
-                                                    int length) {
-  if (!bstr || !cstr) {
-    return -1;
-  }
-  if (length == -1) {
-    // SAFETY: required from caller.
-    length = pdfium::checked_cast<int>(UNSAFE_BUFFERS(strlen(cstr)));
-  }
-  if (length == 0) {
-    FPDF_BStr_Clear(bstr);
-    return 0;
-  }
-
-  if (!bstr->str) {
-    bstr->str = FX_Alloc(char, length + 1);
-  } else if (bstr->len < length) {
-    bstr->str = FX_Realloc(char, bstr->str, length + 1);
-  }
-
-  // SAFETY: only alloc/realloc is performed above and will ensure at least
-  // length + 1 bytes are available.
-  UNSAFE_BUFFERS({
-    bstr->str[length] = 0;
-    FXSYS_memcpy(bstr->str, cstr, length);
-  });
-  bstr->len = length;
-  return 0;
-}
-
-FPDF_EXPORT FPDF_RESULT FPDF_CALLCONV FPDF_BStr_Clear(FPDF_BSTR* bstr) {
-  if (!bstr) {
-    return -1;
-  }
-
-  if (bstr->str) {
-    FX_Free(bstr->str);
-    bstr->str = nullptr;
-  }
-  bstr->len = 0;
-  return 0;
-}
-#endif  // PDF_ENABLE_XFA
 
 FPDF_EXPORT FPDF_DEST FPDF_CALLCONV FPDF_GetNamedDest(FPDF_DOCUMENT document,
                                                       int index,
@@ -1428,69 +1276,6 @@ FPDF_EXPORT FPDF_DEST FPDF_CALLCONV FPDF_GetNamedDest(FPDF_DOCUMENT document,
   return FPDFDestFromCPDFArray(pDestObj->AsArray());
 }
 
-FPDF_EXPORT int FPDF_CALLCONV FPDF_GetXFAPacketCount(FPDF_DOCUMENT document) {
-  CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  if (!doc) {
-    return -1;
-  }
-
-  return fxcrt::CollectionSize<int>(
-      GetXFAPackets(GetXFAEntryFromDocument(doc)));
-}
-
-FPDF_EXPORT unsigned long FPDF_CALLCONV
-FPDF_GetXFAPacketName(FPDF_DOCUMENT document,
-                      int index,
-                      void* buffer,
-                      unsigned long buflen) {
-  CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  if (!doc || index < 0) {
-    return 0;
-  }
-
-  std::vector<XFAPacket> xfa_packets =
-      GetXFAPackets(GetXFAEntryFromDocument(doc));
-  if (static_cast<size_t>(index) >= xfa_packets.size()) {
-    return 0;
-  }
-  // SAFETY: required from caller.
-  return NulTerminateMaybeCopyAndReturnLength(
-      xfa_packets[index].name,
-      UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
-}
-
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
-FPDF_GetXFAPacketContent(FPDF_DOCUMENT document,
-                         int index,
-                         void* buffer,
-                         unsigned long buflen,
-                         unsigned long* out_buflen) {
-  CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  if (!doc || index < 0 || !out_buflen) {
-    return false;
-  }
-
-  std::vector<XFAPacket> xfa_packets =
-      GetXFAPackets(GetXFAEntryFromDocument(doc));
-  if (static_cast<size_t>(index) >= xfa_packets.size()) {
-    return false;
-  }
-
-  // SAFETY: caller ensures `buffer` points to at least `buflen` bytes.
-  *out_buflen = DecodeStreamMaybeCopyAndReturnLength(
-      xfa_packets[index].data,
-      UNSAFE_BUFFERS(pdfium::span(static_cast<uint8_t*>(buffer),
-                                  static_cast<size_t>(buflen))));
-  return true;
-}
-
-FPDF_EXPORT unsigned long FPDF_CALLCONV
-FPDF_GetTrailerEnds(FPDF_DOCUMENT document,
-                    unsigned int* buffer,
-                    unsigned long length) {
-  auto* doc = CPDFDocumentFromFPDFDocument(document);
-  if (!doc) {
-    return 0;
   }
 
   // Start recording trailer ends.
