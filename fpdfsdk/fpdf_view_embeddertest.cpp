@@ -82,20 +82,6 @@ restore
 )";
 #endif  // BUILDFLAG(IS_WIN)
 
-class MockDownloadHints final : public FX_DOWNLOADHINTS {
- public:
-  static void SAddSegment(FX_DOWNLOADHINTS* pThis, size_t offset, size_t size) {
-  }
-
-  MockDownloadHints() {
-    FX_DOWNLOADHINTS::version = 1;
-    FX_DOWNLOADHINTS::AddSegment = SAddSegment;
-  }
-
-  ~MockDownloadHints() = default;
-};
-
-
 }  // namespace
 
 class FPDFViewEmbedderTest : public EmbedderTest {
