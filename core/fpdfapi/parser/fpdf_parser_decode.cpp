@@ -217,6 +217,11 @@ DataAndBytesConsumed A85DecodeReference(
 }
 
 DataAndBytesConsumed HexDecode(pdfium::span<const uint8_t> src_span) {
+  return fxcodec::RustCodecAdapter::HexDecode(src_span);
+}
+
+DataAndBytesConsumed HexDecodeReference(
+    pdfium::span<const uint8_t> src_span) {
   if (src_span.empty()) {
     return {DataVector<uint8_t>(), 0u};
   }

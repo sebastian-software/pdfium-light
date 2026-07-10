@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "core/fxcodec/data_and_bytes_consumed.h"
+#include "core/fxcodec/rust/rust_codec_adapter.h"
 #include "core/fxcodec/scanlinedecoder.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/data_vector.h"
@@ -775,6 +776,23 @@ size_t FlatePredictorScanlineDecoder::CopyAndAdvanceLine(size_t bytes_to_go) {
 }  // namespace
 
 // static
+std::optional<DataVector<uint8_t>> FlateModule::PNGPredictorReference(
+    int colors,
+    int bits_per_component,
+    int columns,
+    pdfium::span<const uint8_t> src_span) {
+  return PNG_Predictor(colors, bits_per_component, columns, src_span);
+}
+
+// static
+bool FlateModule::TIFFPredictorReference(int colors,
+                                         int bits_per_component,
+                                         int columns,
+                                         DataVector<uint8_t>* data) {
+  return TIFF_Predictor(colors, bits_per_component, columns, *data);
+}
+
+// static
 std::unique_ptr<ScanlineDecoder> FlateModule::CreateDecoder(
     pdfium::span<const uint8_t> src_span,
     int width,
@@ -796,6 +814,17 @@ std::unique_ptr<ScanlineDecoder> FlateModule::CreateDecoder(
 }
 
 // static
+DataAndBytesConsumed FlateModule::LZWDecodeReference(
+    pdfium::span<const uint8_t> src_span,
+    bool early_change) {
+  auto decoder = std::make_unique<CLZWDecoder>(src_span, early_change);
+  if (!decoder->Decode()) {
+    return {DataVector<uint8_t>(), FX_INVALID_OFFSET};
+  }
+  return {decoder->TakeDestBuf(), decoder->GetSrcSize()};
+}
+
+// static
 DataAndBytesConsumed FlateModule::FlateOrLZWDecode(
     bool bLZW,
     pdfium::span<const uint8_t> src_span,
@@ -810,13 +839,10 @@ DataAndBytesConsumed FlateModule::FlateOrLZWDecode(
   PredictorType predictor_type = GetPredictor(predictor);
 
   if (bLZW) {
-    auto decoder = std::make_unique<CLZWDecoder>(src_span, bEarlyChange);
-    if (!decoder->Decode()) {
-      return {std::move(dest_buf), bytes_consumed};
-    }
-
-    dest_buf = decoder->TakeDestBuf();
-    bytes_consumed = decoder->GetSrcSize();
+    DataAndBytesConsumed result =
+        RustCodecAdapter::LZWDecode(src_span, bEarlyChange);
+    dest_buf = std::move(result.data);
+    bytes_consumed = result.bytes_consumed;
   } else {
     DataAndBytesConsumed result = FlateUncompress(src_span, estimated_size);
     dest_buf = std::move(result.data);
@@ -828,16 +854,20 @@ DataAndBytesConsumed FlateModule::FlateOrLZWDecode(
       return {std::move(dest_buf), bytes_consumed};
     }
     case PredictorType::kPng: {
-      std::optional<DataVector<uint8_t>> result =
-          PNG_Predictor(Colors, BitsPerComponent, Columns, dest_buf);
-      if (!result.has_value()) {
+      DataAndBytesConsumed result = RustCodecAdapter::PNGPredictor(
+          dest_buf, Colors, BitsPerComponent, Columns);
+      if (result.bytes_consumed == FX_INVALID_OFFSET) {
         return {std::move(dest_buf), FX_INVALID_OFFSET};
       }
-      return {std::move(result.value()), bytes_consumed};
+      return {std::move(result.data), bytes_consumed};
     }
     case PredictorType::kFlate: {
-      bool ret = TIFF_Predictor(Colors, BitsPerComponent, Columns, dest_buf);
-      return {std::move(dest_buf), ret ? bytes_consumed : FX_INVALID_OFFSET};
+      DataAndBytesConsumed result = RustCodecAdapter::TIFFPredictor(
+          dest_buf, Colors, BitsPerComponent, Columns);
+      if (result.bytes_consumed == FX_INVALID_OFFSET) {
+        return {std::move(dest_buf), FX_INVALID_OFFSET};
+      }
+      return {std::move(result.data), bytes_consumed};
     }
   }
 }

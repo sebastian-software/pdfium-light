@@ -1,0 +1,28 @@
+{{header}}
+{{object 1 0}} << /Type /Catalog /Pages 2 0 R >>
+endobj
+{{object 2 0}} << /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+{{object 3 0}} <<
+  /Type /Page
+  /Parent 2 0 R
+  /MediaBox [0 0 200 200]
+  /Resources <<
+    /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >>
+  >>
+  /Contents 4 0 R
+>>
+endobj
+{{object 4 0}} <<
+  /Filter [/ASCIIHexDecode /LZWDecode]
+  /DecodeParms [null << /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns 47 >>]
+  {{streamlen}}
+>>
+stream
+800008454050bc8c31100c464202a198143218080623018080a864050a0985a2b880a475399d04046349b0e865390a44054350288a54054040>
+endstream
+endobj
+{{xref}}
+{{trailer}}
+{{startxref}}
+%%EOF

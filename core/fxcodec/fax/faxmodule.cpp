@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "build/build_config.h"
+#include "core/fxcodec/rust/rust_codec_adapter.h"
 #include "core/fxcodec/scanlinedecoder.h"
 #include "core/fxcrt/binary_buffer.h"
 #include "core/fxcrt/check.h"
@@ -540,16 +541,16 @@ void FaxGet1DLine(pdfium::span<const uint8_t> src_buf,
   }
 }
 
-class FaxDecoder final : public ScanlineDecoder {
+class FaxDecoderReference final : public ScanlineDecoder {
  public:
-  FaxDecoder(pdfium::span<const uint8_t> src_span,
+  FaxDecoderReference(pdfium::span<const uint8_t> src_span,
              int width,
              int height,
              int K,
              bool EndOfLine,
              bool EncodedByteAlign,
              bool BlackIs1);
-  ~FaxDecoder() override;
+  ~FaxDecoderReference() override;
 
   // ScanlineDecoder:
   [[nodiscard]] bool Rewind() override;
@@ -569,7 +570,7 @@ class FaxDecoder final : public ScanlineDecoder {
   DataVector<uint8_t> ref_buf_;
 };
 
-FaxDecoder::FaxDecoder(pdfium::span<const uint8_t> src_span,
+FaxDecoderReference::FaxDecoderReference(pdfium::span<const uint8_t> src_span,
                        int width,
                        int height,
                        int K,
@@ -591,18 +592,18 @@ FaxDecoder::FaxDecoder(pdfium::span<const uint8_t> src_span,
       scanline_buf_(pitch_),
       ref_buf_(pitch_) {}
 
-FaxDecoder::~FaxDecoder() {
+FaxDecoderReference::~FaxDecoderReference() {
   // Span in superclass can't outlive our buffer.
   last_scanline_ = pdfium::span<uint8_t>();
 }
 
-bool FaxDecoder::Rewind() {
+bool FaxDecoderReference::Rewind() {
   std::ranges::fill(ref_buf_, 0xff);
   bitpos_ = 0;
   return true;
 }
 
-pdfium::span<uint8_t> FaxDecoder::GetNextLine() {
+pdfium::span<uint8_t> FaxDecoderReference::GetNextLine() {
   const uint32_t bitsize = GetSrcBitSize(src_span_);
   FaxSkipEOL(src_span_, &bitpos_);
   if (bitpos_ >= bitsize) {
@@ -648,17 +649,84 @@ pdfium::span<uint8_t> FaxDecoder::GetNextLine() {
   return scanline_buf_;
 }
 
-uint32_t FaxDecoder::GetSrcOffset() {
+uint32_t FaxDecoderReference::GetSrcOffset() {
   return pdfium::checked_cast<uint32_t>(
       std::min<size_t>((bitpos_ + 7) / 8, src_span_.size()));
 }
 
-void FaxDecoder::InvertBuffer() {
+void FaxDecoderReference::InvertBuffer() {
   auto byte_span = pdfium::span(scanline_buf_);
   auto data = fxcrt::reinterpret_span<uint32_t>(byte_span);
   for (auto& datum : data) {
     datum = ~datum;
   }
+}
+
+class RustFaxDecoder final : public ScanlineDecoder {
+ public:
+  RustFaxDecoder(pdfium::span<const uint8_t> src_span,
+                 int width,
+                 int height,
+                 int K,
+                 bool EndOfLine,
+                 bool EncodedByteAlign,
+                 bool BlackIs1);
+  ~RustFaxDecoder() override;
+
+  [[nodiscard]] bool Rewind() override;
+  pdfium::span<uint8_t> GetNextLine() override;
+  uint32_t GetSrcOffset() override;
+
+ private:
+  DataVector<uint8_t> decoded_;
+  std::vector<uint32_t> offsets_;
+  size_t next_decoded_line_ = 0;
+};
+
+RustFaxDecoder::RustFaxDecoder(pdfium::span<const uint8_t> src_span,
+                               int width,
+                               int height,
+                               int K,
+                               bool EndOfLine,
+                               bool EncodedByteAlign,
+                               bool BlackIs1)
+    : ScanlineDecoder(width,
+                      height,
+                      width,
+                      height,
+                      kFaxComps,
+                      kFaxBpc,
+                      fxge::CalculatePitch32OrDie(kFaxBpc, width)) {
+  RustFaxScanlineData result = RustCodecAdapter::FaxScanlineDecode(
+      src_span, width, height, K, EndOfLine, EncodedByteAlign, BlackIs1,
+      pdfium::checked_cast<int>(pitch_));
+  decoded_ = std::move(result.data);
+  offsets_ = std::move(result.offsets);
+}
+
+RustFaxDecoder::~RustFaxDecoder() {
+  last_scanline_ = pdfium::span<uint8_t>();
+}
+
+bool RustFaxDecoder::Rewind() {
+  next_decoded_line_ = 0;
+  return true;
+}
+
+pdfium::span<uint8_t> RustFaxDecoder::GetNextLine() {
+  if (next_decoded_line_ >= offsets_.size()) {
+    return pdfium::span<uint8_t>();
+  }
+  const size_t offset = next_decoded_line_ * pitch_;
+  ++next_decoded_line_;
+  return pdfium::span(decoded_).subspan(offset, pitch_);
+}
+
+uint32_t RustFaxDecoder::GetSrcOffset() {
+  if (next_decoded_line_ == 0 || offsets_.empty()) {
+    return 0;
+  }
+  return offsets_[std::min(next_decoded_line_ - 1, offsets_.size() - 1)];
 }
 
 }  // namespace
@@ -688,17 +756,41 @@ std::unique_ptr<ScanlineDecoder> FaxModule::CreateDecoder(
     return nullptr;
   }
 
-  return std::make_unique<FaxDecoder>(src_span, actual_width, actual_height, K,
-                                      EndOfLine, EncodedByteAlign, BlackIs1);
+  return std::make_unique<RustFaxDecoder>(src_span, actual_width,
+                                          actual_height, K, EndOfLine,
+                                          EncodedByteAlign, BlackIs1);
 }
 
 // static
-uint32_t FaxModule::FaxG4Decode(pdfium::span<const uint8_t> src_span,
-                                uint32_t starting_bitpos,
-                                int width,
-                                int height,
-                                int pitch,
-                                pdfium::span<uint8_t> dest_buf) {
+std::unique_ptr<ScanlineDecoder> FaxModule::CreateDecoderReference(
+    pdfium::span<const uint8_t> src_span,
+    int width,
+    int height,
+    int K,
+    bool EndOfLine,
+    bool EncodedByteAlign,
+    bool BlackIs1,
+    int Columns,
+    int Rows) {
+  int actual_width = Columns ? Columns : width;
+  int actual_height = Rows ? Rows : height;
+  if (actual_width <= 0 || actual_height <= 0 ||
+      actual_width > kFaxMaxImageDimension ||
+      actual_height > kFaxMaxImageDimension) {
+    return nullptr;
+  }
+  return std::make_unique<FaxDecoderReference>(
+      src_span, actual_width, actual_height, K, EndOfLine, EncodedByteAlign,
+      BlackIs1);
+}
+
+// static
+uint32_t FaxModule::FaxG4DecodeReference(pdfium::span<const uint8_t> src_span,
+                                         uint32_t starting_bitpos,
+                                         int width,
+                                         int height,
+                                         int pitch,
+                                         pdfium::span<uint8_t> dest_buf) {
   const uint32_t unsigned_pitch = pdfium::checked_cast<uint32_t>(pitch);
   CHECK_GT(unsigned_pitch, 0);
 
@@ -714,6 +806,20 @@ uint32_t FaxModule::FaxG4Decode(pdfium::span<const uint8_t> src_span,
     fxcrt::spancpy(ref_buf_span, line_span);
   }
   return bitpos;
+}
+
+// static
+uint32_t FaxModule::FaxG4Decode(pdfium::span<const uint8_t> src_span,
+                                uint32_t starting_bitpos,
+                                int width,
+                                int height,
+                                int pitch,
+                                pdfium::span<uint8_t> dest_buf) {
+  DataAndBytesConsumed result = RustCodecAdapter::FaxG4Decode(
+      src_span, starting_bitpos, width, height, pitch);
+  CHECK_EQ(dest_buf.size(), result.data.size());
+  fxcrt::spancpy(dest_buf, pdfium::span(result.data));
+  return result.bytes_consumed;
 }
 
 #if BUILDFLAG(IS_WIN)

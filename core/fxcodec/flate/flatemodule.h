@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 
 #include "core/fxcodec/data_and_bytes_consumed.h"
 #include "core/fxcrt/data_vector.h"
@@ -41,6 +42,21 @@ class FlateModule {
       int BitsPerComponent,
       int Columns,
       uint32_t estimated_size);
+
+  static DataAndBytesConsumed LZWDecodeReference(
+      pdfium::span<const uint8_t> src_span,
+      bool early_change);
+
+  static std::optional<DataVector<uint8_t>> PNGPredictorReference(
+      int colors,
+      int bits_per_component,
+      int columns,
+      pdfium::span<const uint8_t> src_span);
+
+  static bool TIFFPredictorReference(int colors,
+                                     int bits_per_component,
+                                     int columns,
+                                     DataVector<uint8_t>* data);
 
   static DataVector<uint8_t> Encode(pdfium::span<const uint8_t> src_span);
 

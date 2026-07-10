@@ -2,7 +2,28 @@
 
 pdfium-light keeps its public C API and static-library contract unchanged while
 individual internal modules move to Rust. The first production slice is the
-byte-oriented PDF filter boundary: ASCII85 and RunLength encode/decode.
+byte-oriented PDF filter boundary: ASCII85, ASCIIHex, LZW, PNG/TIFF predictor
+transforms, and RunLength encode/decode.
+
+## Migration telemetry
+
+Run the reproducible source-level report from the repository root:
+
+```bash
+python3 testing/tools/rust_port_metrics.py
+```
+
+The report counts physical lines in tracked first-party source files under
+`core`, `fpdfsdk`, and `public`. Rust LOC only counts `.rs` files; the C++
+adapter is reported separately. This is a progress signal, not a feature,
+performance, memory, or binary-size metric. `validate_light.py` runs the
+report with `--check`.
+
+| Commit | Rust LOC | C++ adapter LOC | Product-native LOC | Rust share | Activated Rust surfaces |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `5fbaaa393` | 367 | 111 | 253,804 | 0.14% | ASCII85 encode/decode; RunLength encode/decode |
+| Epic #30 predictor slice | 764 | 176 | 254,631 | 0.30% | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; RunLength encode/decode |
+| Epic #30 Fax slice | 1,232 | 262 | 255,525 | 0.48% | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; CCITT Fax Group 4 and scanline decode; RunLength encode/decode |
 
 ## Toolchain
 
@@ -57,6 +78,27 @@ more conventional codec interpretation.
 whose content stream applies `ASCII85Decode` followed by `RunLengthDecode`.
 It renders and extracts the decoded text before and after save/reload, proving
 that the normal light document path reaches the adapters.
+
+`RustCodecEmbedderTest.PngPredictorRendersAndSurvivesSaveReload` applies the
+PNG predictor after LZW decoding. The predictor corpus also compares all PNG
+filter tags, partial rows, invalid geometry, and TIFF 1-, 8-, and 16-bit rows
+with the retained C++ reference functions. Flate decompression remains C++
+owned in this slice.
+
+CCITT Fax Group 4 and scanline decoding are active through the internal Rust
+ABI. The retained C++ references compare Group 3/1D, mixed 2D, Group 4, EOL,
+byte alignment, BlackIs1 inversion, truncation, source offsets, and rewind.
+The Fax fuzzer also calls the Group 4 helper directly, while
+`RustCodecEmbedderTest.FaxImageRendersAndSurvivesSaveReload` proves the real
+CCITT image path before and after save/reload. The existing JBIG2 Group 4
+consumer continues to call the same active helper through `FaxModule`.
+
+The first Rust scanline slice decodes the bounded image eagerly in the
+constructor, retaining the decoded rows and per-row source offsets for the
+existing `ScanlineDecoder` API. This deliberately trades the C++ decoder's
+O(pitch) streaming state for O(height × pitch) storage and full decode work
+before the first requested row. A future streaming Rust decoder can remove
+that trade-off without changing the public C API or the differential contract.
 
 No performance claim is made by this port. Any performance decision requires a
 separate benchmark against the reference implementation.
