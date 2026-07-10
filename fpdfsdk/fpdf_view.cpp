@@ -53,9 +53,7 @@
 #include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "fpdfsdk/cpdfsdk_customaccess.h"
-#include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
-#include "fpdfsdk/cpdfsdk_pageview.h"
 #include "fpdfsdk/cpdfsdk_renderpage.h"
 
 #if defined(PDF_ENABLE_BROTLI)
@@ -64,7 +62,6 @@
 
 
 #if BUILDFLAG(IS_WIN)
-#include "core/fpdfapi/render/cpdf_progressiverenderer.h"
 #include "public/fpdf_edit.h"
 
 
@@ -1138,17 +1135,21 @@ FPDF_EXPORT FPDF_DEST FPDF_CALLCONV FPDF_GetNamedDest(FPDF_DOCUMENT document,
   return FPDFDestFromCPDFArray(pDestObj->AsArray());
 }
 
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+FPDF_GetTrailerEnds(FPDF_DOCUMENT document,
+                    unsigned int* buffer,
+                    unsigned long length) {
+  auto* doc = CPDFDocumentFromFPDFDocument(document);
+  if (!doc) {
+    return 0;
   }
 
-  // Start recording trailer ends.
-  auto* parser = doc->GetParser();
-  std::vector<unsigned int> trailer_ends = parser->GetTrailerEnds();
+  std::vector<unsigned int> trailer_ends = doc->GetParser()->GetTrailerEnds();
   const unsigned long trailer_ends_len =
       fxcrt::CollectionSize<unsigned long>(trailer_ends);
   if (buffer && length >= trailer_ends_len) {
     // SAFETY: required from caller.
     fxcrt::Copy(trailer_ends, UNSAFE_BUFFERS(pdfium::span(buffer, length)));
   }
-
   return trailer_ends_len;
 }

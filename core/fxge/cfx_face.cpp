@@ -299,8 +299,7 @@ RetainPtr<CFX_Face> CFX_Face::New(RetainPtr<Retainable> cache_entry,
 
   // Private ctor.
   RetainPtr<CFX_Face> result = pdfium::WrapRetain(
-      new CFX_Face(std::move(cache_entry), std::move(font_stream), face_rec,
-                   face_rec));
+      new CFX_Face(std::move(cache_entry), std::move(font_stream), face_rec));
 
   return result;
 }

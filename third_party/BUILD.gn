@@ -189,12 +189,6 @@ if (pdf_bundle_freetype) {
       "//third_party/freetype/src/src/truetype/truetype.c",
       "//third_party/freetype/src/src/type1/type1.c",
     ]
-    if (pdf_use_skia) {
-      sources += [
-        "//third_party/freetype/src/include/freetype/ftsynth.h",
-        "//third_party/freetype/src/src/base/fttype1.c",
-      ]
-    }
   }
 }
 
@@ -437,91 +431,16 @@ source_set("fx_libopenjpeg") {
   deps = [ "../core/fxcrt" ]
 }
 
-if (!pdf_enable_rust_png) {
-  config("system_libpng_config") {
-    libs = [ "png" ]
-    defines = [ "USE_SYSTEM_LIBPNG" ]
-  }
-
-  group("png") {
-    if (use_system_libpng) {
-      public_configs = [ ":system_libpng_config" ]
-    } else {
-      public_deps = [ "//third_party/libpng" ]
-    }
-  }
+config("system_libpng_config") {
+  libs = [ "png" ]
+  defines = [ "USE_SYSTEM_LIBPNG" ]
 }
 
-if (pdf_enable_xfa_tiff) {
-  if (use_system_libtiff) {
-    config("system_tiff_config") {
-      libs = [ "tiff" ]
-      defines = [ "USE_SYSTEM_LIBTIFF" ]
-    }
+group("png") {
+  if (use_system_libpng) {
+    public_configs = [ ":system_libpng_config" ]
   } else {
-    source_set("fx_tiff") {
-      configs -= [ "//build/config/compiler:chromium_code" ]
-      configs += [
-        "//build/config/compiler:no_chromium_code",
-        ":pdfium_third_party_config",
-      ]
-      if (is_win) {
-        # Need to undefine the macro since it is redefined in tif_jpeg.c.
-        configs -= [ "//build/config/win:lean_and_mean" ]
-      }
-      deps = [
-        ":zlib",
-        "../core/fxcrt",
-        "//third_party:jpeg",
-      ]
-      sources = [
-        "libtiff/tif_aux.c",
-        "libtiff/tif_close.c",
-        "libtiff/tif_codec.c",
-        "libtiff/tif_color.c",
-        "libtiff/tif_compress.c",
-        "libtiff/tif_dir.c",
-        "libtiff/tif_dirinfo.c",
-        "libtiff/tif_dirread.c",
-        "libtiff/tif_dirwrite.c",
-        "libtiff/tif_dumpmode.c",
-        "libtiff/tif_error.c",
-        "libtiff/tif_extension.c",
-        "libtiff/tif_fax3.c",
-        "libtiff/tif_fax3sm.c",
-        "libtiff/tif_flush.c",
-        "libtiff/tif_getimage.c",
-        "libtiff/tif_hash_set.c",
-        "libtiff/tif_hash_set.h",
-        "libtiff/tif_jpeg.c",
-        "libtiff/tif_luv.c",
-        "libtiff/tif_lzw.c",
-        "libtiff/tif_next.c",
-        "libtiff/tif_open.c",
-        "libtiff/tif_packbits.c",
-        "libtiff/tif_pixarlog.c",
-        "libtiff/tif_predict.c",
-        "libtiff/tif_print.c",
-        "libtiff/tif_read.c",
-        "libtiff/tif_strip.c",
-        "libtiff/tif_swab.c",
-        "libtiff/tif_thunder.c",
-        "libtiff/tif_tile.c",
-        "libtiff/tif_version.c",
-        "libtiff/tif_warning.c",
-        "libtiff/tif_write.c",
-        "libtiff/tiffiop.h",
-        "libtiff/tiffvers.h",
-      ]
-    }
-  }
-
-  group("tiff") {
-    if (use_system_libtiff) {
-      public_configs = [ ":system_tiff_config" ]
-    } else {
-      public_deps = [ ":fx_tiff" ]
-    }
+    public_deps = [ "//third_party/libpng" ]
   }
 }
 

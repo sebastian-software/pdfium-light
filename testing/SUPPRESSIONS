@@ -756,9 +756,6 @@ xfa_jpg_image.in * * * gdi
 xfa_node_caption.pdf * * * gdi
 xfa_png_image.in * * * gdi
 xfa_rectangle_node.in * * * gdi
-xfa_tiff_image.in * * * gdi
-xfa_tiff_lzw_image.in * * * gdi
-xfa_tiff_packbits_image.in * * * gdi
 
 # TODO(crbug.com/42271068): Remove after associated bug is fixed
 bug_1015233.in * * * gdi

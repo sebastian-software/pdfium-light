@@ -29,7 +29,6 @@
 #include "core/fxcrt/stl_util.h"
 #include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
-#include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 
 
 namespace {

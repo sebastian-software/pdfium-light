@@ -61,9 +61,6 @@ declare_args() {
   # Don't build against bundled libpng.
   use_system_libpng = false
 
-  # Don't build against bundled libtiff.
-  use_system_libtiff = false
-
   # Don't build against bundled zlib.
   use_system_zlib = false
 }
