@@ -7,11 +7,18 @@
 
 #include <stdint.h>
 
+#include <vector>
+
 #include "core/fxcodec/data_and_bytes_consumed.h"
 #include "core/fxcrt/data_vector.h"
 #include "core/fxcrt/span.h"
 
 namespace fxcodec {
+
+struct RustFaxScanlineData {
+  DataVector<uint8_t> data;
+  std::vector<uint32_t> offsets;
+};
 
 // Internal boundary for byte-oriented codecs. Rust owns results returned over
 // the C ABI until this adapter copies and releases them.
@@ -44,6 +51,15 @@ class RustCodecAdapter final {
       int colors,
       int bits_per_component,
       int columns);
+  static RustFaxScanlineData FaxScanlineDecode(
+      pdfium::span<const uint8_t> src_span,
+      int width,
+      int height,
+      int encoding,
+      bool end_of_line,
+      bool byte_align,
+      bool black_is_1,
+      int pitch);
 
   RustCodecAdapter() = delete;
   RustCodecAdapter(const RustCodecAdapter&) = delete;

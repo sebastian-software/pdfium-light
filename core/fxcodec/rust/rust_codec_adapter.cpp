@@ -19,6 +19,13 @@ struct RustCodecResult {
   uint32_t bytes_consumed;
 };
 
+struct RustFaxScanlineResult {
+  RustCodecResult data;
+  uint32_t* offsets;
+  size_t offsets_len;
+  size_t offsets_capacity;
+};
+
 extern "C" RustCodecResult pdfium_rust_a85_encode(const uint8_t* data,
                                                     size_t len);
 extern "C" RustCodecResult pdfium_rust_run_length_encode(const uint8_t* data,
@@ -33,6 +40,16 @@ extern "C" RustCodecResult pdfium_rust_fax_g4_decode(const uint8_t* data,
                                                        int width,
                                                        int height,
                                                        int pitch);
+extern "C" RustFaxScanlineResult pdfium_rust_fax_scanline_decode(
+    const uint8_t* data,
+    size_t len,
+    int width,
+    int height,
+    int encoding,
+    bool end_of_line,
+    bool byte_align,
+    bool black_is_1,
+    int pitch);
 extern "C" RustCodecResult pdfium_rust_lzw_decode(const uint8_t* data,
                                                     size_t len,
                                                     bool early_change);
@@ -53,6 +70,8 @@ extern "C" RustCodecResult pdfium_rust_tiff_predictor(
 extern "C" void pdfium_rust_codec_result_free(uint8_t* data,
                                                 size_t len,
                                                 size_t capacity);
+extern "C" void pdfium_rust_fax_scanline_result_free(
+    RustFaxScanlineResult result);
 
 DataVector<uint8_t> CopyAndFree(RustCodecResult result) {
   DataVector<uint8_t> output;
@@ -66,6 +85,18 @@ DataVector<uint8_t> CopyAndFree(RustCodecResult result) {
 DataAndBytesConsumed DecodeResult(RustCodecResult result) {
   const uint32_t bytes_consumed = result.bytes_consumed;
   return {CopyAndFree(result), bytes_consumed};
+}
+
+RustFaxScanlineData CopyFaxScanlineAndFree(RustFaxScanlineResult result) {
+  RustFaxScanlineData output;
+  if (result.data.data && result.data.len) {
+    output.data.assign(result.data.data, result.data.data + result.data.len);
+  }
+  if (result.offsets && result.offsets_len) {
+    output.offsets.assign(result.offsets, result.offsets + result.offsets_len);
+  }
+  pdfium_rust_fax_scanline_result_free(result);
+  return output;
 }
 
 }  // namespace
@@ -140,6 +171,21 @@ DataAndBytesConsumed RustCodecAdapter::TIFFPredictor(
     int columns) {
   return DecodeResult(pdfium_rust_tiff_predictor(
       src_span.data(), src_span.size(), colors, bits_per_component, columns));
+}
+
+// static
+RustFaxScanlineData RustCodecAdapter::FaxScanlineDecode(
+    pdfium::span<const uint8_t> src_span,
+    int width,
+    int height,
+    int encoding,
+    bool end_of_line,
+    bool byte_align,
+    bool black_is_1,
+    int pitch) {
+  return CopyFaxScanlineAndFree(pdfium_rust_fax_scanline_decode(
+      src_span.data(), src_span.size(), width, height, encoding, end_of_line,
+      byte_align, black_is_1, pitch));
 }
 
 }  // namespace fxcodec

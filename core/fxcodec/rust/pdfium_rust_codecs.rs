@@ -58,6 +58,30 @@ pub struct RustCodecResult {
     bytes_consumed: u32,
 }
 
+#[repr(C)]
+pub struct RustFaxScanlineResult {
+    data: RustCodecResult,
+    offsets: *mut u32,
+    offsets_len: usize,
+    offsets_capacity: usize,
+}
+
+impl RustFaxScanlineResult {
+    fn from_lines(data: Vec<u8>, offsets: Vec<u32>) -> Self {
+        let mut offsets = ManuallyDrop::new(offsets);
+        Self {
+            data: RustCodecResult::from_bytes(data, 0),
+            offsets: offsets.as_mut_ptr(),
+            offsets_len: offsets.len(),
+            offsets_capacity: offsets.capacity(),
+        }
+    }
+
+    fn failure() -> Self {
+        Self::from_lines(Vec::new(), Vec::new())
+    }
+}
+
 impl RustCodecResult {
     fn from_bytes(bytes: Vec<u8>, bytes_consumed: u32) -> Self {
         if bytes.is_empty() {
@@ -823,6 +847,127 @@ fn fax_g4_decode(
     Some((output, bit_pos))
 }
 
+fn fax_skip_eol(input: &[u8], bit_pos: &mut u32) {
+    let bit_size = input.len().saturating_mul(8) as u32;
+    let start_bit = *bit_pos;
+    while *bit_pos < bit_size {
+        if !fax_next_bit(input, bit_pos) {
+            continue;
+        }
+        if bit_pos.wrapping_sub(start_bit) <= 11 {
+            *bit_pos = start_bit;
+        }
+        return;
+    }
+}
+
+fn fax_get_1d_line(input: &[u8], bit_pos: &mut u32, destination: &mut [u8], columns: i32) {
+    let bit_size = input.len().saturating_mul(8) as u32;
+    let mut color = true;
+    let mut start_pos = 0;
+    loop {
+        if *bit_pos >= bit_size {
+            return;
+        }
+        let mut run_length = 0;
+        loop {
+            let run = fax_get_run(
+                if color { FAX_WHITE_RUN_INS } else { FAX_BLACK_RUN_INS },
+                input,
+                bit_pos,
+            );
+            if run < 0 {
+                while *bit_pos < bit_size {
+                    if fax_next_bit(input, bit_pos) {
+                        return;
+                    }
+                }
+                return;
+            }
+            run_length += run;
+            if run < 64 {
+                break;
+            }
+        }
+        if !color {
+            fax_fill_bits(destination, columns, start_pos, start_pos + run_length);
+        }
+        start_pos += run_length;
+        if start_pos >= columns {
+            return;
+        }
+        color = !color;
+    }
+}
+
+fn fax_scanline_decode(
+    input: &[u8],
+    width: i32,
+    height: i32,
+    encoding: i32,
+    end_of_line: bool,
+    byte_align: bool,
+    black_is_1: bool,
+    pitch: i32,
+) -> Option<(Vec<u8>, Vec<u32>)> {
+    let pitch = usize::try_from(pitch).ok()?;
+    let height = usize::try_from(height).ok()?;
+    if width <= 0 || pitch == 0 {
+        return None;
+    }
+    let bit_size = input.len().saturating_mul(8) as u32;
+    let mut data = Vec::with_capacity(pitch.checked_mul(height)?);
+    let mut offsets = Vec::with_capacity(height);
+    let mut reference = vec![0xff; pitch];
+    let mut bit_pos = 0_u32;
+    let mut byte_align = byte_align;
+    for _ in 0..height {
+        fax_skip_eol(input, &mut bit_pos);
+        if bit_pos >= bit_size {
+            break;
+        }
+        let mut line = vec![0xff; pitch];
+        if encoding < 0 {
+            fax_g4_get_row(input, &mut bit_pos, &mut line, &reference, width);
+            reference.copy_from_slice(&line);
+        } else if encoding == 0 {
+            fax_get_1d_line(input, &mut bit_pos, &mut line, width);
+        } else {
+            if fax_next_bit(input, &mut bit_pos) {
+                fax_get_1d_line(input, &mut bit_pos, &mut line, width);
+            } else {
+                fax_g4_get_row(input, &mut bit_pos, &mut line, &reference, width);
+            }
+            reference.copy_from_slice(&line);
+        }
+        if end_of_line {
+            fax_skip_eol(input, &mut bit_pos);
+        }
+        if byte_align && bit_pos < bit_size {
+            let mut bit_pos0 = bit_pos;
+            let bit_pos1 = (bit_pos + 7) & !7;
+            while byte_align && bit_pos0 < bit_pos1 {
+                if input[(bit_pos0 / 8) as usize] & (1 << (7 - bit_pos0 % 8)) != 0 {
+                    byte_align = false;
+                } else {
+                    bit_pos0 += 1;
+                }
+            }
+            if byte_align {
+                bit_pos = bit_pos1;
+            }
+        }
+        if black_is_1 {
+            for value in &mut line {
+                *value = !*value;
+            }
+        }
+        data.extend_from_slice(&line);
+        offsets.push(((bit_pos + 7) / 8).min(input.len() as u32));
+    }
+    Some((data, offsets))
+}
+
 fn run_length_decode(input: &[u8]) -> Result<(Vec<u8>, u32), ()> {
     let mut dest_size = 0_u32;
     let mut pos = 0_usize;
@@ -959,6 +1104,33 @@ pub extern "C" fn pdfium_rust_fax_g4_decode(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_fax_scanline_decode(
+    data: *const u8,
+    len: usize,
+    width: i32,
+    height: i32,
+    encoding: i32,
+    end_of_line: bool,
+    byte_align: bool,
+    black_is_1: bool,
+    pitch: i32,
+) -> RustFaxScanlineResult {
+    match fax_scanline_decode(
+        input_from_ffi(data, len),
+        width,
+        height,
+        encoding,
+        end_of_line,
+        byte_align,
+        black_is_1,
+        pitch,
+    ) {
+        Some((bytes, offsets)) => RustFaxScanlineResult::from_lines(bytes, offsets),
+        None => RustFaxScanlineResult::failure(),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pdfium_rust_run_length_decode(data: *const u8, len: usize) -> RustCodecResult {
     match run_length_decode(input_from_ffi(data, len)) {
         Ok((bytes, consumed)) => RustCodecResult::from_bytes(bytes, consumed),
@@ -975,6 +1147,18 @@ pub unsafe extern "C" fn pdfium_rust_codec_result_free(data: *mut u8, len: usize
     // here, and the C++ adapter calls this function exactly once per result.
     unsafe {
         drop(Vec::from_raw_parts(data, len, capacity));
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_fax_scanline_result_free(result: RustFaxScanlineResult) {
+    // SAFETY: `result` was created by `pdfium_rust_fax_scanline_decode()` and
+    // the C++ adapter invokes this exactly once after copying both vectors.
+    unsafe {
+        pdfium_rust_codec_result_free(result.data.data, result.data.len, result.data.capacity);
+        if result.offsets_capacity != 0 {
+            drop(Vec::from_raw_parts(result.offsets, result.offsets_len, result.offsets_capacity));
+        }
     }
 }
 

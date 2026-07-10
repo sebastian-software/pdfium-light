@@ -38,6 +38,19 @@ std::unique_ptr<ScanlineDecoder> CreateFaxReferenceDecoder(
     bool end_of_line,
     bool byte_align,
     bool black_is_1) {
+  return FaxModule::CreateDecoderReference(data, /*width=*/8, height,
+                                           encoding, end_of_line, byte_align,
+                                           black_is_1, /*columns=*/8,
+                                           /*rows=*/height);
+}
+
+std::unique_ptr<ScanlineDecoder> CreateRustFaxDecoder(
+    pdfium::span<const uint8_t> data,
+    int height,
+    int encoding,
+    bool end_of_line,
+    bool byte_align,
+    bool black_is_1) {
   return FaxModule::CreateDecoder(data, /*width=*/8, height, encoding,
                                   end_of_line, byte_align, black_is_1,
                                   /*columns=*/8, /*rows=*/height);
@@ -153,6 +166,34 @@ TEST(FaxScanlineReferenceTest, PreservesEolAlignmentAndBlackIs1Behavior) {
   ASSERT_TRUE(inverted_decoder);
   EXPECT_THAT(inverted_decoder->GetScanline(0),
               ElementsAreArray(std::array<uint8_t, 4>{0, 0, 0, 0}));
+}
+
+TEST(FaxScanlineRustParityTest, MatchesReferenceLinesOffsetsAndRewind) {
+  const DataVector<uint8_t> kInputs[] = {
+      PackBits("00110101000101"), PackBits("110011"),
+      PackBits("01"), PackBits("1001100010011"),
+  };
+  const int kEncodings[] = {0, 1, 1, 0};
+  const int kHeights[] = {1, 1, 1, 2};
+  const bool kByteAlign[] = {false, false, false, true};
+  for (size_t index = 0; index < std::size(kInputs); ++index) {
+    std::unique_ptr<ScanlineDecoder> reference = CreateFaxReferenceDecoder(
+        kInputs[index], kHeights[index], kEncodings[index],
+        /*end_of_line=*/false, kByteAlign[index], /*black_is_1=*/false);
+    std::unique_ptr<ScanlineDecoder> candidate = CreateRustFaxDecoder(
+        kInputs[index], kHeights[index], kEncodings[index],
+        /*end_of_line=*/false, kByteAlign[index], /*black_is_1=*/false);
+    ASSERT_TRUE(reference);
+    ASSERT_TRUE(candidate);
+    for (int line = 0; line < kHeights[index]; ++line) {
+      EXPECT_THAT(candidate->GetScanline(line),
+                  ElementsAreArray(reference->GetScanline(line)));
+      EXPECT_EQ(reference->GetSrcOffset(), candidate->GetSrcOffset());
+    }
+    EXPECT_THAT(candidate->GetScanline(0),
+                ElementsAreArray(reference->GetScanline(0)));
+    EXPECT_EQ(reference->GetSrcOffset(), candidate->GetSrcOffset());
+  }
 }
 
 }  // namespace
