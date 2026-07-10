@@ -4,6 +4,7 @@
 
 #include "core/fxcodec/flate/flatemodule.h"
 #include "core/fxcodec/rust/rust_codec_adapter.h"
+#include "core/fxcrt/fx_extension.h"
 
 #include <stdint.h>
 
