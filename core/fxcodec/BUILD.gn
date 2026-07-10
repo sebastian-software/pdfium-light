@@ -98,6 +98,7 @@ pdfium_unittest_source_set("unittests") {
     "basic/a85_unittest.cpp",
     "basic/rle_unittest.cpp",
     "basic/rust_codec_parity_unittest.cpp",
+    "fax/fax_parity_unittest.cpp",
     "flate/flatemodule_unittest.cpp",
     "flate/lzw_parity_unittest.cpp",
     "flate/predictor_parity_unittest.cpp",

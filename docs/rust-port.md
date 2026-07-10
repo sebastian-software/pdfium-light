@@ -84,6 +84,11 @@ filter tags, partial rows, invalid geometry, and TIFF 1-, 8-, and 16-bit rows
 with the retained C++ reference functions. Flate decompression and scanline
 decoding remain C++ owned in this slice.
 
+CCITT Fax remains C++ owned. Its pre-port corpus covers Group 3 and Group 4
+modes, EOL and byte-alignment handling, inversion, truncation, and consumed
+bit positions; the Fax fuzzer also calls the Group 4 helper directly. These
+cases are the differential contract for the later Rust activation.
+
 No performance claim is made by this port. Any performance decision requires a
 separate benchmark against the reference implementation.
 

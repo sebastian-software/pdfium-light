@@ -8,6 +8,7 @@
 #include "core/fxcodec/fax/faxmodule.h"
 #include "core/fxcodec/scanlinedecoder.h"
 #include "core/fxcrt/compiler_specific.h"
+#include "core/fxcrt/data_vector.h"
 #include "core/fxcrt/span.h"
 #include "testing/fuzzers/pdfium_fuzzer_util.h"
 
@@ -47,6 +48,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       line++;
     }
   }
+
+  // Keep the Group 4 helper covered independently of the scanline path.
+  DataVector<uint8_t> group4_dest(/*size=*/4);
+  FaxModule::FaxG4Decode(span.subspan(kParameterSize),
+                         /*starting_bitpos=*/0, /*width=*/8, /*height=*/1,
+                         /*pitch=*/4, group4_dest);
 
   return 0;
 }
