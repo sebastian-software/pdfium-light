@@ -35,4 +35,18 @@ TEST_F(RustCodecEmbedderTest, FiltersDecodeRenderAndSurviveSaveReload) {
   ExpectRustCodecPage(saved_page.get());
 }
 
+TEST_F(RustCodecEmbedderTest, AsciiHexDecodeRendersAndSurvivesSaveReload) {
+  ASSERT_TRUE(OpenDocument("rust_ascii_hex_filter.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+  ExpectRustCodecPage(page.get());
+
+  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_document);
+  ScopedSavedPage saved_page = LoadScopedSavedPage(0);
+  ASSERT_TRUE(saved_page);
+  ExpectRustCodecPage(saved_page.get());
+}
+
 }  // namespace

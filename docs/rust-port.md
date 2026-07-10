@@ -2,7 +2,8 @@
 
 pdfium-light keeps its public C API and static-library contract unchanged while
 individual internal modules move to Rust. The first production slice is the
-byte-oriented PDF filter boundary: ASCII85 and RunLength encode/decode.
+byte-oriented PDF filter boundary: ASCII85, ASCIIHex, and RunLength
+encode/decode.
 
 ## Migration telemetry
 

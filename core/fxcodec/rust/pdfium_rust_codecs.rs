@@ -240,6 +240,49 @@ fn a85_decode(input: &[u8]) -> Result<(Vec<u8>, u32), ()> {
     Ok((output, u32::try_from(pos).map_err(|_| ())?))
 }
 
+fn hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn hex_decode(input: &[u8]) -> (Vec<u8>, u32) {
+    if input.is_empty() {
+        return (Vec::new(), 0);
+    }
+
+    let terminator = input.iter().position(|&byte| byte == b'>').unwrap_or(input.len());
+    let mut output = Vec::with_capacity(terminator / 2 + 1);
+    let mut first_nibble = None;
+    for (index, &byte) in input.iter().enumerate() {
+        if matches!(byte, b'\r' | b'\n' | b' ' | b'\t') {
+            continue;
+        }
+        if byte == b'>' {
+            if let Some(nibble) = first_nibble {
+                output.push(nibble << 4);
+            }
+            return (output, (index + 1).min(u32::MAX as usize) as u32);
+        }
+        let Some(nibble) = hex_digit(byte) else {
+            continue;
+        };
+        if let Some(first) = first_nibble {
+            output.push((first << 4) + nibble);
+            first_nibble = None;
+        } else {
+            first_nibble = Some(nibble);
+        }
+    }
+    if let Some(nibble) = first_nibble {
+        output.push(nibble << 4);
+    }
+    (output, input.len().min(u32::MAX as usize) as u32)
+}
+
 fn run_length_decode(input: &[u8]) -> Result<(Vec<u8>, u32), ()> {
     let mut dest_size = 0_u32;
     let mut pos = 0_usize;
@@ -314,6 +357,12 @@ pub extern "C" fn pdfium_rust_a85_decode(data: *const u8, len: usize) -> RustCod
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_hex_decode(data: *const u8, len: usize) -> RustCodecResult {
+    let (bytes, consumed) = hex_decode(input_from_ffi(data, len));
+    RustCodecResult::from_bytes(bytes, consumed)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pdfium_rust_run_length_decode(data: *const u8, len: usize) -> RustCodecResult {
     match run_length_decode(input_from_ffi(data, len)) {
         Ok((bytes, consumed)) => RustCodecResult::from_bytes(bytes, consumed),
@@ -357,6 +406,13 @@ mod tests {
     fn a85_decode_preserves_terminator_and_consumed_byte_behavior() {
         assert_eq!(a85_decode(b"FCfN8~>FCfN8"), Ok((b"test".to_vec(), 7)));
         assert_eq!(a85_decode(b"FCfN8FCfN8vw"), Ok((b"testtest".to_vec(), 11)));
+    }
+
+    #[test]
+    fn hex_decode_preserves_odd_nibbles_and_consumed_byte_behavior() {
+        assert_eq!(hex_decode(b"4869>ignored"), (b"Hi".to_vec(), 5));
+        assert_eq!(hex_decode(b"4f6"), (b"O`".to_vec(), 3));
+        assert_eq!(hex_decode(b"4 gF\n6@"), (b"O`".to_vec(), 7));
     }
 
     #[test]

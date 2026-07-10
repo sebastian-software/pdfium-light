@@ -22,6 +22,8 @@ class RustCodecAdapter final {
       pdfium::span<const uint8_t> src_span);
   static DataAndBytesConsumed A85Decode(
       pdfium::span<const uint8_t> src_span);
+  static DataAndBytesConsumed HexDecode(
+      pdfium::span<const uint8_t> src_span);
   static DataAndBytesConsumed RunLengthDecode(
       pdfium::span<const uint8_t> src_span);
 

@@ -78,6 +78,22 @@ TEST(RustCodecParityTest, DecodersMatchCppReferenceForNormalAndMalformedInput) {
     ExpectDecodeParity(A85DecodeReference(input), A85Decode(input));
   }
 
+  const std::array<std::vector<uint8_t>, 10> kHexInputs = {
+      std::vector<uint8_t>{},
+      std::vector<uint8_t>{'>'},
+      std::vector<uint8_t>{'4', '8', '6', '9', '>'},
+      std::vector<uint8_t>{'4', 'f', '6'},
+      std::vector<uint8_t>{'4', ' ', 'g', 'F', '\n', '6', '@'},
+      std::vector<uint8_t>{'\t', '4', '8', '\r', '6', '9', ' ', '>'},
+      std::vector<uint8_t>{'4', '8', '>', '4', '8'},
+      std::vector<uint8_t>{'x', 'y', 'z'},
+      std::vector<uint8_t>{0xff, '4', '8'},
+      std::vector<uint8_t>{'4', '8', '6', '9', '>', 0xff},
+  };
+  for (const auto& input : kHexInputs) {
+    ExpectDecodeParity(HexDecodeReference(input), HexDecode(input));
+  }
+
   const std::array<std::vector<uint8_t>, 8> kRunLengthInputs = {
       std::vector<uint8_t>{},
       std::vector<uint8_t>{128},
