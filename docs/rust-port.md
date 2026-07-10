@@ -18,7 +18,7 @@ custom_vars = {"checkout_rust": True}
 Run `gclient sync`, then generate and build with the normal light arguments:
 
 ```bash
-gn gen out/light-rust --args='pdf_enable_light=true pdf_enable_v8=false pdf_enable_xfa=false is_component_build=false clang_use_chrome_plugins=false'
+gn gen out/light-rust --args='enable_rust=true pdf_enable_light=true pdf_enable_v8=false pdf_enable_xfa=false is_component_build=false clang_use_chrome_plugins=false'
 ninja -C out/light-rust pdfium_light_validation
 out/light-rust/pdfium_unittests --gtest_filter='RustCodecParityTest.*:FPDFAttachmentEmbedderTest.FacturXAttachmentSurvivesSaveReload'
 ```
