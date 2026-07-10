@@ -201,6 +201,7 @@ if (pdf_enable_light) {
       ":pdfium_embeddertests",
       ":pdfium_light_public_headers_test",
       ":pdfium_unittests",
+      "core/fxcodec/rust:pdfium_rust_codecs_unittests",
     ]
   }
 }
@@ -356,6 +357,7 @@ group("pdfium_all") {
     ":pdfium_diff",
     ":pdfium_embeddertests",
     ":pdfium_unittests",
+    "core/fxcodec/rust:pdfium_rust_codecs_unittests",
     "testing/fuzzers",
   ]
 }
