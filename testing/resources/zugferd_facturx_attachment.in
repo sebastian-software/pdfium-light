@@ -63,6 +63,7 @@ endobj
 {{object 9 0}} <<
   /Type /EmbeddedFile
   /Subtype /application#2Fxml
+  /Params << /Desc (application/xml; profile=FACTUR-X) >>
   {{streamlen}}
 >>
 stream

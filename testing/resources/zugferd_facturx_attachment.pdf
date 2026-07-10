@@ -64,6 +64,7 @@ endobj
 9 0 obj <<
   /Type /EmbeddedFile
   /Subtype /application#2Fxml
+  /Params << /Desc (application/xml; profile=FACTUR-X) >>
   /Length 254
 >>
 stream
@@ -90,5 +91,5 @@ trailer <<
   /Size 10
 >>
 startxref
-1676
+1734
 %%EOF
