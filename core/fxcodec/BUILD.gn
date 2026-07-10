@@ -100,6 +100,7 @@ pdfium_unittest_source_set("unittests") {
     "basic/rust_codec_parity_unittest.cpp",
     "flate/flatemodule_unittest.cpp",
     "flate/lzw_parity_unittest.cpp",
+    "flate/predictor_parity_unittest.cpp",
     "jbig2/jbig2_bit_stream_unittest.cpp",
     "jbig2/jbig2_image_unittest.cpp",
     "jpx/jpx_unittest.cpp",
