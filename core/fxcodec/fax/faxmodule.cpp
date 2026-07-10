@@ -727,7 +727,7 @@ uint32_t FaxModule::FaxG4Decode(pdfium::span<const uint8_t> src_span,
   DataAndBytesConsumed result = RustCodecAdapter::FaxG4Decode(
       src_span, starting_bitpos, width, height, pitch);
   CHECK_EQ(dest_buf.size(), result.data.size());
-  fxcrt::Copy(result.data, dest_buf);
+  fxcrt::spancpy(dest_buf, result.data);
   return result.bytes_consumed;
 }
 
