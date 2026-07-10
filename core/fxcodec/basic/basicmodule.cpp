@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "core/fxcodec/scanlinedecoder.h"
+#include "core/fxcodec/rust/rust_codec_adapter.h"
 #include "core/fxcrt/byteorder.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/data_vector.h"
@@ -231,6 +232,12 @@ std::unique_ptr<ScanlineDecoder> BasicModule::CreateRunLengthDecoder(
 // static
 DataVector<uint8_t> BasicModule::RunLengthEncode(
     pdfium::span<const uint8_t> src_span) {
+  return RustCodecAdapter::RunLengthEncode(src_span);
+}
+
+// static
+DataVector<uint8_t> BasicModule::RunLengthEncodeReference(
+    pdfium::span<const uint8_t> src_span) {
   if (src_span.empty()) {
     return {};
   }
@@ -313,6 +320,12 @@ DataVector<uint8_t> BasicModule::RunLengthEncode(
 
 // static
 DataVector<uint8_t> BasicModule::A85Encode(
+    pdfium::span<const uint8_t> src_span) {
+  return RustCodecAdapter::A85Encode(src_span);
+}
+
+// static
+DataVector<uint8_t> BasicModule::A85EncodeReference(
     pdfium::span<const uint8_t> src_span) {
   DataVector<uint8_t> result;
   if (src_span.empty()) {

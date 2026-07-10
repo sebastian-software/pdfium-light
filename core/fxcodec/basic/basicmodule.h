@@ -32,6 +32,12 @@ class BasicModule {
 
   static DataVector<uint8_t> A85Encode(pdfium::span<const uint8_t> src_span);
 
+  // Kept as the parity oracle while the Rust implementations are introduced.
+  static DataVector<uint8_t> RunLengthEncodeReference(
+      pdfium::span<const uint8_t> src_span);
+  static DataVector<uint8_t> A85EncodeReference(
+      pdfium::span<const uint8_t> src_span);
+
   BasicModule() = delete;
   BasicModule(const BasicModule&) = delete;
   BasicModule& operator=(const BasicModule&) = delete;
