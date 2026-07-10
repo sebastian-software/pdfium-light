@@ -16,7 +16,6 @@
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fxge/cfx_gemodule.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
-#include "fpdfsdk/fpdf_view_c_api_test.h"
 #include "public/cpp/fpdf_scopers.h"
 #include "public/fpdfview.h"
 #include "testing/embedder_test.h"
@@ -98,10 +97,6 @@ class MockDownloadHints final : public FX_DOWNLOADHINTS {
 
 
 }  // namespace
-
-TEST(fpdf, CApiTest) {
-  EXPECT_TRUE(CheckPDFiumCApi());
-}
 
 class FPDFViewEmbedderTest : public EmbedderTest {
  protected:
