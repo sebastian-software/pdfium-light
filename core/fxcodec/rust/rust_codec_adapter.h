@@ -26,8 +26,18 @@ class RustCodecAdapter final {
       pdfium::span<const uint8_t> src_span);
   static DataAndBytesConsumed LZWDecode(pdfium::span<const uint8_t> src_span,
                                         bool early_change);
+  static DataAndBytesConsumed PNGPredictor(
+      pdfium::span<const uint8_t> src_span,
+      int colors,
+      int bits_per_component,
+      int columns);
   static DataAndBytesConsumed RunLengthDecode(
       pdfium::span<const uint8_t> src_span);
+  static DataAndBytesConsumed TIFFPredictor(
+      pdfium::span<const uint8_t> src_span,
+      int colors,
+      int bits_per_component,
+      int columns);
 
   RustCodecAdapter() = delete;
   RustCodecAdapter(const RustCodecAdapter&) = delete;

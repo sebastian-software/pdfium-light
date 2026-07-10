@@ -30,8 +30,20 @@ extern "C" RustCodecResult pdfium_rust_hex_decode(const uint8_t* data,
 extern "C" RustCodecResult pdfium_rust_lzw_decode(const uint8_t* data,
                                                     size_t len,
                                                     bool early_change);
+extern "C" RustCodecResult pdfium_rust_png_predictor(
+    const uint8_t* data,
+    size_t len,
+    int colors,
+    int bits_per_component,
+    int columns);
 extern "C" RustCodecResult pdfium_rust_run_length_decode(const uint8_t* data,
                                                            size_t len);
+extern "C" RustCodecResult pdfium_rust_tiff_predictor(
+    const uint8_t* data,
+    size_t len,
+    int colors,
+    int bits_per_component,
+    int columns);
 extern "C" void pdfium_rust_codec_result_free(uint8_t* data,
                                                 size_t len,
                                                 size_t capacity);
@@ -86,10 +98,30 @@ DataAndBytesConsumed RustCodecAdapter::LZWDecode(
 }
 
 // static
+DataAndBytesConsumed RustCodecAdapter::PNGPredictor(
+    pdfium::span<const uint8_t> src_span,
+    int colors,
+    int bits_per_component,
+    int columns) {
+  return DecodeResult(pdfium_rust_png_predictor(
+      src_span.data(), src_span.size(), colors, bits_per_component, columns));
+}
+
+// static
 DataAndBytesConsumed RustCodecAdapter::RunLengthDecode(
     pdfium::span<const uint8_t> src_span) {
   return DecodeResult(
       pdfium_rust_run_length_decode(src_span.data(), src_span.size()));
+}
+
+// static
+DataAndBytesConsumed RustCodecAdapter::TIFFPredictor(
+    pdfium::span<const uint8_t> src_span,
+    int colors,
+    int bits_per_component,
+    int columns) {
+  return DecodeResult(pdfium_rust_tiff_predictor(
+      src_span.data(), src_span.size(), colors, bits_per_component, columns));
 }
 
 }  // namespace fxcodec

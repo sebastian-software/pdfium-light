@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "core/fxcodec/flate/flatemodule.h"
+#include "core/fxcodec/rust/rust_codec_adapter.h"
 
 #include <stdint.h>
 
@@ -68,6 +69,44 @@ TEST(TIFFPredictorReferenceTest, RejectsInvalidGeometry) {
   DataVector<uint8_t> input = {1, 2, 3};
   EXPECT_FALSE(FlateModule::TIFFPredictorReference(0, 8, 3, &input));
   EXPECT_THAT(input, ElementsAreArray(std::array<uint8_t, 3>{1, 2, 3}));
+}
+
+TEST(PredictorRustParityTest, MatchesReferenceResultsAndFailureStatus) {
+  const std::array<uint8_t, 16> png_input = {
+      1, 1, 1, 1,
+      2, 4, 4, 4,
+      3, 2, 2, 2,
+      4, 1, 1, 1,
+  };
+  std::optional<DataVector<uint8_t>> png_reference =
+      FlateModule::PNGPredictorReference(1, 8, 3, png_input);
+  DataAndBytesConsumed png_rust =
+      RustCodecAdapter::PNGPredictor(png_input, 1, 8, 3);
+  ASSERT_TRUE(png_reference.has_value());
+  EXPECT_NE(FX_INVALID_OFFSET, png_rust.bytes_consumed);
+  EXPECT_EQ(png_reference.value(), png_rust.data);
+
+  const std::array<uint8_t, 3> invalid_png = {0, 1, 2};
+  EXPECT_FALSE(
+      FlateModule::PNGPredictorReference(0, 8, 3, invalid_png).has_value());
+  EXPECT_EQ(FX_INVALID_OFFSET,
+            RustCodecAdapter::PNGPredictor(invalid_png, 0, 8, 3)
+                .bytes_consumed);
+
+  DataVector<uint8_t> tiff_reference = {0, 1, 0, 1};
+  ASSERT_TRUE(FlateModule::TIFFPredictorReference(1, 16, 2, &tiff_reference));
+  const std::array<uint8_t, 4> tiff_input = {0, 1, 0, 1};
+  DataAndBytesConsumed tiff_rust =
+      RustCodecAdapter::TIFFPredictor(tiff_input, 1, 16, 2);
+  EXPECT_NE(FX_INVALID_OFFSET, tiff_rust.bytes_consumed);
+  EXPECT_EQ(tiff_reference, tiff_rust.data);
+
+  const std::array<uint8_t, 3> invalid_tiff = {1, 2, 3};
+  EXPECT_FALSE(
+      FlateModule::TIFFPredictorReference(0, 8, 3, &tiff_reference));
+  EXPECT_EQ(FX_INVALID_OFFSET,
+            RustCodecAdapter::TIFFPredictor(invalid_tiff, 0, 8, 3)
+                .bytes_consumed);
 }
 
 }  // namespace

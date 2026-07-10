@@ -854,17 +854,20 @@ DataAndBytesConsumed FlateModule::FlateOrLZWDecode(
       return {std::move(dest_buf), bytes_consumed};
     }
     case PredictorType::kPng: {
-      std::optional<DataVector<uint8_t>> result =
-          PNGPredictorReference(Colors, BitsPerComponent, Columns, dest_buf);
-      if (!result.has_value()) {
+      DataAndBytesConsumed result = RustCodecAdapter::PNGPredictor(
+          dest_buf, Colors, BitsPerComponent, Columns);
+      if (result.bytes_consumed == FX_INVALID_OFFSET) {
         return {std::move(dest_buf), FX_INVALID_OFFSET};
       }
-      return {std::move(result.value()), bytes_consumed};
+      return {std::move(result.data), bytes_consumed};
     }
     case PredictorType::kFlate: {
-      bool ret = TIFFPredictorReference(Colors, BitsPerComponent, Columns,
-                                        &dest_buf);
-      return {std::move(dest_buf), ret ? bytes_consumed : FX_INVALID_OFFSET};
+      DataAndBytesConsumed result = RustCodecAdapter::TIFFPredictor(
+          dest_buf, Colors, BitsPerComponent, Columns);
+      if (result.bytes_consumed == FX_INVALID_OFFSET) {
+        return {std::move(dest_buf), FX_INVALID_OFFSET};
+      }
+      return {std::move(result.data), bytes_consumed};
     }
   }
 }

@@ -432,6 +432,145 @@ fn lzw_decode(input: &[u8], early_change: bool) -> Result<(Vec<u8>, u32), ()> {
     Ok((output, src_bit_pos.saturating_add(7) / 8))
 }
 
+fn calculate_pitch8(bits_per_component: i32, colors: i32, columns: i32) -> Option<usize> {
+    let bits = i64::from(bits_per_component)
+        .checked_mul(i64::from(colors))?
+        .checked_mul(i64::from(columns))?;
+    if bits <= 0 {
+        return None;
+    }
+    usize::try_from((bits + 7) / 8).ok()
+}
+
+fn paeth_predictor(left: u8, up: u8, upper_left: u8) -> u8 {
+    let prediction = i32::from(left) + i32::from(up) - i32::from(upper_left);
+    let left_distance = (prediction - i32::from(left)).unsigned_abs();
+    let up_distance = (prediction - i32::from(up)).unsigned_abs();
+    let upper_left_distance = (prediction - i32::from(upper_left)).unsigned_abs();
+    if left_distance <= up_distance && left_distance <= upper_left_distance {
+        left
+    } else if up_distance <= upper_left_distance {
+        up
+    } else {
+        upper_left
+    }
+}
+
+fn png_predictor(
+    colors: i32,
+    bits_per_component: i32,
+    columns: i32,
+    input: &[u8],
+) -> Option<Vec<u8>> {
+    let row_size = calculate_pitch8(bits_per_component, colors, columns)?;
+    let source_row_size = row_size.checked_add(1)?;
+    let row_count = input.len().checked_add(row_size)? / source_row_size;
+    if row_count == 0 {
+        return None;
+    }
+    let last_row_size = input.len() % source_row_size;
+    let mut destination_size = row_size.checked_mul(row_count)?;
+    if last_row_size != 0 {
+        destination_size = destination_size.checked_sub(source_row_size - last_row_size)?;
+    }
+    let mut output = vec![0; destination_size];
+    let bytes_per_pixel =
+        usize::try_from((i64::from(colors).checked_mul(i64::from(bits_per_component))? + 7) / 8)
+            .ok()?;
+    let mut source_pos: usize = 0;
+    let mut destination_pos: usize = 0;
+    let mut previous_row_pos: usize = 0;
+    for _ in 0..row_count {
+        let row_data_pos = source_pos.checked_add(1)?;
+        let remaining_row_size = row_size.min(input.len().checked_sub(row_data_pos)?);
+        let tag = input[source_pos];
+        for index in 0..remaining_row_size {
+            let source = input[row_data_pos + index];
+            let left: u8 = if index >= bytes_per_pixel {
+                output[destination_pos + index - bytes_per_pixel]
+            } else {
+                0
+            };
+            let up: u8 = if destination_pos == 0 { 0 } else { output[previous_row_pos + index] };
+            let upper_left: u8 = if destination_pos != 0 && index >= bytes_per_pixel {
+                output[previous_row_pos + index - bytes_per_pixel]
+            } else {
+                0
+            };
+            output[destination_pos + index] = match tag {
+                1 => source.wrapping_add(left),
+                2 => source.wrapping_add(up),
+                3 => source.wrapping_add((up.wrapping_add(left)) / 2),
+                4 => source.wrapping_add(paeth_predictor(left, up, upper_left)),
+                _ => source,
+            };
+        }
+        source_pos = source_pos.checked_add(remaining_row_size + 1)?;
+        previous_row_pos = destination_pos;
+        destination_pos += remaining_row_size;
+    }
+    Some(output)
+}
+
+fn tiff_predictor(
+    colors: i32,
+    bits_per_component: i32,
+    columns: i32,
+    mut output: Vec<u8>,
+) -> Option<Vec<u8>> {
+    let row_size = calculate_pitch8(bits_per_component, colors, columns)?;
+    let mut row_start = 0;
+    while row_start < output.len() {
+        let row_end = (row_start + row_size).min(output.len());
+        let row = &mut output[row_start..row_end];
+        if bits_per_component == 1 {
+            let row_bits = i64::from(bits_per_component)
+                .checked_mul(i64::from(colors))?
+                .checked_mul(i64::from(columns))?
+                .min(i64::try_from(row.len().checked_mul(8)?).ok()?);
+            let mut previous_index = 0;
+            let mut previous_column = 0;
+            for bit in 1..row_bits {
+                let column = bit % 8;
+                let index = usize::try_from(bit / 8).ok()?;
+                let current = (row[index] >> (7 - column)) & 1;
+                let previous = (row[previous_index] >> (7 - previous_column)) & 1;
+                if current ^ previous != 0 {
+                    row[index] |= 1 << (7 - column);
+                } else {
+                    row[index] &= !(1 << (7 - column));
+                }
+                previous_index = index;
+                previous_column = column;
+            }
+        } else {
+            let bytes_per_pixel =
+                usize::try_from(i64::from(bits_per_component).checked_mul(i64::from(colors))? / 8)
+                    .ok()?;
+            if bits_per_component == 16 {
+                let mut index = bytes_per_pixel;
+                while index + 1 < row.len() {
+                    let pixel = u16::from_be_bytes([
+                        row[index - bytes_per_pixel],
+                        row[index - bytes_per_pixel + 1],
+                    ])
+                    .wrapping_add(u16::from_be_bytes([row[index], row[index + 1]]));
+                    let [high, low] = pixel.to_be_bytes();
+                    row[index] = high;
+                    row[index + 1] = low;
+                    index += 2;
+                }
+            } else {
+                for index in bytes_per_pixel..row.len() {
+                    row[index] = row[index].wrapping_add(row[index - bytes_per_pixel]);
+                }
+            }
+        }
+        row_start = row_end;
+    }
+    Some(output)
+}
+
 fn run_length_decode(input: &[u8]) -> Result<(Vec<u8>, u32), ()> {
     let mut dest_size = 0_u32;
     let mut pos = 0_usize;
@@ -524,6 +663,35 @@ pub extern "C" fn pdfium_rust_lzw_decode(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_png_predictor(
+    data: *const u8,
+    len: usize,
+    colors: i32,
+    bits_per_component: i32,
+    columns: i32,
+) -> RustCodecResult {
+    match png_predictor(colors, bits_per_component, columns, input_from_ffi(data, len)) {
+        Some(bytes) => RustCodecResult::from_bytes(bytes, 0),
+        None => RustCodecResult::failure(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_tiff_predictor(
+    data: *const u8,
+    len: usize,
+    colors: i32,
+    bits_per_component: i32,
+    columns: i32,
+) -> RustCodecResult {
+    let input = input_from_ffi(data, len).to_vec();
+    match tiff_predictor(colors, bits_per_component, columns, input) {
+        Some(bytes) => RustCodecResult::from_bytes(bytes, 0),
+        None => RustCodecResult::failure(),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pdfium_rust_run_length_decode(data: *const u8, len: usize) -> RustCodecResult {
     match run_length_decode(input_from_ffi(data, len)) {
         Ok((bytes, consumed)) => RustCodecResult::from_bytes(bytes, consumed),
@@ -580,6 +748,12 @@ mod tests {
     fn lzw_decode_preserves_clear_and_end_of_data_behavior() {
         let input = [0x80, 0x10, 0x48, 0x44, 0x38, 0x08];
         assert_eq!(lzw_decode(&input, true), Ok((b"ABC".to_vec(), 6)));
+    }
+
+    #[test]
+    fn predictors_preserve_png_and_tiff_reference_cases() {
+        assert_eq!(png_predictor(1, 8, 3, &[1, 1, 1, 1, 2, 4, 4, 4]), Some(vec![1, 2, 3, 5, 6, 7]));
+        assert_eq!(tiff_predictor(1, 8, 4, vec![1, 1, 1, 1]), Some(vec![1, 2, 3, 4]));
     }
 
     #[test]

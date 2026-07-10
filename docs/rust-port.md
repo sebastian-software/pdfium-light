@@ -2,8 +2,8 @@
 
 pdfium-light keeps its public C API and static-library contract unchanged while
 individual internal modules move to Rust. The first production slice is the
-byte-oriented PDF filter boundary: ASCII85, ASCIIHex, LZW, and RunLength
-encode/decode.
+byte-oriented PDF filter boundary: ASCII85, ASCIIHex, LZW, PNG/TIFF predictor
+transforms, and RunLength encode/decode.
 
 ## Migration telemetry
 
@@ -22,6 +22,7 @@ report with `--check`.
 | Commit | Rust LOC | C++ adapter LOC | Product-native LOC | Rust share | Activated Rust surfaces |
 | --- | ---: | ---: | ---: | ---: | --- |
 | `5fbaaa393` | 367 | 111 | 253,804 | 0.14% | ASCII85 encode/decode; RunLength encode/decode |
+| Epic #30 predictor slice | 764 | 176 | 254,631 | 0.30% | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; RunLength encode/decode |
 
 ## Toolchain
 
@@ -76,6 +77,12 @@ more conventional codec interpretation.
 whose content stream applies `ASCII85Decode` followed by `RunLengthDecode`.
 It renders and extracts the decoded text before and after save/reload, proving
 that the normal light document path reaches the adapters.
+
+`RustCodecEmbedderTest.PngPredictorRendersAndSurvivesSaveReload` applies the
+PNG predictor after LZW decoding. The predictor corpus also compares all PNG
+filter tags, partial rows, invalid geometry, and TIFF 1-, 8-, and 16-bit rows
+with the retained C++ reference functions. Flate decompression and scanline
+decoding remain C++ owned in this slice.
 
 No performance claim is made by this port. Any performance decision requires a
 separate benchmark against the reference implementation.

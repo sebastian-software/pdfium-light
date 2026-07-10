@@ -25,6 +25,9 @@ ADAPTER_DIR = "core/fxcodec/rust"
 ADAPTER_SUFFIXES = (".cpp", ".h")
 ACTIVE_SURFACES = (
     "ASCII85 encode/decode",
+    "ASCIIHex decode",
+    "LZW decode",
+    "PNG/TIFF predictor transforms",
     "RunLength encode/decode",
 )
 

@@ -63,4 +63,18 @@ TEST_F(RustCodecEmbedderTest, LzwDecodeRendersAndSurvivesSaveReload) {
   ExpectRustCodecPage(saved_page.get(), 15);
 }
 
+TEST_F(RustCodecEmbedderTest, PngPredictorRendersAndSurvivesSaveReload) {
+  ASSERT_TRUE(OpenDocument("rust_png_predictor_filter.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+  ExpectRustCodecPage(page.get(), 15);
+
+  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_document);
+  ScopedSavedPage saved_page = LoadScopedSavedPage(0);
+  ASSERT_TRUE(saved_page);
+  ExpectRustCodecPage(saved_page.get(), 15);
+}
+
 }  // namespace
