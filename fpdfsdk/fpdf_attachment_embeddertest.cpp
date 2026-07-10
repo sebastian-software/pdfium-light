@@ -22,7 +22,7 @@ static constexpr char kFacturXXml[] =
     "CrossIndustryInvoice:100\">\n"
     "  <rsm:ExchangedDocument><rsm:ID>PDFIUM-LIGHT-TEST-001</rsm:ID>"
     "</rsm:ExchangedDocument>\n"
-    "</rsm:CrossIndustryInvoice>\n";
+    "</rsm:CrossIndustryInvoice>";
 
 class FPDFAttachmentEmbedderTest : public EmbedderTest {};
 
