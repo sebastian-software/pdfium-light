@@ -419,6 +419,7 @@ fn lzw_decode(input: &[u8], early_change: bool) -> Result<(Vec<u8>, u32), ()> {
     let mut current_code = 0_u32;
     let mut old_code = u32::MAX;
     let mut last_char = 0_u8;
+    let mut decode_stack = [0; 4000];
     let input_bits = input.len().saturating_mul(8);
 
     while (src_bit_pos as usize).saturating_add(usize::from(code_length)) <= input_bits {
@@ -457,7 +458,6 @@ fn lzw_decode(input: &[u8], early_change: bool) -> Result<(Vec<u8>, u32), ()> {
             return Err(());
         }
 
-        let mut decode_stack = [0; 4000];
         let stack_len = if code - 258 >= current_code {
             decode_stack[0] = last_char;
             1 + lzw_decode_string(&codes, current_code, old_code, &mut decode_stack[1..])
