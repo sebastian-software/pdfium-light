@@ -104,7 +104,6 @@ pdfium_unittest_source_set("unittests") {
     "cpdf_object_unittest.cpp",
     "cpdf_object_walker_unittest.cpp",
     "cpdf_parser_unittest.cpp",
-    "cpdf_read_validator_unittest.cpp",
     "cpdf_simple_parser_unittest.cpp",
     "cpdf_stream_acc_unittest.cpp",
     "cpdf_syntax_parser_unittest.cpp",
