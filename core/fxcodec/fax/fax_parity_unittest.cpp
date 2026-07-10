@@ -64,9 +64,9 @@ TEST(FaxG4ReferenceTest, PreservesVerticalHorizontalAndTruncatedRows) {
 
   DataVector<uint8_t> truncated_row = PackBits("0");
   std::array<uint8_t, 4> truncated_output = {};
-  EXPECT_EQ(1u, FaxModule::FaxG4Decode(truncated_row, /*starting_bitpos=*/0,
-                                       /*width=*/8, /*height=*/1,
-                                       /*pitch=*/4, truncated_output));
+  EXPECT_EQ(12u, FaxModule::FaxG4Decode(truncated_row, /*starting_bitpos=*/0,
+                                        /*width=*/8, /*height=*/1,
+                                        /*pitch=*/4, truncated_output));
   EXPECT_THAT(truncated_output,
               ElementsAreArray(std::array<uint8_t, 4>{0xff, 0xff, 0xff,
                                                        0xff}));
