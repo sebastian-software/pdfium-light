@@ -50,6 +50,21 @@ TEST(PNGPredictorReferenceTest, PreservesPartialAndInvalidInputBehavior) {
                    .has_value());
 }
 
+TEST(PNGPredictorReferenceTest, PreservesRgbPaethPrediction) {
+  const std::array<uint8_t, 14> kInput = {
+      0, 1, 2, 3, 4, 5, 6,
+      4, 1, 1, 1, 1, 1, 1,
+  };
+  const std::array<uint8_t, 12> kExpected = {
+      1, 2, 3, 4, 5, 6,
+      2, 3, 4, 5, 6, 7,
+  };
+  std::optional<DataVector<uint8_t>> result =
+      FlateModule::PNGPredictorReference(3, 8, 2, kInput);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_THAT(result.value(), ElementsAreArray(kExpected));
+}
+
 TEST(TIFFPredictorReferenceTest, PreservesOneEightAndSixteenBitBehavior) {
   DataVector<uint8_t> one_bit = {0x40};
   ASSERT_TRUE(FlateModule::TIFFPredictorReference(1, 1, 4, &one_bit));
@@ -72,6 +87,15 @@ TEST(TIFFPredictorReferenceTest, RejectsInvalidGeometry) {
   EXPECT_THAT(input, ElementsAreArray(std::array<uint8_t, 3>{1, 2, 3}));
 }
 
+TEST(TIFFPredictorReferenceTest, PreservesMultiRowPartialFinalRow) {
+  DataVector<uint8_t> input = {1, 1, 1, 1, 2, 1, 1, 1, 3, 1};
+  ASSERT_TRUE(FlateModule::TIFFPredictorReference(1, 8, 4, &input));
+  EXPECT_THAT(input,
+              ElementsAreArray(std::array<uint8_t, 10>{
+                  1, 2, 3, 4, 2, 3, 4, 5, 3, 4,
+              }));
+}
+
 TEST(PredictorRustParityTest, MatchesReferenceResultsAndFailureStatus) {
   const std::array<uint8_t, 16> png_input = {
       1, 1, 1, 1,
@@ -85,6 +109,15 @@ TEST(PredictorRustParityTest, MatchesReferenceResultsAndFailureStatus) {
       RustCodecAdapter::PNGPredictor(png_input, 1, 8, 3);
   ASSERT_TRUE(png_reference.has_value());
   EXPECT_NE(FX_INVALID_OFFSET, png_rust.bytes_consumed);
+  EXPECT_EQ(png_reference.value(), png_rust.data);
+
+  const std::array<uint8_t, 14> rgb_png_input = {
+      0, 1, 2, 3, 4, 5, 6,
+      4, 1, 1, 1, 1, 1, 1,
+  };
+  png_reference = FlateModule::PNGPredictorReference(3, 8, 2, rgb_png_input);
+  png_rust = RustCodecAdapter::PNGPredictor(rgb_png_input, 3, 8, 2);
+  ASSERT_TRUE(png_reference.has_value());
   EXPECT_EQ(png_reference.value(), png_rust.data);
 
   const std::array<uint8_t, 3> invalid_png = {0, 1, 2};
@@ -101,6 +134,15 @@ TEST(PredictorRustParityTest, MatchesReferenceResultsAndFailureStatus) {
       RustCodecAdapter::TIFFPredictor(tiff_input, 1, 16, 2);
   EXPECT_NE(FX_INVALID_OFFSET, tiff_rust.bytes_consumed);
   EXPECT_EQ(tiff_reference, tiff_rust.data);
+
+  DataVector<uint8_t> partial_tiff_reference =
+      {1, 1, 1, 1, 2, 1, 1, 1, 3, 1};
+  ASSERT_TRUE(FlateModule::TIFFPredictorReference(
+      1, 8, 4, &partial_tiff_reference));
+  const std::array<uint8_t, 10> partial_tiff_input =
+      {1, 1, 1, 1, 2, 1, 1, 1, 3, 1};
+  tiff_rust = RustCodecAdapter::TIFFPredictor(partial_tiff_input, 1, 8, 4);
+  EXPECT_EQ(partial_tiff_reference, tiff_rust.data);
 
   const std::array<uint8_t, 3> invalid_tiff = {1, 2, 3};
   EXPECT_FALSE(

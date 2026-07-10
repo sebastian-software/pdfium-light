@@ -86,6 +86,29 @@ TEST(FaxG4ReferenceTest, PreservesVerticalHorizontalAndTruncatedRows) {
                                                        0xff}));
 }
 
+TEST(FaxG4ReferenceTest, PreservesMakeupRunsAndPassMode) {
+  // The first row is a horizontal all-black 128-pixel run: black 128 is a
+  // makeup code followed by its zero-length terminator. The second row uses
+  // pass mode against that non-white reference row.
+  DataVector<uint8_t> input = PackBits(
+      "001"      // Horizontal mode.
+      "00110101" // White run length 0.
+      "000011001000" // Black makeup run length 128.
+      "0000110111" // Black terminator run length 0.
+      "0001");  // Pass mode.
+  std::array<uint8_t, 32> output = {};
+  EXPECT_EQ(37u, FaxModule::FaxG4Decode(input, /*starting_bitpos=*/0,
+                                        /*width=*/128, /*height=*/2,
+                                        /*pitch=*/16, output));
+  EXPECT_THAT(output.first<16>(),
+              ElementsAreArray(std::array<uint8_t, 16>{}));
+  EXPECT_THAT(output.last<16>(),
+              ElementsAreArray(std::array<uint8_t, 16>{
+                  0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                  0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+              }));
+}
+
 TEST(FaxG4RustParityTest, MatchesReferenceRowsAndEndingBitPositions) {
   DataVector<uint8_t> horizontal_row = PackBits("00100110101000101");
   std::array<uint8_t, 4> reference_output = {};
@@ -107,6 +130,18 @@ TEST(FaxG4RustParityTest, MatchesReferenceRowsAndEndingBitPositions) {
       /*pitch=*/4);
   EXPECT_EQ(reference_bitpos, rust_output.bytes_consumed);
   EXPECT_THAT(rust_output.data, ElementsAreArray(reference_output));
+
+  DataVector<uint8_t> makeup_and_pass = PackBits(
+      "00100110101000011001000000011011100001");
+  std::array<uint8_t, 32> reference_makeup_output = {};
+  reference_bitpos = FaxModule::FaxG4DecodeReference(
+      makeup_and_pass, /*starting_bitpos=*/0, /*width=*/128, /*height=*/2,
+      /*pitch=*/16, reference_makeup_output);
+  rust_output = RustCodecAdapter::FaxG4Decode(
+      makeup_and_pass, /*starting_bitpos=*/0, /*width=*/128, /*height=*/2,
+      /*pitch=*/16);
+  EXPECT_EQ(reference_bitpos, rust_output.bytes_consumed);
+  EXPECT_THAT(rust_output.data, ElementsAreArray(reference_makeup_output));
 }
 
 TEST(FaxScanlineReferenceTest, PreservesGroup3AndGroup4Modes) {

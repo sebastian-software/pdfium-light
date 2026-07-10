@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include <array>
+#include <initializer_list>
 #include <vector>
 
 #include "core/fxcodec/rust/rust_codec_adapter.h"
@@ -64,6 +65,16 @@ std::vector<uint8_t> PackLiteralCodes(pdfium::span<const uint8_t> literals,
   }
   if (append_end_of_data) {
     AppendCode(&output, kEndOfDataCode, code_length, &bit_pos);
+  }
+  return output;
+}
+
+std::vector<uint8_t> PackNineBitCodes(
+    std::initializer_list<uint32_t> codes) {
+  std::vector<uint8_t> output;
+  size_t bit_pos = 0;
+  for (uint32_t code : codes) {
+    AppendCode(&output, code, /*code_length=*/9, &bit_pos);
   }
   return output;
 }
@@ -134,6 +145,22 @@ TEST(LZWRustParityTest, MatchesReferenceForNormalAndMalformedInput) {
       RustCodecAdapter::LZWDecode(malformed, /*early_change=*/true);
   EXPECT_EQ(reference.bytes_consumed, candidate.bytes_consumed);
   EXPECT_EQ(reference.data, candidate.data);
+}
+
+TEST(LZWRustParityTest, MatchesReferenceForDictionaryAndKwikCodes) {
+  const std::vector<uint8_t> dictionary_input =
+      PackNineBitCodes({kClearCode, 'A', 'B', 258, kEndOfDataCode});
+  const std::vector<uint8_t> kwik_input =
+      PackNineBitCodes({kClearCode, 'A', 258, kEndOfDataCode});
+
+  for (const std::vector<uint8_t>& input : {dictionary_input, kwik_input}) {
+    DataAndBytesConsumed reference =
+        FlateModule::LZWDecodeReference(input, /*early_change=*/true);
+    DataAndBytesConsumed candidate =
+        RustCodecAdapter::LZWDecode(input, /*early_change=*/true);
+    EXPECT_EQ(reference.bytes_consumed, candidate.bytes_consumed);
+    EXPECT_EQ(reference.data, candidate.data);
+  }
 }
 
 }  // namespace
