@@ -23,6 +23,7 @@ report with `--check`.
 | --- | ---: | ---: | ---: | ---: | --- |
 | `5fbaaa393` | 367 | 111 | 253,804 | 0.14% | ASCII85 encode/decode; RunLength encode/decode |
 | Epic #30 predictor slice | 764 | 176 | 254,631 | 0.30% | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; RunLength encode/decode |
+| Epic #30 Fax slice | 1,232 | 262 | 255,525 | 0.48% | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; CCITT Fax Group 4 and scanline decode; RunLength encode/decode |
 
 ## Toolchain
 
@@ -81,17 +82,16 @@ that the normal light document path reaches the adapters.
 `RustCodecEmbedderTest.PngPredictorRendersAndSurvivesSaveReload` applies the
 PNG predictor after LZW decoding. The predictor corpus also compares all PNG
 filter tags, partial rows, invalid geometry, and TIFF 1-, 8-, and 16-bit rows
-with the retained C++ reference functions. Flate decompression and scanline
-decoding remain C++ owned in this slice.
+with the retained C++ reference functions. Flate decompression remains C++
+owned in this slice.
 
-CCITT Fax remains C++ owned. Its pre-port corpus covers Group 3 and Group 4
-modes, EOL and byte-alignment handling, inversion, truncation, and consumed
-bit positions; the Fax fuzzer also calls the Group 4 helper directly. These
-cases are the differential contract for the later Rust activation.
-
-The self-contained Group 4 helper is active through the internal Rust ABI for
-its existing consumers, including JBIG2. The general Fax scanline decoder
-remains C++ owned until its separate activation slice.
+CCITT Fax Group 4 and scanline decoding are active through the internal Rust
+ABI. The retained C++ references compare Group 3/1D, mixed 2D, Group 4, EOL,
+byte alignment, BlackIs1 inversion, truncation, source offsets, and rewind.
+The Fax fuzzer also calls the Group 4 helper directly, while
+`RustCodecEmbedderTest.FaxImageRendersAndSurvivesSaveReload` proves the real
+CCITT image path before and after save/reload. The existing JBIG2 Group 4
+consumer continues to call the same active helper through `FaxModule`.
 
 No performance claim is made by this port. Any performance decision requires a
 separate benchmark against the reference implementation.

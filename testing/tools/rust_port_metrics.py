@@ -27,7 +27,7 @@ ACTIVE_SURFACES = (
     "ASCII85 encode/decode",
     "ASCIIHex decode",
     "LZW decode",
-    "CCITT Group 4 helper",
+    "CCITT Fax Group 4 and scanline decode",
     "PNG/TIFF predictor transforms",
     "RunLength encode/decode",
 )
