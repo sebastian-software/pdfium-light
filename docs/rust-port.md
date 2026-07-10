@@ -53,6 +53,11 @@ failure status, and consumed-byte counts for normal, empty, truncated, and
 malformed inputs. This preserves PDFium behavior rather than substituting a
 more conventional codec interpretation.
 
+`RustCodecEmbedderTest.FiltersDecodeRenderAndSurviveSaveReload` loads a PDF
+whose content stream applies `ASCII85Decode` followed by `RunLengthDecode`.
+It renders and extracts the decoded text before and after save/reload, proving
+that the normal light document path reaches the adapters.
+
 No performance claim is made by this port. Any performance decision requires a
 separate benchmark against the reference implementation.
 
