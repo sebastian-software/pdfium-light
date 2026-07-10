@@ -93,6 +93,13 @@ The Fax fuzzer also calls the Group 4 helper directly, while
 CCITT image path before and after save/reload. The existing JBIG2 Group 4
 consumer continues to call the same active helper through `FaxModule`.
 
+The first Rust scanline slice decodes the bounded image eagerly in the
+constructor, retaining the decoded rows and per-row source offsets for the
+existing `ScanlineDecoder` API. This deliberately trades the C++ decoder's
+O(pitch) streaming state for O(height × pitch) storage and full decode work
+before the first requested row. A future streaming Rust decoder can remove
+that trade-off without changing the public C API or the differential contract.
+
 No performance claim is made by this port. Any performance decision requires a
 separate benchmark against the reference implementation.
 
