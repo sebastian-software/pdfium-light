@@ -76,7 +76,7 @@ TEST(FaxG4ReferenceTest, PreservesVerticalHorizontalAndTruncatedRows) {
 TEST(FaxG4RustParityTest, MatchesReferenceRowsAndEndingBitPositions) {
   DataVector<uint8_t> horizontal_row = PackBits("00100110101000101");
   std::array<uint8_t, 4> reference_output = {};
-  uint32_t reference_bitpos = FaxModule::FaxG4Decode(
+  uint32_t reference_bitpos = FaxModule::FaxG4DecodeReference(
       horizontal_row, /*starting_bitpos=*/0, /*width=*/8, /*height=*/1,
       /*pitch=*/4, reference_output);
   DataAndBytesConsumed rust_output = RustCodecAdapter::FaxG4Decode(
@@ -86,7 +86,7 @@ TEST(FaxG4RustParityTest, MatchesReferenceRowsAndEndingBitPositions) {
   EXPECT_THAT(rust_output.data, ElementsAreArray(reference_output));
 
   DataVector<uint8_t> truncated_row = PackBits("0");
-  reference_bitpos = FaxModule::FaxG4Decode(
+  reference_bitpos = FaxModule::FaxG4DecodeReference(
       truncated_row, /*starting_bitpos=*/0, /*width=*/8, /*height=*/1,
       /*pitch=*/4, reference_output);
   rust_output = RustCodecAdapter::FaxG4Decode(

@@ -46,6 +46,12 @@ class FaxModule {
                               int height,
                               int pitch,
                               pdfium::span<uint8_t> dest_buf);
+  static uint32_t FaxG4DecodeReference(pdfium::span<const uint8_t> src_buf,
+                                       uint32_t starting_bitpos,
+                                       int width,
+                                       int height,
+                                       int pitch,
+                                       pdfium::span<uint8_t> dest_buf);
 
 #if BUILDFLAG(IS_WIN)
   // `src` must have a BPP value of 1.

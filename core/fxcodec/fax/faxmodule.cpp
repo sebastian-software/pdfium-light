@@ -16,6 +16,7 @@
 
 #include "build/build_config.h"
 #include "core/fxcodec/scanlinedecoder.h"
+#include "core/fxcodec/rust/rust_codec_adapter.h"
 #include "core/fxcrt/binary_buffer.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/check_op.h"
@@ -693,12 +694,12 @@ std::unique_ptr<ScanlineDecoder> FaxModule::CreateDecoder(
 }
 
 // static
-uint32_t FaxModule::FaxG4Decode(pdfium::span<const uint8_t> src_span,
-                                uint32_t starting_bitpos,
-                                int width,
-                                int height,
-                                int pitch,
-                                pdfium::span<uint8_t> dest_buf) {
+uint32_t FaxModule::FaxG4DecodeReference(pdfium::span<const uint8_t> src_span,
+                                         uint32_t starting_bitpos,
+                                         int width,
+                                         int height,
+                                         int pitch,
+                                         pdfium::span<uint8_t> dest_buf) {
   const uint32_t unsigned_pitch = pdfium::checked_cast<uint32_t>(pitch);
   CHECK_GT(unsigned_pitch, 0);
 
@@ -714,6 +715,20 @@ uint32_t FaxModule::FaxG4Decode(pdfium::span<const uint8_t> src_span,
     fxcrt::spancpy(ref_buf_span, line_span);
   }
   return bitpos;
+}
+
+// static
+uint32_t FaxModule::FaxG4Decode(pdfium::span<const uint8_t> src_span,
+                                uint32_t starting_bitpos,
+                                int width,
+                                int height,
+                                int pitch,
+                                pdfium::span<uint8_t> dest_buf) {
+  DataAndBytesConsumed result = RustCodecAdapter::FaxG4Decode(
+      src_span, starting_bitpos, width, height, pitch);
+  CHECK_EQ(dest_buf.size(), result.data.size());
+  fxcrt::Copy(result.data, dest_buf);
+  return result.bytes_consumed;
 }
 
 #if BUILDFLAG(IS_WIN)
