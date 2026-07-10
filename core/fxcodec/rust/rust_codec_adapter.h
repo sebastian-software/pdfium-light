@@ -24,6 +24,8 @@ class RustCodecAdapter final {
       pdfium::span<const uint8_t> src_span);
   static DataAndBytesConsumed HexDecode(
       pdfium::span<const uint8_t> src_span);
+  static DataAndBytesConsumed LZWDecode(pdfium::span<const uint8_t> src_span,
+                                        bool early_change);
   static DataAndBytesConsumed RunLengthDecode(
       pdfium::span<const uint8_t> src_span);
 

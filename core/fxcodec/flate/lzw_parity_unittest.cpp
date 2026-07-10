@@ -9,6 +9,7 @@
 #include <array>
 #include <vector>
 
+#include "core/fxcodec/rust/rust_codec_adapter.h"
 #include "core/fxcrt/data_vector.h"
 #include "core/fxcrt/fx_extension.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -107,6 +108,32 @@ TEST(LZWReferenceTest, PreservesTruncatedAndMalformedBehavior) {
       FlateModule::LZWDecodeReference(malformed, /*early_change=*/true);
   EXPECT_THAT(malformed_result.data, ElementsAreArray(DataVector<uint8_t>()));
   EXPECT_EQ(FX_INVALID_OFFSET, malformed_result.bytes_consumed);
+}
+
+TEST(LZWRustParityTest, MatchesReferenceForNormalAndMalformedInput) {
+  std::vector<uint8_t> literals(300);
+  for (size_t i = 0; i < literals.size(); ++i) {
+    literals[i] = static_cast<uint8_t>(i % 255);
+  }
+
+  for (bool early_change : {false, true}) {
+    const std::vector<uint8_t> input =
+        PackLiteralCodes(literals, early_change, true);
+    DataAndBytesConsumed reference =
+        FlateModule::LZWDecodeReference(input, early_change);
+    DataAndBytesConsumed candidate =
+        RustCodecAdapter::LZWDecode(input, early_change);
+    EXPECT_EQ(reference.bytes_consumed, candidate.bytes_consumed);
+    EXPECT_EQ(reference.data, candidate.data);
+  }
+
+  const std::vector<uint8_t> malformed = {0x81, 0x00};
+  DataAndBytesConsumed reference =
+      FlateModule::LZWDecodeReference(malformed, /*early_change=*/true);
+  DataAndBytesConsumed candidate =
+      RustCodecAdapter::LZWDecode(malformed, /*early_change=*/true);
+  EXPECT_EQ(reference.bytes_consumed, candidate.bytes_consumed);
+  EXPECT_EQ(reference.data, candidate.data);
 }
 
 }  // namespace

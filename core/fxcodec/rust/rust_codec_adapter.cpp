@@ -27,6 +27,9 @@ extern "C" RustCodecResult pdfium_rust_a85_decode(const uint8_t* data,
                                                     size_t len);
 extern "C" RustCodecResult pdfium_rust_hex_decode(const uint8_t* data,
                                                     size_t len);
+extern "C" RustCodecResult pdfium_rust_lzw_decode(const uint8_t* data,
+                                                    size_t len,
+                                                    bool early_change);
 extern "C" RustCodecResult pdfium_rust_run_length_decode(const uint8_t* data,
                                                            size_t len);
 extern "C" void pdfium_rust_codec_result_free(uint8_t* data,
@@ -72,6 +75,14 @@ DataAndBytesConsumed RustCodecAdapter::A85Decode(
 DataAndBytesConsumed RustCodecAdapter::HexDecode(
     pdfium::span<const uint8_t> src_span) {
   return DecodeResult(pdfium_rust_hex_decode(src_span.data(), src_span.size()));
+}
+
+// static
+DataAndBytesConsumed RustCodecAdapter::LZWDecode(
+    pdfium::span<const uint8_t> src_span,
+    bool early_change) {
+  return DecodeResult(
+      pdfium_rust_lzw_decode(src_span.data(), src_span.size(), early_change));
 }
 
 // static

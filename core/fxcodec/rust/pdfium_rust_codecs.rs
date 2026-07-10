@@ -283,6 +283,155 @@ fn hex_decode(input: &[u8]) -> (Vec<u8>, u32) {
     (output, input.len().min(u32::MAX as usize) as u32)
 }
 
+fn lzw_add_code(
+    codes: &mut [u32; 5021],
+    current_code: &mut u32,
+    code_length: &mut u8,
+    early_change: bool,
+    prefix_code: u32,
+    append_char: u8,
+) {
+    let early_change = u32::from(early_change);
+    if *current_code + early_change == 4094 {
+        return;
+    }
+
+    codes[*current_code as usize] = (prefix_code << 16) | u32::from(append_char);
+    *current_code += 1;
+    match *current_code + early_change {
+        254 => *code_length = 10,
+        766 => *code_length = 11,
+        1790 => *code_length = 12,
+        _ => {}
+    }
+}
+
+fn lzw_decode_string(
+    codes: &[u32; 5021],
+    current_code: u32,
+    mut code: u32,
+    decode_stack: &mut [u8],
+) -> usize {
+    let mut stack_len = 0;
+    while code >= 258 {
+        let index = (code - 258) as usize;
+        if index >= current_code as usize || stack_len >= decode_stack.len() {
+            return stack_len;
+        }
+        let data = codes[index];
+        decode_stack[stack_len] = data as u8;
+        stack_len += 1;
+        code = data >> 16;
+    }
+    if stack_len < decode_stack.len() {
+        decode_stack[stack_len] = code as u8;
+        stack_len += 1;
+    }
+    stack_len
+}
+
+fn lzw_read_code(input: &[u8], bit_pos: u32, code_length: u8) -> u32 {
+    let mut byte_pos = (bit_pos / 8) as usize;
+    let bit_pos = bit_pos % 8;
+    let mut bit_left = code_length;
+    let mut code = 0;
+    if bit_pos != 0 {
+        bit_left -= 8 - bit_pos as u8;
+        code = (u32::from(input[byte_pos]) & ((1 << (8 - bit_pos)) - 1)) << bit_left;
+        byte_pos += 1;
+    }
+    if bit_left < 8 {
+        code |= u32::from(input[byte_pos] >> (8 - bit_left));
+    } else {
+        bit_left -= 8;
+        code |= u32::from(input[byte_pos]) << bit_left;
+        byte_pos += 1;
+        if bit_left != 0 {
+            code |= u32::from(input[byte_pos] >> (8 - bit_left));
+        }
+    }
+    code
+}
+
+fn lzw_decode(input: &[u8], early_change: bool) -> Result<(Vec<u8>, u32), ()> {
+    let mut output = Vec::with_capacity(512);
+    let mut src_bit_pos = 0_u32;
+    let mut codes = [0; 5021];
+    let mut code_length = 9_u8;
+    let mut current_code = 0_u32;
+    let mut old_code = u32::MAX;
+    let mut last_char = 0_u8;
+    let input_bits = input.len().saturating_mul(8);
+
+    while (src_bit_pos as usize).saturating_add(usize::from(code_length)) <= input_bits {
+        let code = lzw_read_code(input, src_bit_pos, code_length);
+        src_bit_pos += u32::from(code_length);
+
+        if code < 256 {
+            if output.len() >= u32::MAX as usize {
+                return Err(());
+            }
+            output.push(code as u8);
+            last_char = code as u8;
+            if old_code != u32::MAX {
+                lzw_add_code(
+                    &mut codes,
+                    &mut current_code,
+                    &mut code_length,
+                    early_change,
+                    old_code,
+                    last_char,
+                );
+            }
+            old_code = code;
+            continue;
+        }
+        if code == 256 {
+            code_length = 9;
+            current_code = 0;
+            old_code = u32::MAX;
+            continue;
+        }
+        if code == 257 {
+            break;
+        }
+        if old_code == u32::MAX {
+            return Err(());
+        }
+
+        let mut decode_stack = [0; 4000];
+        let stack_len = if code - 258 >= current_code {
+            decode_stack[0] = last_char;
+            1 + lzw_decode_string(&codes, current_code, old_code, &mut decode_stack[1..])
+        } else {
+            lzw_decode_string(&codes, current_code, code, &mut decode_stack)
+        };
+        let required_size = output.len().checked_add(stack_len).ok_or(())?;
+        if required_size > u32::MAX as usize {
+            return Err(());
+        }
+        output.extend(decode_stack[..stack_len].iter().rev());
+        last_char = decode_stack[stack_len - 1];
+        if old_code >= 258 && old_code - 258 >= current_code {
+            break;
+        }
+        lzw_add_code(
+            &mut codes,
+            &mut current_code,
+            &mut code_length,
+            early_change,
+            old_code,
+            last_char,
+        );
+        old_code = code;
+    }
+
+    if output.is_empty() {
+        return Err(());
+    }
+    Ok((output, src_bit_pos.saturating_add(7) / 8))
+}
+
 fn run_length_decode(input: &[u8]) -> Result<(Vec<u8>, u32), ()> {
     let mut dest_size = 0_u32;
     let mut pos = 0_usize;
@@ -363,6 +512,18 @@ pub extern "C" fn pdfium_rust_hex_decode(data: *const u8, len: usize) -> RustCod
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_lzw_decode(
+    data: *const u8,
+    len: usize,
+    early_change: bool,
+) -> RustCodecResult {
+    match lzw_decode(input_from_ffi(data, len), early_change) {
+        Ok((bytes, consumed)) => RustCodecResult::from_bytes(bytes, consumed),
+        Err(()) => RustCodecResult::failure(),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pdfium_rust_run_length_decode(data: *const u8, len: usize) -> RustCodecResult {
     match run_length_decode(input_from_ffi(data, len)) {
         Ok((bytes, consumed)) => RustCodecResult::from_bytes(bytes, consumed),
@@ -413,6 +574,12 @@ mod tests {
         assert_eq!(hex_decode(b"4869>ignored"), (b"Hi".to_vec(), 5));
         assert_eq!(hex_decode(b"4f6"), (b"O`".to_vec(), 3));
         assert_eq!(hex_decode(b"4 gF\n6@"), (b"O`".to_vec(), 7));
+    }
+
+    #[test]
+    fn lzw_decode_preserves_clear_and_end_of_data_behavior() {
+        let input = [0x80, 0x10, 0x48, 0x44, 0x38, 0x08];
+        assert_eq!(lzw_decode(&input, true), Ok((b"ABC".to_vec(), 6)));
     }
 
     #[test]

@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "core/fxcodec/data_and_bytes_consumed.h"
+#include "core/fxcodec/rust/rust_codec_adapter.h"
 #include "core/fxcodec/scanlinedecoder.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/data_vector.h"
@@ -821,7 +822,8 @@ DataAndBytesConsumed FlateModule::FlateOrLZWDecode(
   PredictorType predictor_type = GetPredictor(predictor);
 
   if (bLZW) {
-    DataAndBytesConsumed result = LZWDecodeReference(src_span, bEarlyChange);
+    DataAndBytesConsumed result =
+        RustCodecAdapter::LZWDecode(src_span, bEarlyChange);
     dest_buf = std::move(result.data);
     bytes_consumed = result.bytes_consumed;
   } else {
