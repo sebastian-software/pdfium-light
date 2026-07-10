@@ -172,17 +172,20 @@ TEST(FaxScanlineRustParityTest, MatchesReferenceLinesOffsetsAndRewind) {
   const DataVector<uint8_t> kInputs[] = {
       PackBits("00110101000101"), PackBits("110011"),
       PackBits("01"), PackBits("1001100010011"),
+      PackBits("00000000000110011"), PackBits("1"),
   };
-  const int kEncodings[] = {0, 1, 1, 0};
-  const int kHeights[] = {1, 1, 1, 2};
-  const bool kByteAlign[] = {false, false, false, true};
+  const int kEncodings[] = {0, 1, 1, 0, 0, -1};
+  const int kHeights[] = {1, 1, 1, 2, 1, 1};
+  const bool kEndOfLine[] = {false, false, false, false, true, false};
+  const bool kByteAlign[] = {false, false, false, true, false, false};
+  const bool kBlackIs1[] = {false, false, false, false, false, true};
   for (size_t index = 0; index < std::size(kInputs); ++index) {
     std::unique_ptr<ScanlineDecoder> reference = CreateFaxReferenceDecoder(
         kInputs[index], kHeights[index], kEncodings[index],
-        /*end_of_line=*/false, kByteAlign[index], /*black_is_1=*/false);
+        kEndOfLine[index], kByteAlign[index], kBlackIs1[index]);
     std::unique_ptr<ScanlineDecoder> candidate = CreateRustFaxDecoder(
         kInputs[index], kHeights[index], kEncodings[index],
-        /*end_of_line=*/false, kByteAlign[index], /*black_is_1=*/false);
+        kEndOfLine[index], kByteAlign[index], kBlackIs1[index]);
     ASSERT_TRUE(reference);
     ASSERT_TRUE(candidate);
     for (int line = 0; line < kHeights[index]; ++line) {

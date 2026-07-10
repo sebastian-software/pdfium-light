@@ -77,4 +77,18 @@ TEST_F(RustCodecEmbedderTest, PngPredictorRendersAndSurvivesSaveReload) {
   ExpectRustCodecPage(saved_page.get(), 15);
 }
 
+TEST_F(RustCodecEmbedderTest, FaxImageRendersAndSurvivesSaveReload) {
+  ASSERT_TRUE(OpenDocument("pixel/transfer_function.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+  ASSERT_TRUE(RenderPage(page.get()));
+
+  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_document);
+  ScopedSavedPage saved_page = LoadScopedSavedPage(0);
+  ASSERT_TRUE(saved_page);
+  ASSERT_TRUE(RenderPage(saved_page.get()));
+}
+
 }  // namespace

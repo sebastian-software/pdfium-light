@@ -1217,6 +1217,14 @@ mod tests {
     }
 
     #[test]
+    fn fax_scanline_decode_preserves_group3_rows_and_offsets() {
+        assert_eq!(
+            fax_scanline_decode(&[0x35, 0x14], 8, 1, 0, false, false, false, 4),
+            Some((vec![0, 0xff, 0xff, 0xff], vec![2]))
+        );
+    }
+
+    #[test]
     fn run_length_decode_preserves_truncated_literal_behavior() {
         assert_eq!(run_length_decode(&[2, b'a']), Ok((vec![b'a', 0, 0], 2)));
         assert_eq!(run_length_decode(&[255]), Ok((vec![0, 0], 1)));
