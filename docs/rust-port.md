@@ -89,6 +89,10 @@ modes, EOL and byte-alignment handling, inversion, truncation, and consumed
 bit positions; the Fax fuzzer also calls the Group 4 helper directly. These
 cases are the differential contract for the later Rust activation.
 
+The self-contained Group 4 helper is active through the internal Rust ABI for
+its existing consumers, including JBIG2. The general Fax scanline decoder
+remains C++ owned until its separate activation slice.
+
 No performance claim is made by this port. Any performance decision requires a
 separate benchmark against the reference implementation.
 
