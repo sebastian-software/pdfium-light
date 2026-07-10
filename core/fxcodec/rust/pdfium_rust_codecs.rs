@@ -293,17 +293,17 @@ fn run_length_decode(input: &[u8]) -> Result<(Vec<u8>, u32), ()> {
     Ok((output, u32::try_from(consumed).map_err(|_| ())?))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn pdfium_rust_a85_encode(data: *const u8, len: usize) -> RustCodecResult {
     RustCodecResult::from_bytes(a85_encode(input_from_ffi(data, len)), 0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn pdfium_rust_run_length_encode(data: *const u8, len: usize) -> RustCodecResult {
     RustCodecResult::from_bytes(run_length_encode(input_from_ffi(data, len)), 0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn pdfium_rust_a85_decode(data: *const u8, len: usize) -> RustCodecResult {
     match a85_decode(input_from_ffi(data, len)) {
         Ok((bytes, consumed)) => RustCodecResult::from_bytes(bytes, consumed),
@@ -311,7 +311,7 @@ pub extern "C" fn pdfium_rust_a85_decode(data: *const u8, len: usize) -> RustCod
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn pdfium_rust_run_length_decode(data: *const u8, len: usize) -> RustCodecResult {
     match run_length_decode(input_from_ffi(data, len)) {
         Ok((bytes, consumed)) => RustCodecResult::from_bytes(bytes, consumed),
@@ -319,7 +319,7 @@ pub extern "C" fn pdfium_rust_run_length_decode(data: *const u8, len: usize) -> 
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pdfium_rust_codec_result_free(data: *mut u8, len: usize, capacity: usize) {
     if capacity == 0 {
         return;
