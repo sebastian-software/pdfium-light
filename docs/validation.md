@@ -10,6 +10,11 @@ The gate has two layers:
 The local gate is the required minimum for removal PRs. The full gate is the
 release-quality validation path once the complete toolchain is available.
 
+Rust codec changes additionally require a checkout with
+`custom_vars = {"checkout_rust": True}` before `gclient sync`. See
+[`rust-port.md`](rust-port.md) for the C++/Rust ABI contract and focused parity
+and e-invoice regression commands.
+
 ## Local reduced-checkout gate
 
 Run this from the repository root:
@@ -58,6 +63,10 @@ Then build the focused light validation target:
 ```bash
 ninja -C out/light pdfium_light_validation
 ```
+
+For the Rust codec port, make sure the checkout was synced with
+`checkout_rust=true`; the GN graph then builds `//core/fxcodec/rust:pdfium_rust_codecs`
+as part of the retained `fxcodec` target.
 
 For the broader retained test/fuzzer set, run:
 
