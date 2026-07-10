@@ -79,6 +79,7 @@ source_set("fxcodec") {
     "../../third_party:libopenjpeg2",
     "../../third_party:zlib",
     "../fxge",
+    "rust:rust_codec_adapter",
     "//third_party:jpeg",
   ]
   defines = []
@@ -96,6 +97,7 @@ pdfium_unittest_source_set("unittests") {
   sources = [
     "basic/a85_unittest.cpp",
     "basic/rle_unittest.cpp",
+    "basic/rust_codec_parity_unittest.cpp",
     "flate/flatemodule_unittest.cpp",
     "jbig2/jbig2_bit_stream_unittest.cpp",
     "jbig2/jbig2_image_unittest.cpp",
