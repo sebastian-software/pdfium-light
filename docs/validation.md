@@ -16,6 +16,10 @@ Rust codec changes additionally require a checkout with
 [`rust-port.md`](rust-port.md) for the C++/Rust ABI contract and focused parity
 and e-invoice regression commands.
 
+The local gate also runs `testing/tools/rust_port_metrics.py --check` so the
+Rust migration denominator and active-surface report stay available from the
+reduced checkout.
+
 ## Local reduced-checkout gate
 
 Run this from the repository root:

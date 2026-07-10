@@ -277,6 +277,14 @@ def check_smoke_coverage(root: Path) -> None:
                 )
 
 
+def check_rust_migration_metrics(root: Path) -> None:
+    subprocess.run(
+        (sys.executable, "testing/tools/rust_port_metrics.py", "--check"),
+        cwd=root,
+        check=True,
+    )
+
+
 def run_syntax_checks(root: Path) -> None:
     for label, executable, command in SYNTAX_COMMANDS:
         if not shutil.which(executable):
@@ -302,6 +310,7 @@ def main(argv: list[str]) -> int:
         ("retained build target names", check_build_targets),
         ("smoke coverage markers", check_smoke_coverage),
         ("unsupported platform cleanup", check_platform_cleanup),
+        ("Rust migration metrics", check_rust_migration_metrics),
     )
 
     try:

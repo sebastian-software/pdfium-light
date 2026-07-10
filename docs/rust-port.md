@@ -4,6 +4,24 @@ pdfium-light keeps its public C API and static-library contract unchanged while
 individual internal modules move to Rust. The first production slice is the
 byte-oriented PDF filter boundary: ASCII85 and RunLength encode/decode.
 
+## Migration telemetry
+
+Run the reproducible source-level report from the repository root:
+
+```bash
+python3 testing/tools/rust_port_metrics.py
+```
+
+The report counts physical lines in tracked first-party source files under
+`core`, `fpdfsdk`, and `public`. Rust LOC only counts `.rs` files; the C++
+adapter is reported separately. This is a progress signal, not a feature,
+performance, memory, or binary-size metric. `validate_light.py` runs the
+report with `--check`.
+
+| Commit | Rust LOC | C++ adapter LOC | Product-native LOC | Rust share | Activated Rust surfaces |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `5fbaaa393` | 367 | 111 | 253,804 | 0.14% | ASCII85 encode/decode; RunLength encode/decode |
+
 ## Toolchain
 
 The Rust target uses Chromium's hermetic GN toolchain. A complete checkout must
