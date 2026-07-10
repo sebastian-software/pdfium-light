@@ -12,6 +12,8 @@ use std::mem::ManuallyDrop;
 use std::slice;
 
 const INVALID_OFFSET: u32 = u32::MAX;
+// Keep in sync with `kMaxStreamSize` in
+// core/fpdfapi/parser/fpdf_parser_decode.cpp.
 const MAX_STREAM_SIZE: u32 = 20 * 1024 * 1024;
 
 #[repr(C)]

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include <array>
 #include <vector>
@@ -20,8 +21,24 @@ void ExpectDecodeParity(DataAndBytesConsumed reference,
   EXPECT_EQ(reference.data, candidate.data);
 }
 
+std::vector<uint8_t> MakeIncrementingInput(size_t length) {
+  std::vector<uint8_t> input(length);
+  for (size_t i = 0; i < input.size(); ++i) {
+    input[i] = static_cast<uint8_t>(i);
+  }
+  return input;
+}
+
+std::vector<uint8_t> MakeAlternatingInput(size_t length) {
+  std::vector<uint8_t> input(length);
+  for (size_t i = 0; i < input.size(); ++i) {
+    input[i] = i % 2 == 0 ? 1 : 2;
+  }
+  return input;
+}
+
 TEST(RustCodecParityTest, EncodersMatchCppReference) {
-  const std::array<std::vector<uint8_t>, 7> kInputs = {
+  const std::array<std::vector<uint8_t>, 9> kInputs = {
       std::vector<uint8_t>{},
       std::vector<uint8_t>{0},
       std::vector<uint8_t>{1},
@@ -29,6 +46,8 @@ TEST(RustCodecParityTest, EncodersMatchCppReference) {
       std::vector<uint8_t>{0, 0, 0, 0, 1, 2, 3, 4},
       std::vector<uint8_t>{1, 1, 1, 1, 2, 3, 4, 4, 4},
       std::vector<uint8_t>(260, 42),
+      MakeIncrementingInput(300),
+      MakeAlternatingInput(300),
   };
 
   for (const auto& input : kInputs) {

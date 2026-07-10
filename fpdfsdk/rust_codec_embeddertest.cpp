@@ -8,6 +8,8 @@
 #include "testing/embedder_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+namespace {
+
 class RustCodecEmbedderTest : public EmbedderTest {};
 
 void ExpectRustCodecPage(FPDF_PAGE page) {
@@ -32,3 +34,5 @@ TEST_F(RustCodecEmbedderTest, FiltersDecodeRenderAndSurviveSaveReload) {
   ASSERT_TRUE(saved_page);
   ExpectRustCodecPage(saved_page.get());
 }
+
+}  // namespace

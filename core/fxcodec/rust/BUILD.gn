@@ -4,6 +4,9 @@
 
 import("//build/rust/rust_static_library.gni")
 
+assert(enable_rust,
+       "core/fxcodec/rust requires enable_rust=true; see docs/rust-port.md")
+
 rust_static_library("pdfium_rust_codecs") {
   crate_name = "pdfium_rust_codecs"
   crate_root = "pdfium_rust_codecs.rs"
