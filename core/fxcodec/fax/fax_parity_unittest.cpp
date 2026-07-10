@@ -100,9 +100,9 @@ TEST(FaxG4ReferenceTest, PreservesMakeupRunsAndPassMode) {
   EXPECT_EQ(37u, FaxModule::FaxG4Decode(input, /*starting_bitpos=*/0,
                                         /*width=*/128, /*height=*/2,
                                         /*pitch=*/16, output));
-  EXPECT_THAT(pdfium::span(output).first(16),
+  EXPECT_THAT(pdfium::span(output).first(static_cast<size_t>(16)),
               ElementsAreArray(std::array<uint8_t, 16>{}));
-  EXPECT_THAT(pdfium::span(output).last(16),
+  EXPECT_THAT(pdfium::span(output).last(static_cast<size_t>(16)),
               ElementsAreArray(std::array<uint8_t, 16>{
                   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
                   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
