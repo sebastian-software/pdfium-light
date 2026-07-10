@@ -27,6 +27,12 @@ extern "C" RustCodecResult pdfium_rust_a85_decode(const uint8_t* data,
                                                     size_t len);
 extern "C" RustCodecResult pdfium_rust_hex_decode(const uint8_t* data,
                                                     size_t len);
+extern "C" RustCodecResult pdfium_rust_fax_g4_decode(const uint8_t* data,
+                                                       size_t len,
+                                                       uint32_t starting_bitpos,
+                                                       int width,
+                                                       int height,
+                                                       int pitch);
 extern "C" RustCodecResult pdfium_rust_lzw_decode(const uint8_t* data,
                                                     size_t len,
                                                     bool early_change);
@@ -87,6 +93,18 @@ DataAndBytesConsumed RustCodecAdapter::A85Decode(
 DataAndBytesConsumed RustCodecAdapter::HexDecode(
     pdfium::span<const uint8_t> src_span) {
   return DecodeResult(pdfium_rust_hex_decode(src_span.data(), src_span.size()));
+}
+
+// static
+DataAndBytesConsumed RustCodecAdapter::FaxG4Decode(
+    pdfium::span<const uint8_t> src_span,
+    uint32_t starting_bitpos,
+    int width,
+    int height,
+    int pitch) {
+  return DecodeResult(pdfium_rust_fax_g4_decode(
+      src_span.data(), src_span.size(), starting_bitpos, width, height,
+      pitch));
 }
 
 // static

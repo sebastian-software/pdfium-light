@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "core/fxcodec/fax/faxmodule.h"
+#include "core/fxcodec/rust/rust_codec_adapter.h"
 
 #include <stdint.h>
 
@@ -70,6 +71,29 @@ TEST(FaxG4ReferenceTest, PreservesVerticalHorizontalAndTruncatedRows) {
   EXPECT_THAT(truncated_output,
               ElementsAreArray(std::array<uint8_t, 4>{0xff, 0xff, 0xff,
                                                        0xff}));
+}
+
+TEST(FaxG4RustParityTest, MatchesReferenceRowsAndEndingBitPositions) {
+  DataVector<uint8_t> horizontal_row = PackBits("00100110101000101");
+  std::array<uint8_t, 4> reference_output = {};
+  uint32_t reference_bitpos = FaxModule::FaxG4Decode(
+      horizontal_row, /*starting_bitpos=*/0, /*width=*/8, /*height=*/1,
+      /*pitch=*/4, reference_output);
+  DataAndBytesConsumed rust_output = RustCodecAdapter::FaxG4Decode(
+      horizontal_row, /*starting_bitpos=*/0, /*width=*/8, /*height=*/1,
+      /*pitch=*/4);
+  EXPECT_EQ(reference_bitpos, rust_output.bytes_consumed);
+  EXPECT_THAT(rust_output.data, ElementsAreArray(reference_output));
+
+  DataVector<uint8_t> truncated_row = PackBits("0");
+  reference_bitpos = FaxModule::FaxG4Decode(
+      truncated_row, /*starting_bitpos=*/0, /*width=*/8, /*height=*/1,
+      /*pitch=*/4, reference_output);
+  rust_output = RustCodecAdapter::FaxG4Decode(
+      truncated_row, /*starting_bitpos=*/0, /*width=*/8, /*height=*/1,
+      /*pitch=*/4);
+  EXPECT_EQ(reference_bitpos, rust_output.bytes_consumed);
+  EXPECT_THAT(rust_output.data, ElementsAreArray(reference_output));
 }
 
 TEST(FaxScanlineReferenceTest, PreservesGroup3AndGroup4Modes) {

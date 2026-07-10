@@ -24,6 +24,12 @@ class RustCodecAdapter final {
       pdfium::span<const uint8_t> src_span);
   static DataAndBytesConsumed HexDecode(
       pdfium::span<const uint8_t> src_span);
+  static DataAndBytesConsumed FaxG4Decode(
+      pdfium::span<const uint8_t> src_span,
+      uint32_t starting_bitpos,
+      int width,
+      int height,
+      int pitch);
   static DataAndBytesConsumed LZWDecode(pdfium::span<const uint8_t> src_span,
                                         bool early_change);
   static DataAndBytesConsumed PNGPredictor(

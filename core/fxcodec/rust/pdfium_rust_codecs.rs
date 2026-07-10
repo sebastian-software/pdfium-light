@@ -16,6 +16,40 @@ const INVALID_OFFSET: u32 = u32::MAX;
 // core/fpdfapi/parser/fpdf_parser_decode.cpp.
 const MAX_STREAM_SIZE: u32 = 20 * 1024 * 1024;
 
+// The instruction tables are a byte-for-byte port of the retained C++ Group
+// 4 run decoders. Keeping their compact form avoids changing prefix matching.
+const FAX_BLACK_RUN_INS: &[u8] = &[
+    0, 2, 2, 3, 0, 3, 2, 0, 2, 2, 1, 0, 3, 4, 0, 2, 2, 6, 0, 3, 5, 0, 1, 3, 7, 0, 2, 4, 9, 0, 5, 8,
+    0, 3, 4, 10, 0, 5, 11, 0, 7, 12, 0, 2, 4, 13, 0, 7, 14, 0, 1, 24, 15, 0, 5, 8, 18, 0, 15, 64,
+    0, 23, 16, 0, 24, 17, 0, 55, 0, 0, 10, 8, 0, 7, 12, 64, 7, 13, 128, 7, 23, 24, 0, 24, 25, 0,
+    40, 23, 0, 55, 22, 0, 103, 19, 0, 104, 20, 0, 108, 21, 0, 54, 18, 192, 7, 19, 0, 8, 20, 64, 8,
+    21, 128, 8, 22, 192, 8, 23, 0, 9, 28, 64, 9, 29, 128, 9, 30, 192, 9, 31, 0, 10, 36, 52, 0, 39,
+    55, 0, 40, 56, 0, 43, 59, 0, 44, 60, 0, 51, 64, 1, 52, 128, 1, 53, 192, 1, 55, 53, 0, 56, 54,
+    0, 82, 50, 0, 83, 51, 0, 84, 44, 0, 85, 45, 0, 86, 46, 0, 87, 47, 0, 88, 57, 0, 89, 58, 0, 90,
+    61, 0, 91, 0, 1, 100, 48, 0, 101, 49, 0, 102, 62, 0, 103, 63, 0, 104, 30, 0, 105, 31, 0, 106,
+    32, 0, 107, 33, 0, 108, 40, 0, 109, 41, 0, 200, 128, 0, 201, 192, 0, 202, 26, 0, 203, 27, 0,
+    204, 28, 0, 205, 29, 0, 210, 34, 0, 211, 35, 0, 212, 36, 0, 213, 37, 0, 214, 38, 0, 215, 39, 0,
+    218, 42, 0, 219, 43, 0, 20, 74, 128, 2, 75, 192, 2, 76, 0, 3, 77, 64, 3, 82, 0, 5, 83, 64, 5,
+    84, 128, 5, 85, 192, 5, 90, 0, 6, 91, 64, 6, 100, 128, 6, 101, 192, 6, 108, 0, 2, 109, 64, 2,
+    114, 128, 3, 115, 192, 3, 116, 0, 4, 117, 64, 4, 118, 128, 4, 119, 192, 4, 255,
+];
+
+const FAX_WHITE_RUN_INS: &[u8] = &[
+    0, 0, 0, 6, 7, 2, 0, 8, 3, 0, 11, 4, 0, 12, 5, 0, 14, 6, 0, 15, 7, 0, 6, 7, 10, 0, 8, 11, 0,
+    18, 128, 0, 19, 8, 0, 20, 9, 0, 27, 64, 0, 9, 3, 13, 0, 7, 1, 0, 8, 12, 0, 23, 192, 0, 24, 128,
+    6, 42, 16, 0, 43, 17, 0, 52, 14, 0, 53, 15, 0, 12, 3, 22, 0, 4, 23, 0, 8, 20, 0, 12, 19, 0, 19,
+    26, 0, 23, 21, 0, 24, 28, 0, 36, 27, 0, 39, 18, 0, 40, 24, 0, 43, 25, 0, 55, 0, 1, 42, 2, 29,
+    0, 3, 30, 0, 4, 45, 0, 5, 46, 0, 10, 47, 0, 11, 48, 0, 18, 33, 0, 19, 34, 0, 20, 35, 0, 21, 36,
+    0, 22, 37, 0, 23, 38, 0, 26, 31, 0, 27, 32, 0, 36, 53, 0, 37, 54, 0, 40, 39, 0, 41, 40, 0, 42,
+    41, 0, 43, 42, 0, 44, 43, 0, 45, 44, 0, 50, 61, 0, 51, 62, 0, 52, 63, 0, 53, 0, 0, 54, 64, 1,
+    55, 128, 1, 74, 59, 0, 75, 60, 0, 82, 49, 0, 83, 50, 0, 84, 51, 0, 85, 52, 0, 88, 55, 0, 89,
+    56, 0, 90, 57, 0, 91, 58, 0, 100, 192, 1, 101, 0, 2, 103, 128, 2, 104, 64, 2, 16, 152, 192, 5,
+    153, 0, 6, 154, 64, 6, 155, 192, 6, 204, 192, 2, 205, 0, 3, 210, 64, 3, 211, 128, 3, 212, 192,
+    3, 213, 0, 4, 214, 64, 4, 215, 128, 4, 216, 192, 4, 217, 0, 5, 218, 64, 5, 219, 128, 5, 0, 3,
+    8, 0, 7, 12, 64, 7, 13, 128, 7, 10, 18, 192, 7, 19, 0, 8, 20, 64, 8, 21, 128, 8, 22, 192, 8,
+    23, 0, 9, 28, 64, 9, 29, 128, 9, 30, 192, 9, 31, 0, 10, 255,
+];
+
 #[repr(C)]
 pub struct RustCodecResult {
     data: *mut u8,
@@ -571,6 +605,224 @@ fn tiff_predictor(
     Some(output)
 }
 
+fn fax_next_bit(input: &[u8], bit_pos: &mut u32) -> bool {
+    let pos = *bit_pos;
+    *bit_pos = bit_pos.wrapping_add(1);
+    input[(pos / 8) as usize] & (1 << (7 - pos % 8)) != 0
+}
+
+fn fax_find_bit(data: &[u8], max_pos: i32, mut start_pos: i32, bit: bool) -> i32 {
+    while start_pos < max_pos {
+        let current = data[(start_pos / 8) as usize] & (1 << (7 - start_pos % 8)) != 0;
+        if current == bit {
+            return start_pos;
+        }
+        start_pos += 1;
+    }
+    max_pos
+}
+
+fn fax_g4_find_b1_b2(reference: &[u8], columns: i32, a0: i32, a0_color: bool) -> (i32, i32) {
+    let mut first_bit = a0 < 0 || reference[(a0 / 8) as usize] & (1 << (7 - a0 % 8)) != 0;
+    let mut b1 = fax_find_bit(reference, columns, a0 + 1, !first_bit);
+    if b1 >= columns {
+        return (columns, columns);
+    }
+    if first_bit == !a0_color {
+        b1 = fax_find_bit(reference, columns, b1 + 1, first_bit);
+        first_bit = !first_bit;
+    }
+    if b1 >= columns {
+        return (columns, columns);
+    }
+    (b1, fax_find_bit(reference, columns, b1 + 1, first_bit))
+}
+
+fn fax_fill_bits(destination: &mut [u8], columns: i32, start: i32, end: i32) {
+    let start = start.max(0);
+    let end = end.clamp(0, columns);
+    for position in start..end {
+        let byte = &mut destination[(position / 8) as usize];
+        *byte = byte.wrapping_sub(1 << (7 - position % 8));
+    }
+}
+
+fn fax_get_run(table: &[u8], input: &[u8], bit_pos: &mut u32) -> i32 {
+    let bit_size = input.len().saturating_mul(8) as u32;
+    let mut code = 0_u8;
+    let mut instruction_offset = 0_usize;
+    loop {
+        let instruction = table[instruction_offset];
+        instruction_offset += 1;
+        if instruction == 0xff || *bit_pos >= bit_size {
+            return -1;
+        }
+        code <<= 1;
+        if fax_next_bit(input, bit_pos) {
+            code += 1;
+        }
+        let next_offset = instruction_offset + usize::from(instruction) * 3;
+        while instruction_offset < next_offset {
+            if table[instruction_offset] == code {
+                return i32::from(table[instruction_offset + 1])
+                    + i32::from(table[instruction_offset + 2]) * 256;
+            }
+            instruction_offset += 3;
+        }
+    }
+}
+
+fn fax_g4_get_row(
+    input: &[u8],
+    bit_pos: &mut u32,
+    destination: &mut [u8],
+    reference: &[u8],
+    columns: i32,
+) {
+    let bit_size = input.len().saturating_mul(8) as u32;
+    let mut a0 = -1;
+    let mut a0_color = true;
+    loop {
+        if *bit_pos >= bit_size {
+            return;
+        }
+        let (b1, b2) = fax_g4_find_b1_b2(reference, columns, a0, a0_color);
+        let mut vertical_delta = 0;
+        if !fax_next_bit(input, bit_pos) {
+            if *bit_pos >= bit_size {
+                return;
+            }
+            let bit1 = fax_next_bit(input, bit_pos);
+            if *bit_pos >= bit_size {
+                return;
+            }
+            let bit2 = fax_next_bit(input, bit_pos);
+            if bit1 {
+                vertical_delta = if bit2 { 1 } else { -1 };
+            } else if bit2 {
+                let mut run1 = 0;
+                loop {
+                    let run = fax_get_run(
+                        if a0_color { FAX_WHITE_RUN_INS } else { FAX_BLACK_RUN_INS },
+                        input,
+                        bit_pos,
+                    );
+                    run1 += run;
+                    if run < 64 {
+                        break;
+                    }
+                }
+                if a0 < 0 {
+                    run1 += 1;
+                }
+                if run1 < 0 {
+                    return;
+                }
+                let a1 = a0 + run1;
+                if !a0_color {
+                    fax_fill_bits(destination, columns, a0, a1);
+                }
+                let mut run2 = 0;
+                loop {
+                    let run = fax_get_run(
+                        if a0_color { FAX_BLACK_RUN_INS } else { FAX_WHITE_RUN_INS },
+                        input,
+                        bit_pos,
+                    );
+                    run2 += run;
+                    if run < 64 {
+                        break;
+                    }
+                }
+                if run2 < 0 {
+                    return;
+                }
+                let a2 = a1 + run2;
+                if a0_color {
+                    fax_fill_bits(destination, columns, a1, a2);
+                }
+                a0 = a2;
+                if a0 < columns {
+                    continue;
+                }
+                return;
+            } else {
+                if *bit_pos >= bit_size {
+                    return;
+                }
+                if fax_next_bit(input, bit_pos) {
+                    if !a0_color {
+                        fax_fill_bits(destination, columns, a0, b2);
+                    }
+                    if b2 >= columns {
+                        return;
+                    }
+                    a0 = b2;
+                    continue;
+                }
+                if *bit_pos >= bit_size {
+                    return;
+                }
+                let next_bit1 = fax_next_bit(input, bit_pos);
+                if *bit_pos >= bit_size {
+                    return;
+                }
+                let next_bit2 = fax_next_bit(input, bit_pos);
+                if next_bit1 {
+                    vertical_delta = if next_bit2 { 2 } else { -2 };
+                } else if next_bit2 {
+                    if *bit_pos >= bit_size {
+                        return;
+                    }
+                    vertical_delta = if fax_next_bit(input, bit_pos) { 3 } else { -3 };
+                } else {
+                    if *bit_pos >= bit_size {
+                        return;
+                    }
+                    if fax_next_bit(input, bit_pos) {
+                        *bit_pos = bit_pos.wrapping_add(3);
+                        continue;
+                    }
+                    *bit_pos = bit_pos.wrapping_add(5);
+                    return;
+                }
+            }
+        }
+        let a1 = b1 + vertical_delta;
+        if !a0_color {
+            fax_fill_bits(destination, columns, a0, a1);
+        }
+        if a1 >= columns || a0 >= a1 {
+            return;
+        }
+        a0 = a1;
+        a0_color = !a0_color;
+    }
+}
+
+fn fax_g4_decode(
+    input: &[u8],
+    starting_bit_pos: u32,
+    width: i32,
+    height: i32,
+    pitch: i32,
+) -> Option<(Vec<u8>, u32)> {
+    let pitch = usize::try_from(pitch).ok()?;
+    let height = usize::try_from(height).ok()?;
+    if pitch == 0 || width <= 0 {
+        return None;
+    }
+    let mut output = vec![0; pitch.checked_mul(height)?];
+    let mut reference = vec![0xff; pitch];
+    let mut bit_pos = starting_bit_pos;
+    for line in output.chunks_exact_mut(pitch) {
+        line.fill(0xff);
+        fax_g4_get_row(input, &mut bit_pos, line, &reference, width);
+        reference.copy_from_slice(line);
+    }
+    Some((output, bit_pos))
+}
+
 fn run_length_decode(input: &[u8]) -> Result<(Vec<u8>, u32), ()> {
     let mut dest_size = 0_u32;
     let mut pos = 0_usize;
@@ -692,6 +944,21 @@ pub extern "C" fn pdfium_rust_tiff_predictor(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_fax_g4_decode(
+    data: *const u8,
+    len: usize,
+    starting_bit_pos: u32,
+    width: i32,
+    height: i32,
+    pitch: i32,
+) -> RustCodecResult {
+    match fax_g4_decode(input_from_ffi(data, len), starting_bit_pos, width, height, pitch) {
+        Some((bytes, bit_pos)) => RustCodecResult::from_bytes(bytes, bit_pos),
+        None => RustCodecResult::failure(),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pdfium_rust_run_length_decode(data: *const u8, len: usize) -> RustCodecResult {
     match run_length_decode(input_from_ffi(data, len)) {
         Ok((bytes, consumed)) => RustCodecResult::from_bytes(bytes, consumed),
@@ -754,6 +1021,15 @@ mod tests {
     fn predictors_preserve_png_and_tiff_reference_cases() {
         assert_eq!(png_predictor(1, 8, 3, &[1, 1, 1, 1, 2, 4, 4, 4]), Some(vec![1, 2, 3, 5, 6, 7]));
         assert_eq!(tiff_predictor(1, 8, 4, vec![1, 1, 1, 1]), Some(vec![1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn fax_g4_decode_preserves_horizontal_and_truncated_rows() {
+        assert_eq!(
+            fax_g4_decode(&[0x26, 0xa2, 0x80], 0, 8, 1, 4),
+            Some((vec![0, 0xff, 0xff, 0xff], 17))
+        );
+        assert_eq!(fax_g4_decode(&[0], 0, 8, 1, 4), Some((vec![0xff, 0xff, 0xff, 0xff], 12)));
     }
 
     #[test]
