@@ -1,5 +1,20 @@
 # PDFium
 
+## Why pdfium-light?
+
+For applications that embed a static PDF library to render, inspect, edit, and
+save documents, delivery size matters. The current macOS arm64 release build
+produces a **16.39 MiB** `libpdfium.a`, down from **89.07 MiB** before the
+light-runtime pruning: **72.68 MiB less** (**81.6% smaller**).
+
+That is a smaller artifact to ship alongside the static-document API, without
+carrying the removed interactive runtime, alternative rendering stack, or
+progressive-loading machinery. It is an artifact-size measurement, not a claim
+about runtime speed, memory use, or support for interactive PDF workloads.
+
+See [Size measurements](docs/size-measurements.md) for the reproducible build
+configuration, commits, and full source-tree comparison.
+
 ## Prerequisites
 
 PDFium uses the same build tooling as Chromium. See the platform-specific
