@@ -18,6 +18,7 @@
 #include "core/fxcrt/bytestring.h"
 #include "core/fxcrt/span.h"
 #include "core/fxcrt/unowned_ptr.h"
+#include "public/cpp/fpdf_scopers.h"
 #include "public/fpdf_ext.h"
 #include "public/fpdf_save.h"
 #include "public/fpdfview.h"
