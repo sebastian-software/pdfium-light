@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100">
+  <rsm:ExchangedDocument><rsm:ID>PDFIUM-LIGHT-TEST-001</rsm:ID></rsm:ExchangedDocument>
+</rsm:CrossIndustryInvoice>

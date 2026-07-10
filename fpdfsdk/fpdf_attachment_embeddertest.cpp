@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "public/fpdf_attachment.h"
+#include "public/fpdf_save.h"
 #include "public/fpdfview.h"
 #include "testing/embedder_test.h"
 #include "testing/fx_string_testhelpers.h"
@@ -14,8 +15,48 @@
 
 static constexpr char kDateKey[] = "CreationDate";
 static constexpr char kChecksumKey[] = "CheckSum";
+static constexpr char kFacturXXml[] =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    "<rsm:CrossIndustryInvoice "
+    "xmlns:rsm=\"urn:un:unece:uncefact:data:standard:"
+    "CrossIndustryInvoice:100\">\n"
+    "  <rsm:ExchangedDocument><rsm:ID>PDFIUM-LIGHT-TEST-001</rsm:ID>"
+    "</rsm:ExchangedDocument>\n"
+    "</rsm:CrossIndustryInvoice>\n";
 
 class FPDFAttachmentEmbedderTest : public EmbedderTest {};
+
+void ExpectFacturXAttachment(FPDF_DOCUMENT document) {
+  ASSERT_EQ(1, FPDFDoc_GetAttachmentCount(document));
+  FPDF_ATTACHMENT attachment = FPDFDoc_GetAttachment(document, 0);
+  ASSERT_TRUE(attachment);
+
+  unsigned long length_bytes = FPDFAttachment_GetName(attachment, nullptr, 0);
+  std::vector<FPDF_WCHAR> name = GetFPDFWideStringBuffer(length_bytes);
+  ASSERT_EQ(length_bytes,
+            FPDFAttachment_GetName(attachment, name.data(), length_bytes));
+  EXPECT_EQ(L"factur-x.xml", GetPlatformWString(name.data()));
+
+  static constexpr char kDescriptionKey[] = "Desc";
+  length_bytes =
+      FPDFAttachment_GetStringValue(attachment, kDescriptionKey, nullptr, 0);
+  std::vector<FPDF_WCHAR> description = GetFPDFWideStringBuffer(length_bytes);
+  ASSERT_EQ(length_bytes, FPDFAttachment_GetStringValue(
+                              attachment, kDescriptionKey, description.data(),
+                              length_bytes));
+  EXPECT_EQ(L"application/xml; profile=FACTUR-X",
+            GetPlatformWString(description.data()));
+
+  ASSERT_TRUE(FPDFAttachment_GetFile(attachment, nullptr, 0, &length_bytes));
+  std::vector<uint8_t> content(length_bytes);
+  unsigned long actual_length_bytes = 0;
+  ASSERT_TRUE(FPDFAttachment_GetFile(attachment, content.data(), length_bytes,
+                                     &actual_length_bytes));
+  ASSERT_EQ(sizeof(kFacturXXml) - 1, actual_length_bytes);
+  EXPECT_EQ(kFacturXXml,
+            std::string(reinterpret_cast<const char*>(content.data()),
+                        content.size()));
+}
 
 TEST_F(FPDFAttachmentEmbedderTest, ExtractAttachments) {
   // Open a file with two attachments.
@@ -94,6 +135,16 @@ TEST_F(FPDFAttachmentEmbedderTest, ExtractAttachments) {
   EXPECT_EQ(70u, FPDFAttachment_GetStringValue(attachment, kChecksumKey,
                                                buf.data(), length_bytes));
   EXPECT_EQ(kCheckSumW, GetPlatformWString(buf.data()));
+}
+
+TEST_F(FPDFAttachmentEmbedderTest, FacturXAttachmentSurvivesSaveReload) {
+  ASSERT_TRUE(OpenDocument("zugferd_facturx_attachment.pdf"));
+  ExpectFacturXAttachment(document());
+
+  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_document);
+  ExpectFacturXAttachment(saved_document.get());
 }
 
 TEST_F(FPDFAttachmentEmbedderTest, NoAttachmentToExtract) {
