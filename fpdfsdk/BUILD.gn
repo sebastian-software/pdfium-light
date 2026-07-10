@@ -93,7 +93,6 @@ pdfium_embeddertest_source_set("embeddertests") {
     "fpdf_flatten_embeddertest.cpp",
     "fpdf_ppo_embeddertest.cpp",
     "fpdf_save_embeddertest.cpp",
-    "rust_codec_embeddertest.cpp",
     "fpdf_searchex_embeddertest.cpp",
     "fpdf_signature_embeddertest.cpp",
     "fpdf_structtree_embeddertest.cpp",
@@ -102,6 +101,7 @@ pdfium_embeddertest_source_set("embeddertests") {
     "fpdf_thumbnail_embeddertest.cpp",
     "fpdf_transformpage_embeddertest.cpp",
     "fpdf_view_embeddertest.cpp",
+    "rust_codec_embeddertest.cpp",
   ]
   deps = [
     ":fpdfsdk",

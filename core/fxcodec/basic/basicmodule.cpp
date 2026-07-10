@@ -9,8 +9,8 @@
 #include <algorithm>
 #include <utility>
 
-#include "core/fxcodec/scanlinedecoder.h"
 #include "core/fxcodec/rust/rust_codec_adapter.h"
+#include "core/fxcodec/scanlinedecoder.h"
 #include "core/fxcrt/byteorder.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/data_vector.h"

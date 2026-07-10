@@ -26,6 +26,8 @@ static constexpr char kFacturXXml[] =
 
 class FPDFAttachmentEmbedderTest : public EmbedderTest {};
 
+namespace {
+
 void ExpectFacturXAttachment(FPDF_DOCUMENT document) {
   ASSERT_EQ(1, FPDFDoc_GetAttachmentCount(document));
   FPDF_ATTACHMENT attachment = FPDFDoc_GetAttachment(document, 0);
@@ -57,6 +59,8 @@ void ExpectFacturXAttachment(FPDF_DOCUMENT document) {
             std::string(reinterpret_cast<const char*>(content.data()),
                         content.size()));
 }
+
+}  // namespace
 
 TEST_F(FPDFAttachmentEmbedderTest, ExtractAttachments) {
   // Open a file with two attachments.

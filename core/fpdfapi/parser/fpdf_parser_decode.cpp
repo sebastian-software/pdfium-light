@@ -39,6 +39,8 @@
 
 namespace {
 
+// Keep in sync with `MAX_STREAM_SIZE` in
+// core/fxcodec/rust/pdfium_rust_codecs.rs.
 const uint32_t kMaxStreamSize = 20 * 1024 * 1024;
 
 bool CheckFlateDecodeParams(int Colors, int BitsPerComponent, int Columns) {
