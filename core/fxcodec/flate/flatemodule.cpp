@@ -796,6 +796,17 @@ std::unique_ptr<ScanlineDecoder> FlateModule::CreateDecoder(
 }
 
 // static
+DataAndBytesConsumed FlateModule::LZWDecodeReference(
+    pdfium::span<const uint8_t> src_span,
+    bool early_change) {
+  auto decoder = std::make_unique<CLZWDecoder>(src_span, early_change);
+  if (!decoder->Decode()) {
+    return {DataVector<uint8_t>(), FX_INVALID_OFFSET};
+  }
+  return {decoder->TakeDestBuf(), decoder->GetSrcSize()};
+}
+
+// static
 DataAndBytesConsumed FlateModule::FlateOrLZWDecode(
     bool bLZW,
     pdfium::span<const uint8_t> src_span,
@@ -810,13 +821,9 @@ DataAndBytesConsumed FlateModule::FlateOrLZWDecode(
   PredictorType predictor_type = GetPredictor(predictor);
 
   if (bLZW) {
-    auto decoder = std::make_unique<CLZWDecoder>(src_span, bEarlyChange);
-    if (!decoder->Decode()) {
-      return {std::move(dest_buf), bytes_consumed};
-    }
-
-    dest_buf = decoder->TakeDestBuf();
-    bytes_consumed = decoder->GetSrcSize();
+    DataAndBytesConsumed result = LZWDecodeReference(src_span, bEarlyChange);
+    dest_buf = std::move(result.data);
+    bytes_consumed = result.bytes_consumed;
   } else {
     DataAndBytesConsumed result = FlateUncompress(src_span, estimated_size);
     dest_buf = std::move(result.data);

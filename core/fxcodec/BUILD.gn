@@ -99,6 +99,7 @@ pdfium_unittest_source_set("unittests") {
     "basic/rle_unittest.cpp",
     "basic/rust_codec_parity_unittest.cpp",
     "flate/flatemodule_unittest.cpp",
+    "flate/lzw_parity_unittest.cpp",
     "jbig2/jbig2_bit_stream_unittest.cpp",
     "jbig2/jbig2_image_unittest.cpp",
     "jpx/jpx_unittest.cpp",
@@ -109,7 +110,6 @@ pdfium_unittest_source_set("unittests") {
     "../fpdfapi/parser",
   ]
   pdfium_root_dir = "../../"
-
 }
 
 pdfium_embeddertest_source_set("embeddertests") {

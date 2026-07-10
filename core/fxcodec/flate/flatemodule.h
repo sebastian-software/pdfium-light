@@ -42,6 +42,10 @@ class FlateModule {
       int Columns,
       uint32_t estimated_size);
 
+  static DataAndBytesConsumed LZWDecodeReference(
+      pdfium::span<const uint8_t> src_span,
+      bool early_change);
+
   static DataVector<uint8_t> Encode(pdfium::span<const uint8_t> src_span);
 
   FlateModule() = delete;
