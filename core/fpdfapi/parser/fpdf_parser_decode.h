@@ -56,7 +56,13 @@ std::unique_ptr<fxcodec::ScanlineDecoder> CreateFlateDecoder(
 fxcodec::DataAndBytesConsumed RunLengthDecode(
     pdfium::span<const uint8_t> src_span);
 
+fxcodec::DataAndBytesConsumed RunLengthDecodeReference(
+    pdfium::span<const uint8_t> src_span);
+
 fxcodec::DataAndBytesConsumed A85Decode(pdfium::span<const uint8_t> src_span);
+
+fxcodec::DataAndBytesConsumed A85DecodeReference(
+    pdfium::span<const uint8_t> src_span);
 
 fxcodec::DataAndBytesConsumed HexDecode(pdfium::span<const uint8_t> src_span);
 

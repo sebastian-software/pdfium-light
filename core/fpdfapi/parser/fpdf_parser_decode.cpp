@@ -21,6 +21,7 @@
 #include "core/fxcodec/data_and_bytes_consumed.h"
 #include "core/fxcodec/fax/faxmodule.h"
 #include "core/fxcodec/flate/flatemodule.h"
+#include "core/fxcodec/rust/rust_codec_adapter.h"
 #include "core/fxcodec/scanlinedecoder.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/compiler_specific.h"
@@ -122,6 +123,11 @@ bool ValidateDecoderPipeline(const CPDF_Array* pDecoders) {
 }
 
 DataAndBytesConsumed A85Decode(pdfium::span<const uint8_t> src_span) {
+  return fxcodec::RustCodecAdapter::A85Decode(src_span);
+}
+
+DataAndBytesConsumed A85DecodeReference(
+    pdfium::span<const uint8_t> src_span) {
   if (src_span.empty()) {
     return {DataVector<uint8_t>(), 0u};
   }
@@ -254,6 +260,11 @@ DataAndBytesConsumed HexDecode(pdfium::span<const uint8_t> src_span) {
 }
 
 DataAndBytesConsumed RunLengthDecode(pdfium::span<const uint8_t> src_span) {
+  return fxcodec::RustCodecAdapter::RunLengthDecode(src_span);
+}
+
+DataAndBytesConsumed RunLengthDecodeReference(
+    pdfium::span<const uint8_t> src_span) {
   uint32_t dest_size = 0;
   size_t i = 0;
   while (i < src_span.size()) {
