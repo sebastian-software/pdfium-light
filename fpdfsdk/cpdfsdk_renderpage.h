@@ -10,7 +10,6 @@
 #include "public/fpdfview.h"
 
 class CFX_Matrix;
-class CPDFSDK_PauseAdapter;
 class CPDF_Page;
 class CPDF_PageRenderContext;
 struct FX_RECT;
@@ -33,7 +32,6 @@ void CPDFSDK_RenderPageWithContext(CPDF_PageRenderContext* context,
                                    int rotate,
                                    int flags,
                                    const FPDF_COLORSCHEME* color_scheme,
-                                   bool need_to_restore,
-                                   CPDFSDK_PauseAdapter* pause);
+                                   bool need_to_restore);
 
 #endif  // FPDFSDK_CPDFSDK_RENDERPAGE_H_

@@ -22,9 +22,6 @@
 #include "public/fpdf_ext.h"
 #include "public/fpdfview.h"
 
-#ifdef PDF_ENABLE_XFA
-#include "core/fxcrt/fx_stream.h"
-#endif  // PDF_ENABLE_XFA
 
 class CFX_DIBitmap;
 class CPDF_Annot;
@@ -44,9 +41,6 @@ class CPDF_TextPageFind;
 struct CPDF_JavaScript;
 struct XObjectContext;
 
-#if defined(PDF_USE_SKIA)
-class SkCanvas;
-#endif
 
 // Conversions to/from underlying types.
 IPDF_Page* IPDFPageFromFPDFPage(FPDF_PAGE page);
@@ -86,14 +80,6 @@ inline CFX_DIBitmap* CFXDIBitmapFromFPDFBitmap(FPDF_BITMAP bitmap) {
   return reinterpret_cast<CFX_DIBitmap*>(bitmap);
 }
 
-#if defined(PDF_USE_SKIA)
-inline FPDF_SKIA_CANVAS FPDFSkiaCanvasFromSkCanvas(SkCanvas* canvas) {
-  return reinterpret_cast<FPDF_SKIA_CANVAS>(canvas);
-}
-inline SkCanvas* SkCanvasFromFPDFSkiaCanvas(FPDF_SKIA_CANVAS canvas) {
-  return reinterpret_cast<SkCanvas*>(canvas);
-}
-#endif
 
 inline FPDF_BOOKMARK FPDFBookmarkFromCPDFDictionary(
     const CPDF_Dictionary* bookmark) {
@@ -244,12 +230,7 @@ inline XObjectContext* XObjectContextFromFPDFXObject(FPDF_XOBJECT xobject) {
 
 FXDIB_Format FXDIBFormatFromFPDFFormat(int format);
 
-// CHECK() the pre-multiplied state for bitmaps from the embedder, or handed to
-// the embedder.
-// - When Skia is available and enabled at runtime, make sure its format matches
-//   its pre-multiplied state.
-// - When Skia is not available or not enabled at runtime, make sure `bitmap` is
-//   not pre-multiplied.
+// CHECK() that bitmaps from, or handed to, the embedder are not pre-multiplied.
 void ValidateBitmapPremultiplyState(CFX_DIBitmap* bitmap);
 
 // PRECONDITIONS: `wide_string` must be terminated by a NUL FPDF_WCHAR.
@@ -268,12 +249,6 @@ UNSAFE_BUFFER_USAGE pdfium::span<char> SpanFromFPDFApiArgs(
     void* buffer,
     pdfium::StrictNumeric<size_t> buflen);
 
-#ifdef PDF_ENABLE_XFA
-// Layering prevents fxcrt from knowing about FPDF_FILEHANDLER, so this can't
-// be a static method of IFX_SeekableStream.
-RetainPtr<IFX_SeekableStream> MakeSeekableStream(
-    FPDF_FILEHANDLER* pFileHandler);
-#endif  // PDF_ENABLE_XFA
 
 RetainPtr<const CPDF_Array> GetQuadPointsArrayFromDictionary(
     const CPDF_Dictionary* dict);

@@ -82,11 +82,6 @@ class CFX_Font {
   int GetSubstFontItalicAngle() const;
   std::vector<CharCodeAndIndex> GetCharCodesAndIndices(char32_t max_char);
 
-#if defined(PDF_ENABLE_XFA) && !BUILDFLAG(IS_WIN)
-  void SetFaceFromFont(const CFX_Font& that);
-  void SetFontSpan(pdfium::span<const uint8_t> pSpan) { font_data_ = pSpan; }
-  void SetSubstFont(std::unique_ptr<CFX_SubstFont> subst);
-#endif  // defined(PDF_ENABLE_XFA) && !BUILDFLAG(IS_WIN)
 
   const CFX_GlyphBitmap* LoadGlyphBitmap(
       uint32_t glyph_index,
@@ -130,9 +125,6 @@ class CFX_Font {
                                               int dest_width) const;
   int GetGlyphWidthImpl(uint32_t glyph_index, int dest_width, int weight) const;
 
-#if defined(PDF_USE_SKIA)
-  bool IsSubstFontBold() const;
-#endif
 
 #if BUILDFLAG(IS_APPLE)
   void* GetPlatformFont() const { return platform_font_; }

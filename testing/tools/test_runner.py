@@ -201,11 +201,6 @@ class TestRunner:
         help='Sets whether to render using premultiplied alpha.')
 
     parser.add_argument(
-        '--fontations',
-        action='store_true',
-        help='Sets whether to render using Fontations library.')
-
-    parser.add_argument(
         '--run-skia-gold',
         action='store_true',
         default=False,
@@ -234,7 +229,7 @@ class TestRunner:
 
     parser.add_argument(
         '--use-renderer',
-        choices=('agg', 'gdi', 'skia'),
+        choices=('agg', 'gdi'),
         help='Forces the renderer to use.')
 
     parser.add_argument(
@@ -443,7 +438,7 @@ class _PerProcessConfig:
     enforce_expected_images: Whether to enforce expected images.
     options: The dictionary of command line options.
     features: The set of features supported by `pdfium_test`.
-    rendering_option: The renderer to use (agg, gdi, or skia).
+    rendering_option: The renderer to use (agg or gdi).
   """
   test_dir: str
   test_type: str
@@ -465,10 +460,7 @@ class _PerProcessConfig:
                                      timeout=TEST_TIMEOUT)
     self.features = set(output.decode('utf-8').strip().split(','))
 
-    if 'SKIA' in self.features:
-      self.default_renderer = 'skia'
-    else:
-      self.default_renderer = 'agg'
+    self.default_renderer = 'agg'
     self.rendering_option = self.default_renderer
 
     if self.options.use_renderer == 'agg':
@@ -477,11 +469,6 @@ class _PerProcessConfig:
       if 'GDI' not in self.features:
         return 'pdfium_test missing GDI renderer support'
       self.rendering_option = 'gdi'
-    elif self.options.use_renderer == 'skia':
-      if 'SKIA' not in self.features:
-        return 'pdfium_test missing Skia renderer support'
-      self.rendering_option = 'skia'
-
     return None
 
 
@@ -755,9 +742,6 @@ class _TestCaseRunner:
 
     if self.options.render_premultiplied:
       cmd_to_run.append('--render-premultiplied')
-
-    if self.options.fontations:
-      cmd_to_run.append('--fontations')
 
     if self.options.reverse_byte_order:
       cmd_to_run.append('--reverse-byte-order')

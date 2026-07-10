@@ -12,7 +12,6 @@
 #include "core/fpdfapi/page/cpdf_page.h"
 
 class CFX_RenderDevice;
-class CPDF_ProgressiveRenderer;
 class CPDF_RenderContext;
 class CPDF_RenderOptions;
 
@@ -33,7 +32,6 @@ class CPDF_PageRenderContext final : public CPDF_Page::RenderContextIface {
   std::unique_ptr<CPDF_RenderOptions> options_;
   std::unique_ptr<CFX_RenderDevice> device_;
   std::unique_ptr<CPDF_RenderContext> context_;
-  std::unique_ptr<CPDF_ProgressiveRenderer> renderer_;
   bool return_premultiplied_ = false;
 };
 

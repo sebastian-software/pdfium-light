@@ -38,8 +38,6 @@ class EmbedderTestEnvironment : public testing::Environment {
   bool CheckFlags();
 
   int version_ = 6;
-  FPDF_RENDERER_TYPE renderer_type_;
-  bool fontations_ = false;
   bool write_pngs_ = false;
   bool brotli_enabled_ = false;
   TestFonts test_fonts_;

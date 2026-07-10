@@ -14,11 +14,3 @@ bool ParseSwitchKeyValue(const std::string& arg,
   *value = arg.substr(key.size());
   return true;
 }
-
-FPDF_RENDERER_TYPE GetDefaultRendererType() {
-#if defined(PDF_USE_SKIA)
-  return FPDF_RENDERERTYPE_SKIA;
-#else
-  return FPDF_RENDERERTYPE_AGG;
-#endif
-}

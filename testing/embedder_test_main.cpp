@@ -15,9 +15,6 @@
 #include "testing/allocator_shim_config.h"
 #endif
 
-#if defined(BUILD_WITH_CHROMIUM) && defined(PDF_USE_SKIA)
-#include "testing/chromium_support/discardable_memory_allocator.h"  // nogncheck
-#endif
 
 // Can't use gtest-provided main since we need to create our own
 // testing environment which needs the executable path in order to
@@ -41,9 +38,6 @@ int main(int argc, char** argv) {
   // Anything remaining in argc/argv is an embedder_tests flag.
   EmbedderTestEnvironment::GetInstance()->AddFlags(argc, argv);
 
-#if defined(BUILD_WITH_CHROMIUM) && defined(PDF_USE_SKIA)
-  chromium_support::InitializeDiscardableMemoryAllocator();
-#endif
 
   return RUN_ALL_TESTS();
 }

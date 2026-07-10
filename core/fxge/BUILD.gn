@@ -6,19 +6,6 @@ import("//build/config/freetype/freetype.gni")
 import("../../pdfium.gni")
 import("../../testing/test.gni")
 
-if (pdf_enable_fontations) {
-  import("//build/rust/rust_static_library.gni")
-}
-
-if (pdf_enable_fontations) {
-  config("skrifa_cxx_config") {
-    include_dirs = [
-      "//core/fxge/skrifa/src",
-      "$root_gen_dir/core/fxge/skrifa/src",
-    ]
-  }
-}
-
 source_set("fxge") {
   sources = [
     "calculate_pitch.cpp",
@@ -141,28 +128,6 @@ source_set("fxge") {
     deps += [ "../../third_party:fx_agg" ]
   }
 
-  if (pdf_use_skia) {
-    sources += [
-      "skia/cfx_dibbase_skia.cpp",
-      "skia/fx_skia_device.cpp",
-    ]
-    public_deps += [ "//skia" ]
-
-    if (pdf_skia_font_manager_target != "") {
-      defines += [ "PDF_USE_SKIA_CUSTOM_FONT_MANAGER" ]
-      deps += [ pdf_skia_font_manager_target ]
-    }
-  }
-
-  if (pdf_enable_fontations) {
-    configs += [ ":skrifa_cxx_config" ]
-    deps += [
-      ":skrifa_cxx",
-      ":skrifa_cxx_cpp",
-      "//build/rust:cxx_cppdeps",
-    ]
-  }
-
   if (is_android) {
     sources += [
       "android/cfx_androidfontinfo.cpp",
@@ -212,48 +177,7 @@ source_set("fxge") {
     configs -= [ "//build/config/win:lean_and_mean" ]
   }
 
-  if (pdf_enable_xfa) {
-    sources += [
-      "cfx_cttnametable.cpp",
-      "cfx_cttnametable.h",
-    ]
-  }
-
   visibility = [ "../../*" ]
-}
-
-if (pdf_enable_fontations) {
-  rust_static_library("skrifa_cxx") {
-    crate_name = "skrifa_cxx"
-    allow_unsafe = true
-    crate_root = "skrifa/src/main.rs"
-    sources = [ crate_root ]
-    cxx_bindings = [ crate_root ]
-    features = [ "agl" ]
-    deps = [
-      "//build/rust:cxx_cppdeps",
-      "//third_party/rust/read_fonts/v0_40:lib",
-      "//third_party/rust/skrifa/v0_43:lib",
-    ]
-    configs += [ ":skrifa_cxx_config" ]
-  }
-
-  source_set("skrifa_cxx_cpp") {
-    sources = [
-      "skrifa/src/outlines.cpp",
-      "skrifa/src/outlines.h",
-    ]
-    deps = [
-      ":skrifa_cxx",
-      "//build/rust:cxx_cppdeps",
-    ]
-    configs -= [ "//build/config/compiler:chromium_code" ]
-    configs += [
-      "//build/config/compiler:no_chromium_code",
-      ":skrifa_cxx_config",
-    ]
-    visibility = [ ":*" ]
-  }
 }
 
 pdfium_unittest_source_set("unittests") {
@@ -297,30 +221,10 @@ pdfium_unittest_source_set("unittests") {
     ]
   }
 
-  if (pdf_enable_fontations) {
-    sources += [ "skrifa/fx_skrifa_unittest.cpp" ]
-    deps += [
-      ":skrifa_cxx",
-      ":skrifa_cxx_cpp",
-      "//build/rust:cxx_cppdeps",
-    ]
-    configs += [ ":skrifa_cxx_config" ]
-  }
 }
 
 pdfium_embeddertest_source_set("embeddertests") {
   sources = [ "fx_ge_text_embeddertest.cpp" ]
   deps = []
   pdfium_root_dir = "../../"
-
-  if (pdf_use_skia) {
-    sources += [ "skia/fx_skia_device_embeddertest.cpp" ]
-    deps += [
-      ":fxge",
-      "../../fpdfsdk",
-      "../fpdfapi/page",
-      "../fpdfapi/render",
-      "//skia",
-    ]
-  }
 }

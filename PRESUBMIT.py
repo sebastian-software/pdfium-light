@@ -468,18 +468,18 @@ def _CheckPngNames(input_api, output_api):
   For most directories, including those used for pixel tests, they must be in
   the form of:
 
-  NAME_expected(_gdi)?(_(agg|skia))?(_(linux|mac|win))?.pdf.\d+.png
+  NAME_expected(_gdi)?(_agg)?(_(linux|mac|win))?.pdf.\d+.png
 
   This must be the same format as the one in testing/corpus's PRESUBMIT.py.
 
   For testing/resources/embedder_tests, they must be in the form of:
 
-  NAME(_gdi)?(_(agg|skia))?(_(linux|mac|win))?.png
+  NAME(_gdi)?(_agg)?(_(linux|mac|win))?.png
   """
   expected_pattern = input_api.re.compile(
-      r'.+_expected(_gdi)?(_(agg|skia))?(_(linux|mac|win))?\.pdf\.\d+.png')
+      r'.+_expected(_gdi)?(_agg)?(_(linux|mac|win))?\.pdf\.\d+.png')
   expected_embedder_tests_pattern = input_api.re.compile(
-      r'.+(_gdi)?(_(agg|skia))?(_(linux|mac|win))?.png')
+      r'.+(_gdi)?(_agg)?(_(linux|mac|win))?.png')
   results = []
   for f in input_api.AffectedFiles(include_deletes=False):
     if not f.LocalPath().endswith('.png'):

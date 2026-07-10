@@ -155,17 +155,6 @@ std::vector<CharCodeAndIndex> CFX_Font::GetCharCodesAndIndices(
   return face_->GetCharCodesAndIndices(max_char);
 }
 
-#if defined(PDF_ENABLE_XFA) && !BUILDFLAG(IS_WIN)
-void CFX_Font::SetFaceFromFont(const CFX_Font& that) {
-  ClearGlyphCache();
-  object_tag_ = 0;
-  face_ = that.face_;
-}
-
-void CFX_Font::SetSubstFont(std::unique_ptr<CFX_SubstFont> subst) {
-  subst_font_ = std::move(subst);
-}
-#endif  // defined(PDF_ENABLE_XFA) & !BUILDFLAG(IS_WIN)
 
 CFX_Font::~CFX_Font() {
   font_data_ = {};  // font_data_ can't outive face_.
@@ -309,13 +298,6 @@ bool CFX_Font::IsFixedWidth() const {
   return face_ && face_->IsFixedWidth();
 }
 
-#if defined(PDF_USE_SKIA)
-bool CFX_Font::IsSubstFontBold() const {
-  CFX_SubstFont* subst_font = GetSubstFont();
-  return subst_font &&
-         subst_font->GetOriginalWeight() >= pdfium::kFontWeightBold;
-}
-#endif
 
 ByteString CFX_Font::GetPsName() const {
   if (!face_) {

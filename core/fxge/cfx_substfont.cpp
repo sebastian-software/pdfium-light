@@ -71,18 +71,6 @@ CFX_SubstFont::CFX_SubstFont() = default;
 
 CFX_SubstFont::~CFX_SubstFont() = default;
 
-#if defined(PDF_USE_SKIA)
-int CFX_SubstFont::GetOriginalWeight() const {
-  int weight = weight_;
-
-  // Perform the inverse weight adjustment of UseChromeSerif() to get the
-  // original font weight.
-  if (family_ == "Chrome Serif") {
-    weight = weight * 5 / 4;
-  }
-  return weight;
-}
-#endif
 
 void CFX_SubstFont::UseChromeSerif() {
   weight_ = weight_ * 4 / 5;

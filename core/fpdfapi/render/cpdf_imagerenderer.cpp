@@ -409,14 +409,6 @@ bool CPDF_ImageRenderer::DrawMaskedImage() {
     return true;
   }
 
-#if defined(PDF_USE_SKIA)
-  if (CFX_GEModule::Get()->UseSkiaRenderer() &&
-      render_status_->GetRenderDevice()->SetBitsWithMask(
-          bitmap_device->GetBitmap(), mask_bitmap, rect.left, rect.top, alpha_,
-          blend_type_)) {
-    return false;
-  }
-#endif
   bitmap_device->GetBitmap()->MultiplyAlphaMask(std::move(mask_bitmap));
   bitmap_device->GetBitmap()->MultiplyAlpha(alpha_);
   render_status_->GetRenderDevice()->SetDIBitsWithBlend(

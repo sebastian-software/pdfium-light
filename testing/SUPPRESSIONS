@@ -9,7 +9,7 @@
 # Column 0: test file name
 # Column 2: v8 support: *, nov8, v8
 # Column 3: xfa support: *, noxfa, xfa
-# Column 4: rendering support: *, agg, gdi, skia
+# Column 4: rendering support: *, agg, gdi
 #
 # All columns on a line must match, but filenames may be repeated on subsequent
 # lines to suppress more cases.  Within each column, any one of the
@@ -90,7 +90,6 @@ bookmarkgetcolor.pdf mac * * agg
 bug_0_length_line.pdf mac * * agg
 
 # TODO(crbug.com/42270825): Remove after associated bug is fixed
-bug_0_length_line.pdf * * * skia
 
 bug_0_width_line.pdf mac * * agg
 bug_440132.pdf mac * * agg
@@ -688,7 +687,6 @@ bug_42271472.in * nov8 * *
 
 # TODO(crbug.com/40040570, crbug.com/40040569): Remove after associated bug is
 # fixed
-bug_40040570.in * * * skia
 
 # TODO(crbug.com/41470360): Remove after associated bug is fixed
 bug_41470360.in * * * agg

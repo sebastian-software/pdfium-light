@@ -142,8 +142,6 @@ class CPDF_Parser {
   void SetSyntaxParserForTesting(std::unique_ptr<CPDF_SyntaxParser> parser);
 
  private:
-  friend class CPDF_DataAvail;
-
   struct CrossRefObjData {
     uint32_t obj_num = 0;
     CPDF_CrossRefTable::ObjectInfo info;

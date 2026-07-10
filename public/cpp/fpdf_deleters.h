@@ -6,7 +6,6 @@
 #define PUBLIC_CPP_FPDF_DELETERS_H_
 
 #include "public/fpdf_annot.h"
-#include "public/fpdf_dataavail.h"
 #include "public/fpdf_edit.h"
 #include "public/fpdf_structtree.h"
 #include "public/fpdf_text.h"
@@ -17,10 +16,6 @@
 
 struct FPDFAnnotationDeleter {
   inline void operator()(FPDF_ANNOTATION annot) { FPDFPage_CloseAnnot(annot); }
-};
-
-struct FPDFAvailDeleter {
-  inline void operator()(FPDF_AVAIL avail) { FPDFAvail_Destroy(avail); }
 };
 
 struct FPDFBitmapDeleter {

@@ -15,8 +15,6 @@ source_set("render") {
     "cpdf_imagerenderer.h",
     "cpdf_pagerendercontext.cpp",
     "cpdf_pagerendercontext.h",
-    "cpdf_progressiverenderer.cpp",
-    "cpdf_progressiverenderer.h",
     "cpdf_rendercontext.cpp",
     "cpdf_rendercontext.h",
     "cpdf_renderoptions.cpp",
@@ -68,7 +66,6 @@ pdfium_unittest_source_set("unittests") {
 
 pdfium_embeddertest_source_set("embeddertests") {
   sources = [
-    "fpdf_progressive_render_embeddertest.cpp",
     "fpdf_render_pattern_embeddertest.cpp",
   ]
   deps = [ "../../fxge" ]

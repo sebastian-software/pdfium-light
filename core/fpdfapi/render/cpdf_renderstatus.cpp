@@ -136,11 +136,6 @@ FXDIB_Format GetFormatForLuminosity(bool is_luminosity) {
 #if BUILDFLAG(IS_APPLE)
   return FXDIB_Format::kBgrx;
 #else  // BUILDFLAG(IS_APPLE)
-#if defined(PDF_USE_SKIA)
-  if (CFX_GEModule::Get()->UseSkiaRenderer()) {
-    return FXDIB_Format::kBgrx;
-  }
-#endif  // defined(PDF_USE_SKIA)
   return FXDIB_Format::kBgr;
 #endif  // BUILDFLAG(IS_APPLE)
 }
@@ -1328,15 +1323,6 @@ void CPDF_RenderStatus::CompositeDIBitmap(
 #endif
     } else {
       if (alpha != 1.0f) {
-#if defined(PDF_USE_SKIA)
-        if (CFX_GEModule::Get()->UseSkiaRenderer()) {
-          CFX_Matrix matrix = CFX_RenderDevice::GetFlipMatrix(
-              bitmap->GetWidth(), bitmap->GetHeight(), left, top);
-          device_->StartDIBits(std::move(bitmap), alpha, /*argb=*/0, matrix,
-                               FXDIB_ResampleOptions());
-          return;
-        }
-#endif
         bitmap->MultiplyAlpha(alpha);
       }
       if (device_->SetDIBits(bitmap, left, top)) {
@@ -1585,10 +1571,5 @@ FX_ARGB CPDF_RenderStatus::GetBackgroundColor(
 }
 
 FXDIB_Format CPDF_RenderStatus::GetCompatibleArgbFormat() const {
-#if defined(PDF_USE_SKIA)
-  if (device_->CanUseARGBPremul()) {
-    return FXDIB_Format::kBgraPremul;
-  }
-#endif
   return FXDIB_Format::kBgra;
 }

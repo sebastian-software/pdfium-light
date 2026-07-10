@@ -70,11 +70,6 @@ class RenderDeviceDriverIface {
   virtual bool RenderCapSoftClip() const;
   virtual bool RenderCapAlphaOutput() const;
   virtual bool RenderCapByteMaskOutput() const;
-#if defined(PDF_USE_SKIA)
-  virtual bool RenderCapFillStrokePath() const;
-  virtual bool RenderCapShading() const;
-  virtual bool RenderCapPremultipliedAlpha() const;
-#endif
   virtual int GetPixelWidth() const = 0;
   virtual int GetPixelHeight() const = 0;
   virtual int GetBitsPerPixel() const = 0;
@@ -141,24 +136,6 @@ class RenderDeviceDriverIface {
                               const CFX_TextRenderOptions& options);
   virtual int GetDriverType() const;
 
-#if defined(PDF_USE_SKIA)
-  virtual bool DrawShading(const CPDF_ShadingPattern& pattern,
-                           const CFX_Matrix& matrix,
-                           const FX_RECT& clip_rect,
-                           int alpha);
-  virtual bool SetBitsWithMask(RetainPtr<const CFX_DIBBase> bitmap,
-                               RetainPtr<const CFX_DIBBase> mask,
-                               int left,
-                               int top,
-                               float alpha,
-                               BlendMode blend_type);
-  virtual void SetGroupKnockout(bool group_knockout);
-
-  // For `CFX_SkiaDeviceDriver` only:
-  // Syncs the current rendering result from the internal buffer to the output
-  // bitmap if such internal buffer exists.
-  virtual void SyncInternalBitmaps();
-#endif  // defined(PDF_USE_SKIA)
 
   // Multiplies the device by a constant alpha, returning `true` on success.
   // Implementations CHECK the following conditions:

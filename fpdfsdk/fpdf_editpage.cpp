@@ -44,10 +44,6 @@
 #include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 
-#ifdef PDF_ENABLE_XFA
-#include "fpdfsdk/fpdfxfa/cpdfxfa_context.h"
-#include "fpdfsdk/fpdfxfa/cpdfxfa_page.h"
-#endif  // PDF_ENABLE_XFA
 
 namespace {
 
@@ -323,13 +319,6 @@ FPDF_EXPORT FPDF_PAGE FPDF_CALLCONV FPDFPage_New(FPDF_DOCUMENT document,
   page_dict->SetNewFor<CPDF_Number>(pdfium::page_object::kRotate, 0);
   page_dict->SetNewFor<CPDF_Dictionary>(pdfium::page_object::kResources);
 
-#ifdef PDF_ENABLE_XFA
-  if (doc->GetExtension()) {
-    auto xfa_page = pdfium::MakeRetain<CPDFXFA_Page>(doc, page_index);
-    CHECK(xfa_page->LoadPDFPageFromDict(std::move(page_dict)));
-    return FPDFPageFromIPDFPage(xfa_page.Leak());  // Caller takes ownership.
-  }
-#endif  // PDF_ENABLE_XFA
 
   auto pPage = pdfium::MakeRetain<CPDF_Page>(doc, std::move(page_dict));
   pPage->AddPageImageCache();

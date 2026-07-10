@@ -17,13 +17,13 @@ ordinary annotations, and page transforms. It includes:
 - `fpdf_annot.h`, `fpdf_attachment.h`, `fpdf_catalog.h`, `fpdf_doc.h`,
   `fpdf_ext.h`, `fpdf_flatten.h`, `fpdf_ppo.h`, `fpdf_signature.h`, and
   `fpdf_structtree.h` for static document inspection and editing;
-- `fpdf_dataavail.h`, `fpdf_progressive.h`, `fpdf_searchex.h`,
-  `fpdf_sysfontinfo.h`, and `fpdf_thumbnail.h` where they support static
-  loading, rendering, search, or font configuration;
+- `fpdf_searchex.h`, `fpdf_sysfontinfo.h`, and `fpdf_thumbnail.h` where they
+  support static search or font configuration;
 - `public/cpp/fpdf_deleters.h` and `public/cpp/fpdf_scopers.h`.
 
-`fpdf_formfill.h`, `fpdf_fwlevent.h`, and `fpdf_javascript.h` have been
-removed. `fpdf_annot.h` contains only the ordinary, non-widget annotation API.
+`fpdf_dataavail.h`, `fpdf_progressive.h`, `fpdf_formfill.h`,
+`fpdf_fwlevent.h`, and `fpdf_javascript.h` have been removed. `fpdf_annot.h`
+contains only the ordinary, non-widget annotation API.
 The retained annotation surface covers text notes, freetext, highlights,
 underlines, strikeouts, squigglies, ink, links, stamps, geometric annotations,
 attachments, and redact marks. Widget annotations are not supported for

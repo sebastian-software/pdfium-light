@@ -10,16 +10,11 @@ source_set("image_diff") {
   sources = [ "image_diff_png.h" ]
   deps = []
 
-  if (pdf_use_skia) {
-    sources += [ "image_diff_png_skia.cpp" ]
-    deps += [ "//skia" ]
-  } else {
-    sources += [ "image_diff_png_libpng.cpp" ]
-    deps += [
-      "../../third_party:png",
-      "../../third_party:zlib",
-    ]
-  }
+  sources += [ "image_diff_png_libpng.cpp" ]
+  deps += [
+    "../../third_party:png",
+    "../../third_party:zlib",
+  ]
 
   configs += [
     "../../:pdfium_strict_config",

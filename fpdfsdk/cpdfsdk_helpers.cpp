@@ -31,9 +31,6 @@
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 
-#if defined(PDF_USE_SKIA)
-#include "core/fxge/cfx_gemodule.h"
-#endif
 
 namespace {
 
@@ -101,106 +98,6 @@ size_t FPDFWideStringLength(const unsigned short* str) {
   return len;
 }
 
-#ifdef PDF_ENABLE_XFA
-class FPDF_FileHandlerContext final : public IFX_SeekableStream {
- public:
-  CONSTRUCT_VIA_MAKE_RETAIN;
-
-  // IFX_SeekableStream:
-  FX_FILESIZE GetSize() override;
-  FX_FILESIZE GetPosition() override;
-  bool IsEOF() override;
-  bool ReadBlockAtOffset(pdfium::span<uint8_t> buffer,
-                         FX_FILESIZE offset) override;
-  bool WriteBlock(pdfium::span<const uint8_t> buffer) override;
-  bool Flush() override;
-
- private:
-  explicit FPDF_FileHandlerContext(FPDF_FILEHANDLER* pFS);
-  ~FPDF_FileHandlerContext() override;
-
-  UnownedPtr<FPDF_FILEHANDLER> const fs_;
-  FX_FILESIZE cur_pos_ = 0;
-};
-
-FPDF_FileHandlerContext::FPDF_FileHandlerContext(FPDF_FILEHANDLER* pFS)
-    : fs_(pFS) {
-  CHECK(fs_);
-}
-
-FPDF_FileHandlerContext::~FPDF_FileHandlerContext() {
-  if (fs_->Release) {
-    fs_->Release(fs_->clientData);
-  }
-}
-
-FX_FILESIZE FPDF_FileHandlerContext::GetSize() {
-  if (fs_->GetSize) {
-    return static_cast<FX_FILESIZE>(fs_->GetSize(fs_->clientData));
-  }
-  return 0;
-}
-
-bool FPDF_FileHandlerContext::IsEOF() {
-  return cur_pos_ >= GetSize();
-}
-
-FX_FILESIZE FPDF_FileHandlerContext::GetPosition() {
-  return cur_pos_;
-}
-
-bool FPDF_FileHandlerContext::ReadBlockAtOffset(pdfium::span<uint8_t> buffer,
-                                                FX_FILESIZE offset) {
-  if (buffer.empty() || !fs_->ReadBlock) {
-    return false;
-  }
-
-  FX_SAFE_FILESIZE new_position = offset;
-  new_position += buffer.size();
-  if (!new_position.IsValid()) {
-    return false;
-  }
-
-  if (fs_->ReadBlock(fs_->clientData, static_cast<FPDF_DWORD>(offset),
-                     buffer.data(),
-                     static_cast<FPDF_DWORD>(buffer.size())) != 0) {
-    return false;
-  }
-
-  cur_pos_ = new_position.ValueOrDie();
-  return true;
-}
-
-bool FPDF_FileHandlerContext::WriteBlock(pdfium::span<const uint8_t> buffer) {
-  if (!fs_->WriteBlock) {
-    return false;
-  }
-
-  const FX_FILESIZE size = GetSize();
-  FX_SAFE_FILESIZE new_position = size;
-  new_position += buffer.size();
-  if (!new_position.IsValid()) {
-    return false;
-  }
-
-  if (fs_->WriteBlock(fs_->clientData, static_cast<FPDF_DWORD>(size),
-                      buffer.data(),
-                      static_cast<FPDF_DWORD>(buffer.size())) != 0) {
-    return false;
-  }
-
-  cur_pos_ = new_position.ValueOrDie();
-  return true;
-}
-
-bool FPDF_FileHandlerContext::Flush() {
-  if (!fs_->Flush) {
-    return true;
-  }
-
-  return fs_->Flush(fs_->clientData) == 0;
-}
-#endif  // PDF_ENABLE_XFA
 
 }  // namespace
 
@@ -234,25 +131,13 @@ FXDIB_Format FXDIBFormatFromFPDFFormat(int format) {
       return FXDIB_Format::kBgrx;
     case FPDFBitmap_BGRA:
       return FXDIB_Format::kBgra;
-#if defined(PDF_USE_SKIA)
-    case FPDFBitmap_BGRA_Premul:
-      return CFX_GEModule::Get()->UseSkiaRenderer() ? FXDIB_Format::kBgraPremul
-                                                    : FXDIB_Format::kInvalid;
-#endif
     default:
       return FXDIB_Format::kInvalid;
   }
 }
 
 void ValidateBitmapPremultiplyState(CFX_DIBitmap* bitmap) {
-#if defined(PDF_USE_SKIA)
-  const bool should_be_premultiplied =
-      CFX_GEModule::Get()->UseSkiaRenderer() &&
-      bitmap->GetFormat() == FXDIB_Format::kBgraPremul;
-  CHECK_EQ(should_be_premultiplied, bitmap->IsPremultiplied());
-#else
   CHECK(!bitmap->IsPremultiplied());
-#endif
 }
 
 ByteString ByteStringFromFPDFWideString(FPDF_WIDESTRING wide_string) {
@@ -280,12 +165,6 @@ UNSAFE_BUFFER_USAGE pdfium::span<char> SpanFromFPDFApiArgs(
   return UNSAFE_BUFFERS(pdfium::span(static_cast<char*>(buffer), buflen));
 }
 
-#ifdef PDF_ENABLE_XFA
-RetainPtr<IFX_SeekableStream> MakeSeekableStream(
-    FPDF_FILEHANDLER* pFilehandler) {
-  return pdfium::MakeRetain<FPDF_FileHandlerContext>(pFilehandler);
-}
-#endif  // PDF_ENABLE_XFA
 
 RetainPtr<const CPDF_Array> GetQuadPointsArrayFromDictionary(
     const CPDF_Dictionary* dict) {

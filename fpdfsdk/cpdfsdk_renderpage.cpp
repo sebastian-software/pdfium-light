@@ -12,12 +12,10 @@
 #include "build/build_config.h"
 #include "core/fpdfapi/page/cpdf_pageimagecache.h"
 #include "core/fpdfapi/render/cpdf_pagerendercontext.h"
-#include "core/fpdfapi/render/cpdf_progressiverenderer.h"
 #include "core/fpdfapi/render/cpdf_renderoptions.h"
 #include "core/fpdfdoc/cpdf_annotlist.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
-#include "fpdfsdk/cpdfsdk_pauseadapter.h"
 
 namespace {
 
@@ -27,8 +25,7 @@ void RenderPageImpl(CPDF_PageRenderContext* context,
                     const FX_RECT& clipping_rect,
                     int flags,
                     const FPDF_COLORSCHEME* color_scheme,
-                    bool need_to_restore,
-                    CPDFSDK_PauseAdapter* pause) {
+                    bool need_to_restore) {
   if (!context->options_) {
     context->options_ = std::make_unique<CPDF_RenderOptions>();
   }
@@ -82,9 +79,8 @@ void RenderPageImpl(CPDF_PageRenderContext* context,
                          bShowWidget);
   }
 
-  context->renderer_ = std::make_unique<CPDF_ProgressiveRenderer>(
-      context->context_.get(), context->device_.get(), context->options_.get());
-  context->renderer_->Start(pause);
+  context->context_->Render(context->device_.get(), nullptr,
+                            context->options_.get(), nullptr);
   if (need_to_restore) {
     context->device_->RestoreState(false);
   }
@@ -99,7 +95,7 @@ void CPDFSDK_RenderPage(CPDF_PageRenderContext* context,
                         int flags,
                         const FPDF_COLORSCHEME* color_scheme) {
   RenderPageImpl(context, pPage, matrix, clipping_rect, flags, color_scheme,
-                 /*need_to_restore=*/true, /*pause=*/nullptr);
+                 /*need_to_restore=*/true);
 }
 
 void CPDFSDK_RenderPageWithContext(CPDF_PageRenderContext* context,
@@ -111,9 +107,8 @@ void CPDFSDK_RenderPageWithContext(CPDF_PageRenderContext* context,
                                    int rotate,
                                    int flags,
                                    const FPDF_COLORSCHEME* color_scheme,
-                                   bool need_to_restore,
-                                   CPDFSDK_PauseAdapter* pause) {
+                                   bool need_to_restore) {
   const FX_RECT rect(start_x, start_y, start_x + size_x, start_y + size_y);
   RenderPageImpl(context, pPage, pPage->GetDisplayMatrixForRect(rect, rotate),
-                 rect, flags, color_scheme, need_to_restore, pause);
+                 rect, flags, color_scheme, need_to_restore);
 }

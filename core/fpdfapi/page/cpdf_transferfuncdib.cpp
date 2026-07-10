@@ -13,9 +13,6 @@
 #include "core/fxcrt/zip.h"
 #include "core/fxge/calculate_pitch.h"
 
-#if defined(PDF_USE_SKIA)
-#include "core/fxcrt/notreached.h"
-#endif
 
 namespace {
 
@@ -160,13 +157,6 @@ void CPDF_TransferFuncDIB::TranslateScanline(
       }
       break;
     }
-#if defined(PDF_USE_SKIA)
-    case FXDIB_Format::kBgraPremul: {
-      // TODO(crbug.com/355676038): Consider adding support for
-      // `FXDIB_Format::kBgraPremul`
-      NOTREACHED();
-    }
-#endif
   }
 }
 

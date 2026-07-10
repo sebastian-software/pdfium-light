@@ -11,7 +11,6 @@
 #include "public/fpdf_edit.h"
 #include "public/fpdfview.h"
 #include "testing/embedder_test.h"
-#include "testing/fake_file_access.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/utils/file_util.h"
@@ -63,25 +62,10 @@ TEST_F(CPDFCreatorEmbedderTest, Bug873) {
 }
 
 TEST_F(CPDFCreatorEmbedderTest, SaveLinearizedInfo) {
-  FileAccessForTesting file_acc("linearized.pdf");
-  FakeFileAccess fake_acc(&file_acc);
-
-  CreateAvail(fake_acc.GetFileAvail(), fake_acc.GetFileAccess());
-  while (PDF_DATA_AVAIL !=
-         FPDFAvail_IsDocAvail(avail(), fake_acc.GetDownloadHints())) {
-    fake_acc.SetRequestedDataAvailable();
-  }
-
-  SetDocumentFromAvail();
-  ASSERT_TRUE(document());
+  ASSERT_TRUE(OpenDocument("linearized.pdf"));
 
   // Load second page, to parse additional crossref sections.
-  while (PDF_DATA_AVAIL !=
-         FPDFAvail_IsPageAvail(avail(), 1, fake_acc.GetDownloadHints())) {
-    fake_acc.SetRequestedDataAvailable();
-  }
-  // Simulate downloading of whole file.
-  fake_acc.SetWholeFileAvailable();
+  ASSERT_TRUE(LoadScopedPage(1));
   // Save document.
   EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
   const std::string saved_doc = GetString();

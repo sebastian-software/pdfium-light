@@ -35,24 +35,10 @@ enum class FormFieldType : uint8_t {
   kListBox = 5,
   kTextField = 6,
   kSignature = 7,
-#ifdef PDF_ENABLE_XFA
-  kXFA = 8,  // Generic XFA field, should use value below if possible.
-  kXFA_CheckBox = 9,
-  kXFA_ComboBox = 10,
-  kXFA_ImageField = 11,
-  kXFA_ListBox = 12,
-  kXFA_PushButton = 13,
-  kXFA_Signature = 14,
-  kXFA_TextField = 15
-#endif  // PDF_ENABLE_XFA
 };
 
 // If values are added to FormFieldType, these will need to be updated.
-#ifdef PDF_ENABLE_XFA
-constexpr size_t kFormFieldTypeCount = 16;
-#else   // PDF_ENABLE_XFA
 constexpr size_t kFormFieldTypeCount = 8;
-#endif  // PDF_ENABLE_XFA
 
 class CPDF_FormField final : public Retainable {
  public:

@@ -22,32 +22,14 @@
 #include "core/fxge/freetype/fx_freetype.h"
 #include "core/fxge/fx_font.h"
 
-#if defined(PDF_USE_SKIA)
-#include "third_party/skia/include/core/SkRefCnt.h"  // nogncheck
-#endif
 
-#if defined(PDF_ENABLE_FONTATIONS)
-#include "third_party/rust/cxx/v1/cxx.h"
-#endif  // defined(PDF_ENABLE_FONTATIONS)
 
 class CFX_CTTGSUBTable;
 class CFX_GlyphBitmap;
 class CFX_Path;
 class CFX_SubstFont;
 
-#if defined(PDF_ENABLE_XFA)
-class CFX_CTTNameTable;
-#endif  // defined(PDF_ENABLE_XFA)
 
-#if defined(PDF_USE_SKIA)
-class SkTypeface;
-#endif
-
-#if defined(PDF_ENABLE_FONTATIONS)
-struct SkrifaFontHolder;
-#else
-struct SkrifaFontHolder {};
-#endif
 
 namespace fxge {
 enum class FontEncoding : uint32_t;
@@ -138,33 +120,23 @@ class CFX_Face final : public Retainable, public Observable {
   void SetCharMapByIndex(size_t index);
   bool SelectCharMap(fxge::FontEncoding encoding);
 
-#if defined(PDF_ENABLE_XFA) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX)
   // Returns enum FontStyle values.
   uint32_t GetFontStyle();
 
   std::optional<std::array<uint32_t, 2>> GetOs2CodePageRange();
 #endif
 
-#if defined(PDF_ENABLE_XFA)
-  bool IsScalable() const;
-  int GetNumFaces() const;
-  std::unique_ptr<CFX_CTTNameTable> ParseNameTable();
-  std::optional<std::array<uint32_t, 4>> GetOs2UnicodeRange();
-#endif
 
 #if BUILDFLAG(IS_WIN)
   bool CanEmbed();
 #endif
 
-#if defined(PDF_USE_SKIA)
-  SkTypeface* GetOrCreateSkTypeface();
-#endif
 
  private:
   CFX_Face(RetainPtr<Retainable> cache_entry,
            RetainPtr<CFX_ReadOnlySpanStream> font_stream,
-           FT_FaceRec* rec,
-           std::unique_ptr<SkrifaFontHolder> skrifa_font);
+           FT_FaceRec* rec);
 
   ~CFX_Face() override;
 
@@ -183,7 +155,7 @@ class CFX_Face final : public Retainable, public Observable {
   // it is large enough to hold the data.
   size_t GetSfntTable(uint32_t table, pdfium::span<uint8_t> buffer);
 
-#if defined(PDF_ENABLE_XFA) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX)
   std::optional<std::array<uint8_t, 2>> GetOs2Panose();
 #endif
 
@@ -193,18 +165,11 @@ class CFX_Face final : public Retainable, public Observable {
   // using it. This may be nullptr for faces not managed by a cache.
   RetainPtr<Retainable> cache_entry_;
 
-  // `font_stream_` must outlive `rec_` and `skia_typeface_`. Faces keep
-  // the actual data backing the `rec_` and `skia_typeface_` alive via
-  // this member while the `rec_` and `skia_typeface_` is still using it.
+  // `font_stream_` must outlive `rec_`. Faces keep the actual data backing the
+  // FreeType face alive through this member.
   RetainPtr<CFX_ReadOnlySpanStream> font_stream_;
 
   ScopedFXFTFaceRec const rec_;
-#if defined(PDF_USE_SKIA)
-  sk_sp<SkTypeface> skia_typeface_;
-#endif  // defined(PDF_USE_SKIA)
-#if defined(PDF_ENABLE_FONTATIONS)
-  std::unique_ptr<SkrifaFontHolder> const skrifa_font_;
-#endif  // defined(PDF_ENABLE_FONTATIONS)
 };
 
 #endif  // CORE_FXGE_CFX_FACE_H_

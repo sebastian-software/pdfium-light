@@ -26,7 +26,7 @@ responsibility:
     types, string handling, custom containers, and memory management utilities.
     It has no dependencies on other core modules.
 *   **[fxge/](fxge/) (Graphics Engine)**: Handles rendering primitives (paths,
-    glyphs, bitmaps), font management abstractions (FreeType, Skia, AGG), and
+    glyphs, bitmaps), font management abstractions (FreeType), and
     device drivers for different platforms.
 
 ## Architectural Flow: Life of a Page
@@ -41,7 +41,7 @@ Building a rendered page involves several layers working in concert:
     higher-level constructs like paths, text objects, and images.
 4.  **Rendering**: `fpdfapi/render` traverses the page objects and issues
     drawing commands to `fxge`.
-5.  **Rasterization**: `fxge` uses its rendering backend (e.g., AGG or Skia) to
+5.  **Rasterization**: `fxge` uses AGG to
     convert these primitives into final pixels in a device buffer.
 
 ## Coordinate Systems

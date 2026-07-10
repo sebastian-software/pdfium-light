@@ -28,25 +28,6 @@ class CFX_DIBitmap final : public CFX_DIBBase {
     uint32_t size;
   };
 
-#if defined(PDF_USE_SKIA)
-  // Scoper that conditionally pre-multiplies a bitmap in the ctor and
-  // un-premultiplies in the dtor if pre-multiplication was required.
-  class ScopedPremultiplier {
-   public:
-    // ScopedPremultiplier is a no-op if `bitmap` does not need to be
-    // pre-multiplied, as determined by NeedToPremultiplyBitmap().
-    explicit ScopedPremultiplier(RetainPtr<CFX_DIBitmap> bitmap);
-    ~ScopedPremultiplier();
-
-   private:
-    // Returns true if Skia is enabled at runtime and `bitmap_` is an format
-    // that has un-premultiplied alpha.
-    bool NeedToPremultiplyBitmap() const;
-
-    RetainPtr<CFX_DIBitmap> const bitmap_;
-    const bool do_premultiply_;
-  };
-#endif  // defined(PDF_USE_SKIA)
 
   CONSTRUCT_VIA_MAKE_RETAIN;
 
@@ -62,7 +43,7 @@ class CFX_DIBitmap final : public CFX_DIBBase {
   // CFX_DIBBase
   pdfium::span<const uint8_t> GetScanline(int line) const override;
   size_t GetEstimatedImageMemoryBurden() const override;
-#if BUILDFLAG(IS_WIN) || defined(PDF_USE_SKIA)
+#if BUILDFLAG(IS_WIN)
   RetainPtr<const CFX_DIBitmap> RealizeIfNeeded() const override;
 #endif
 
@@ -97,9 +78,6 @@ class CFX_DIBitmap final : public CFX_DIBBase {
                         uint32_t src_pitch);
   void Clear(uint32_t color);
 
-#if defined(PDF_USE_SKIA)
-  uint32_t GetPixelForTesting(int x, int y) const;
-#endif  // defined(PDF_USE_SKIA)
 
   // Requires `this` to be of format `FXDIB_Format::kBgra`.
   void SetRedFromAlpha();
@@ -194,11 +172,6 @@ class CFX_DIBitmap final : public CFX_DIBBase {
                                                            FXDIB_Format format,
                                                            uint32_t pitch);
 
-#if defined(PDF_USE_SKIA)
-  // Converts from/to un-pre-multiplied alpha if necessary.
-  void PreMultiply();
-  void UnPreMultiply();
-#endif  // defined(PDF_USE_SKIA)
 
  private:
   enum class Channel : uint8_t { kRed, kAlpha };

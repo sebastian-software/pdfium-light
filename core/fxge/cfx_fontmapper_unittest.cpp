@@ -104,68 +104,6 @@ TEST(CFXFontMapperTest, AddInstalledFontBasic) {
   EXPECT_EQ(kFontName, font_mapper.GetFaceName(0));
 }
 
-#ifdef PDF_ENABLE_XFA
-TEST_F(CFXFontMapperSystemFontInfoTest, RawBytesForIndex) {
-  {
-    void* const kFontHandle = reinterpret_cast<void*>(12345);
-
-    InSequence s;
-    EXPECT_CALL(system_font_info(), MapFont).WillOnce(Return(kFontHandle));
-    EXPECT_CALL(system_font_info(),
-                GetFontData(kFontHandle, SystemFontInfoIface::kTableNone, _))
-        .WillOnce(Return(2))
-        .WillOnce(DoAll(WithArg<2>([](pdfium::span<uint8_t> buffer) {
-                          buffer[0] = '0';
-                          buffer[1] = '1';
-                        }),
-                        Return(2)));
-    EXPECT_CALL(system_font_info(), DeleteFont(kFontHandle));
-  }
-
-  FixedSizeDataVector<uint8_t> data = font_mapper().RawBytesForIndex(0);
-  EXPECT_THAT(data.span(), ElementsAre('0', '1'));
-}
-
-TEST_F(CFXFontMapperSystemFontInfoTest, RawBytesForIndexFailToMap) {
-  EXPECT_CALL(system_font_info(), MapFont).WillOnce(Return(nullptr));
-
-  FixedSizeDataVector<uint8_t> data = font_mapper().RawBytesForIndex(0);
-  EXPECT_TRUE(data.empty());
-}
-
-TEST_F(CFXFontMapperSystemFontInfoTest, RawBytesForIndexFailToGetDataSize) {
-  {
-    void* const kFontHandle = reinterpret_cast<void*>(12345);
-
-    InSequence s;
-    EXPECT_CALL(system_font_info(), MapFont).WillOnce(Return(kFontHandle));
-    EXPECT_CALL(system_font_info(),
-                GetFontData(kFontHandle, SystemFontInfoIface::kTableNone, _))
-        .WillOnce(Return(0));
-    EXPECT_CALL(system_font_info(), DeleteFont(kFontHandle));
-  }
-
-  FixedSizeDataVector<uint8_t> data = font_mapper().RawBytesForIndex(0);
-  EXPECT_TRUE(data.empty());
-}
-
-TEST_F(CFXFontMapperSystemFontInfoTest, RawBytesForIndexFailToGetData) {
-  {
-    void* const kFontHandle = reinterpret_cast<void*>(12345);
-
-    InSequence s;
-    EXPECT_CALL(system_font_info(), MapFont).WillOnce(Return(kFontHandle));
-    EXPECT_CALL(system_font_info(),
-                GetFontData(kFontHandle, SystemFontInfoIface::kTableNone, _))
-        .WillOnce(Return(2))
-        .WillOnce(Return(0));
-    EXPECT_CALL(system_font_info(), DeleteFont(kFontHandle));
-  }
-
-  FixedSizeDataVector<uint8_t> data = font_mapper().RawBytesForIndex(0);
-  EXPECT_TRUE(data.empty());
-}
-#endif  // PDF_ENABLE_XFA
 
 // Regression test for crbug.com/1372234 - should not crash.
 TEST_F(CFXFontMapperSystemFontInfoTest, GetCachedTTCFaceFailToGetData) {

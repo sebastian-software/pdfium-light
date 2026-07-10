@@ -28,18 +28,6 @@
 #include "testing/utils/hash.h"
 #include "testing/utils/path_service.h"
 
-#if defined(PDF_USE_SKIA)
-#include "third_party/skia/include/core/SkCanvas.h"           // nogncheck
-#include "third_party/skia/include/core/SkColor.h"            // nogncheck
-#include "third_party/skia/include/core/SkColorType.h"        // nogncheck
-#include "third_party/skia/include/core/SkImage.h"            // nogncheck
-#include "third_party/skia/include/core/SkImageInfo.h"        // nogncheck
-#include "third_party/skia/include/core/SkPicture.h"          // nogncheck
-#include "third_party/skia/include/core/SkPictureRecorder.h"  // nogncheck
-#include "third_party/skia/include/core/SkRefCnt.h"           // nogncheck
-#include "third_party/skia/include/core/SkSize.h"             // nogncheck
-#include "third_party/skia/include/core/SkSurface.h"          // nogncheck
-#endif  // defined(PDF_USE_SKIA)
 
 namespace {
 
@@ -108,47 +96,6 @@ class MockDownloadHints final : public FX_DOWNLOADHINTS {
   ~MockDownloadHints() = default;
 };
 
-#if defined(PDF_USE_SKIA)
-ScopedFPDFBitmap SkImageToPdfiumBitmap(const SkImage& image) {
-  ScopedFPDFBitmap bitmap(
-      FPDFBitmap_Create(image.width(), image.height(), /*alpha=*/1));
-  if (!bitmap) {
-    ADD_FAILURE() << "Could not create FPDF_BITMAP";
-    return nullptr;
-  }
-
-  if (!image.readPixels(/*context=*/nullptr,
-                        image.imageInfo().makeColorType(kBGRA_8888_SkColorType),
-                        FPDFBitmap_GetBuffer(bitmap.get()),
-                        FPDFBitmap_GetStride(bitmap.get()),
-                        /*srcX=*/0, /*srcY=*/0)) {
-    ADD_FAILURE() << "Could not read pixels from SkImage";
-    return nullptr;
-  }
-
-  return bitmap;
-}
-
-ScopedFPDFBitmap SkPictureToPdfiumBitmap(sk_sp<SkPicture> picture,
-                                         const SkISize& size) {
-  sk_sp<SkSurface> surface =
-      SkSurfaces::Raster(SkImageInfo::MakeN32Premul(size));
-  if (!surface) {
-    ADD_FAILURE() << "Could not create SkSurface";
-    return nullptr;
-  }
-
-  surface->getCanvas()->clear(SK_ColorWHITE);
-  surface->getCanvas()->drawPicture(picture);
-  sk_sp<SkImage> image = surface->makeImageSnapshot();
-  if (!image) {
-    ADD_FAILURE() << "Could not snapshot SkSurface";
-    return nullptr;
-  }
-
-  return SkImageToPdfiumBitmap(*image);
-}
-#endif  // defined(PDF_USE_SKIA)
 
 }  // namespace
 
@@ -233,28 +180,6 @@ class FPDFViewEmbedderTest : public EmbedderTest {
         page, format, /*bitmap_stride=*/0, expectation_png_name, fuzzy);
   }
 
-#if defined(PDF_USE_SKIA)
-  void TestRenderPageSkp(FPDF_PAGE page, std::string_view png_name) {
-    int width = static_cast<int>(FPDF_GetPageWidth(page));
-    int height = static_cast<int>(FPDF_GetPageHeight(page));
-
-    sk_sp<SkPicture> picture;
-    {
-      auto recorder = std::make_unique<SkPictureRecorder>();
-      recorder->beginRecording(width, height);
-
-      FPDF_RenderPageSkia(
-          FPDFSkiaCanvasFromSkCanvas(recorder->getRecordingCanvas()), page,
-          width, height);
-      picture = recorder->finishRecordingAsPicture();
-      EXPECT_TRUE(picture);
-    }
-
-    ScopedFPDFBitmap bitmap = SkPictureToPdfiumBitmap(
-        std::move(picture), SkISize::Make(width, height));
-    CompareBitmapWithExpectationSuffix(bitmap.get(), png_name);
-  }
-#endif  // defined(PDF_USE_SKIA)
 
  private:
   ScopedFPDFBitmap TestRenderPageBitmapWithFlagsImpl(FPDF_PAGE page,
@@ -970,15 +895,6 @@ TEST_F(FPDFViewEmbedderTest, Crasher773229) {
 // reference loop. Cross references will be rebuilt successfully.
 TEST_F(FPDFViewEmbedderTest, CrossRefV4Loop) {
   ASSERT_TRUE(OpenDocument("bug_xrefv4_loop.pdf"));
-  MockDownloadHints hints;
-
-  // Make sure calling FPDFAvail_IsDocAvail() on this file does not infinite
-  // loop either. See bug 875.
-  int ret = PDF_DATA_NOTAVAIL;
-  while (ret == PDF_DATA_NOTAVAIL) {
-    ret = FPDFAvail_IsDocAvail(avail(), &hints);
-  }
-  EXPECT_EQ(PDF_DATA_AVAIL, ret);
 }
 
 // The test should pass when circular references to ParseIndirectObject will not
@@ -1344,14 +1260,7 @@ TEST_F(FPDFViewEmbedderTest, LoadDocumentWithEmptyXRefConsistently) {
 }
 
 TEST_F(FPDFViewEmbedderTest, RenderBug664284WithNoNativeText) {
-  // For Skia, since the font used in bug_664284.pdf is not a CID font,
-  // ShouldDrawDeviceText() will always return true. Therefore
-  // FPDF_NO_NATIVETEXT and the font widths defined in the PDF determines
-  // whether to go through the rendering path in
-  // CFX_SkiaDeviceDriver::DrawDeviceText(). In this case, it returns false and
-  // affects the rendering results across all platforms.
-
-  // For AGG, since CFX_AggDeviceDriver::DrawDeviceText() is only implemented
+  // Since CFX_AggDeviceDriver::DrawDeviceText() is only implemented
   // for macOS, FPDF_NO_NATIVETEXT will not affect the device-specific rendering
   // path on other platforms and it will only disable native text support on
   // macOS. Therefore Windows and Linux rendering results remain the same as
@@ -1500,19 +1409,6 @@ TEST_F(FPDFViewEmbedderTest, RenderManyRectanglesWithAndWithoutExternalMemory) {
   TestRenderPageBitmapWithExternalMemoryAndNoStride(page.get(), FPDFBitmap_BGRA,
                                                     pdfium::kManyRectanglesPng);
 
-#if defined(PDF_USE_SKIA)
-  if (CFX_GEModule::Get()->UseSkiaRenderer()) {
-    TestRenderPageBitmapWithInternalMemory(page.get(), FPDFBitmap_BGRA_Premul,
-                                           pdfium::kManyRectanglesPng);
-    TestRenderPageBitmapWithInternalMemoryAndStride(
-        page.get(), FPDFBitmap_BGRA_Premul, kBgrxStride,
-        pdfium::kManyRectanglesPng);
-    TestRenderPageBitmapWithExternalMemory(page.get(), FPDFBitmap_BGRA_Premul,
-                                           pdfium::kManyRectanglesPng);
-    TestRenderPageBitmapWithExternalMemoryAndNoStride(
-        page.get(), FPDFBitmap_BGRA_Premul, pdfium::kManyRectanglesPng);
-  }
-#endif
 }
 
 TEST_F(FPDFViewEmbedderTest, RenderHelloWorldWithFlags) {
@@ -1832,15 +1728,9 @@ TEST_F(FPDFViewEmbedderTest, GetTrailerEndsAnnotationStamp) {
 }
 
 TEST_F(FPDFViewEmbedderTest, GetTrailerEndsLinearized) {
-  // Set up linearized PDF.
-  FileAccessForTesting file_acc("linearized.pdf");
-  FakeFileAccess fake_acc(&file_acc);
-  CreateAvail(fake_acc.GetFileAvail(), fake_acc.GetFileAccess());
-  fake_acc.SetWholeFileAvailable();
+  ASSERT_TRUE(OpenDocument("linearized.pdf"));
 
   // Multiple trailers, \r line ending at the trailer ends (no \n).
-  SetDocumentFromAvail();
-  ASSERT_TRUE(document());
 
   // FPDF_GetTrailerEnds() positive testing.
   unsigned long size = FPDF_GetTrailerEnds(document(), nullptr, 0);
@@ -1865,62 +1755,6 @@ TEST_F(FPDFViewEmbedderTest, GetTrailerEndsWhitespace) {
   EXPECT_EQ(kExpectedEnds, ends);
 }
 
-#if defined(PDF_USE_SKIA)
-TEST_F(FPDFViewEmbedderTest, RenderPageToSkp) {
-  if (!CFX_GEModule::Get()->UseSkiaRenderer()) {
-    GTEST_SKIP() << "FPDF_RenderPageSkp() only makes sense with Skia";
-  }
-
-  ASSERT_TRUE(OpenDocument("rectangles.pdf"));
-
-  ScopedPage page = LoadScopedPage(0);
-  ASSERT_TRUE(page);
-
-  TestRenderPageSkp(page.get(), pdfium::kRectanglesPng);
-}
-
-TEST_F(FPDFViewEmbedderTest, Bug2087) {
-  FPDF_DestroyLibrary();
-
-  std::string agg_checksum;
-#if defined(PDF_USE_AGG)
-  const FPDF_LIBRARY_CONFIG kAggConfig = {
-      .version = 5,
-      .m_pUserFontPaths = nullptr,
-      .m_RendererType = FPDF_RENDERERTYPE_AGG,
-      .m_FontLibraryType = FPDF_FONTBACKENDTYPE_FREETYPE,
-  };
-  FPDF_InitLibraryWithConfig(&kAggConfig);
-  ASSERT_TRUE(OpenDocument("rectangles.pdf"));
-  {
-    ScopedPage page = LoadScopedPage(0);
-    ScopedFPDFBitmap bitmap = RenderPage(page.get());
-    agg_checksum = HashBitmap(bitmap.get());
-  }
-  CloseDocument();
-  FPDF_DestroyLibrary();
-#endif  // PDF_USE_AGG
-
-  std::string skia_checksum;
-  const FPDF_LIBRARY_CONFIG kSkiaConfig = {
-      .version = 2,
-      .m_pUserFontPaths = nullptr,
-  };
-  FPDF_InitLibraryWithConfig(&kSkiaConfig);
-  ASSERT_TRUE(OpenDocument("rectangles.pdf"));
-  {
-    ScopedPage page = LoadScopedPage(0);
-    ScopedFPDFBitmap bitmap = RenderPage(page.get());
-    skia_checksum = HashBitmap(bitmap.get());
-  }
-  CloseDocument();
-
-  EXPECT_NE(agg_checksum, skia_checksum);
-
-  EmbedderTestEnvironment::GetInstance()->TearDown();
-  EmbedderTestEnvironment::GetInstance()->SetUp();
-}
-#endif  // defined(PDF_USE_SKIA)
 
 TEST_F(FPDFViewEmbedderTest, NoSmoothTextItalicOverlappingGlyphs) {
   ASSERT_TRUE(OpenDocument("bug_1919.pdf"));
@@ -2007,21 +1841,6 @@ TEST_F(FPDFViewEmbedderTest, BadFillRectInput) {
 
   // Make sure null bitmap handle does not trigger a crash.
   ASSERT_FALSE(FPDFBitmap_FillRect(nullptr, 0, 0, kWidth, kHeight, 0xFF0000FF));
-}
-
-TEST_F(FPDFViewEmbedderTest, BitmapBGRAPremulFormat) {
-  static constexpr int kWidth = 100;
-  static constexpr int kHeight = 200;
-  ScopedFPDFBitmap bitmap(
-      FPDFBitmap_CreateEx(kWidth, kHeight, FPDFBitmap_BGRA_Premul, nullptr, 0));
-#if defined(PDF_USE_SKIA)
-  if (CFX_GEModule::Get()->UseSkiaRenderer()) {
-    ASSERT_TRUE(bitmap);
-    EXPECT_EQ(FPDFBitmap_BGRA_Premul, FPDFBitmap_GetFormat(bitmap.get()));
-    return;
-  }
-#endif
-  ASSERT_FALSE(bitmap);
 }
 
 TEST_F(FPDFViewEmbedderTest, DocumentVersionInCatalog) {

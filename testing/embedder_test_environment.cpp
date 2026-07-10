@@ -10,7 +10,6 @@
 #include "core/fxcrt/compiler_specific.h"
 #include "core/fxcrt/fx_system.h"
 #include "public/fpdfview.h"
-#include "testing/command_line_helpers.h"
 
 #ifdef PDF_ENABLE_V8
 #include "testing/v8_test_environment.h"
@@ -22,8 +21,7 @@ EmbedderTestEnvironment* g_environment = nullptr;
 
 }  // namespace
 
-EmbedderTestEnvironment::EmbedderTestEnvironment()
-    : renderer_type_(GetDefaultRendererType()) {
+EmbedderTestEnvironment::EmbedderTestEnvironment() {
   DCHECK(!g_environment);
   g_environment = this;
 }
@@ -42,10 +40,6 @@ void EmbedderTestEnvironment::SetUp() {
   FPDF_LIBRARY_CONFIG config = {
       .version = version_,
       .m_pUserFontPaths = test_fonts_.font_paths(),
-
-      .m_RendererType = renderer_type_,
-      .m_FontLibraryType = fontations_ ? FPDF_FONTBACKENDTYPE_FONTATIONS
-                                       : FPDF_FONTBACKENDTYPE_FREETYPE,
       .m_BrotliEnabled = brotli_enabled_,
   };
 
@@ -71,32 +65,8 @@ void EmbedderTestEnvironment::AddFlag(const std::string& flag) {
     return;
   }
 
-#if defined(PDF_USE_SKIA)
-  std::string value;
-  if (ParseSwitchKeyValue(flag, "--use-renderer=", &value)) {
-    if (value == "agg") {
-      renderer_type_ = FPDF_RENDERERTYPE_AGG;
-    } else if (value == "skia") {
-      renderer_type_ = FPDF_RENDERERTYPE_SKIA;
-    } else {
-      std::cerr << "Invalid --use-renderer argument, value must be one of agg "
-                   "or skia\n";
-    }
-    return;
-  }
-  if (flag == "--fontations") {
-    fontations_ = true;
-    return;
-  }
-#endif  // defined(PDF_USE_SKIA)
 
   std::cerr << "Unknown flag: " << flag << "\n";
 }
 
-bool EmbedderTestEnvironment::CheckFlags() {
-  if (fontations_ && renderer_type_ != FPDF_RENDERERTYPE_SKIA) {
-    std::cerr << "--fontations requires --use-renderer=skia as well.\n";
-    return false;
-  }
-  return true;
-}
+bool EmbedderTestEnvironment::CheckFlags() { return true; }

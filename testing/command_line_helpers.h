@@ -15,9 +15,4 @@ bool ParseSwitchKeyValue(const std::string& arg,
                          const std::string& key,
                          std::string* value);
 
-// Identifies the compile-time default 2D graphics library to use for rendering
-// to FPDF_BITMAPs. Used as part of support to override the renderer at runtime
-// based upon command line options.
-FPDF_RENDERER_TYPE GetDefaultRendererType();
-
 #endif  // TESTING_COMMAND_LINE_HELPERS_H_

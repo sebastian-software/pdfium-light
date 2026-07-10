@@ -7,7 +7,7 @@
 // was duplicated as follows:
 
 // This is a duplicate of ui/gfx/codec/png_codec.cc, after removing code related
-// to Skia, that we can use when running layout tests with minimal dependencies.
+// used when running layout tests with minimal dependencies.
 
 #include "testing/image_diff/image_diff_png.h"
 
@@ -34,9 +34,6 @@
 #include "third_party/libpng/png.h"
 #endif
 
-#ifdef PDF_ENABLE_RUST_PNG
-#error "If Rust PNG is enabled, then `libpng` should not be used."
-#endif
 
 namespace image_diff_png {
 

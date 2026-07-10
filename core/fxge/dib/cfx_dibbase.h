@@ -17,18 +17,12 @@
 #include "core/fxcrt/span_util.h"
 #include "core/fxge/dib/fx_dib.h"
 
-#if defined(PDF_USE_SKIA)
-#include "third_party/skia/include/core/SkRefCnt.h"  // nogncheck
-#endif
 
 class CFX_DIBitmap;
 class CFX_Matrix;
 class PauseIndicatorIface;
 struct FX_RECT;
 
-#if defined(PDF_USE_SKIA)
-class SkImage;
-#endif  // defined(PDF_USE_SKIA)
 
 // Base class for all Device-Independent Bitmaps.
 class CFX_DIBBase : public Retainable {
@@ -48,7 +42,7 @@ class CFX_DIBBase : public Retainable {
   virtual pdfium::span<const uint8_t> GetScanline(int line) const = 0;
   virtual bool SkipToScanline(int line, PauseIndicatorIface* pPause) const;
   virtual size_t GetEstimatedImageMemoryBurden() const;
-#if BUILDFLAG(IS_WIN) || defined(PDF_USE_SKIA)
+#if BUILDFLAG(IS_WIN)
   // Calls Realize() if needed. Otherwise, return `this`.
   virtual RetainPtr<const CFX_DIBitmap> RealizeIfNeeded() const;
 #endif
@@ -99,7 +93,7 @@ class CFX_DIBBase : public Retainable {
                                       int* left,
                                       int* top) const;
   RetainPtr<CFX_DIBitmap> SwapXY(bool bXFlip, bool bYFlip) const;
-#if BUILDFLAG(IS_WIN) || defined(PDF_ENABLE_XFA)
+#if BUILDFLAG(IS_WIN)
   RetainPtr<CFX_DIBitmap> FlipImage(bool bXFlip, bool bYFlip) const;
 #endif
 
@@ -116,20 +110,9 @@ class CFX_DIBBase : public Retainable {
                       const FX_RECT* clip_rect) const;
 
   bool IsPremultiplied() const {
-#if defined(PDF_USE_SKIA)
-    return GetFormat() == FXDIB_Format::kBgraPremul;
-#else
     return false;
-#endif
   }
 
-#if defined(PDF_USE_SKIA)
-  // Realizes an `SkImage` from this DIB.
-  //
-  // This may share the underlying pixels, in which case, this DIB should not be
-  // modified during the lifetime of the `SkImage`.
-  virtual sk_sp<SkImage> RealizeSkImage() const;
-#endif  // defined(PDF_USE_SKIA)
 
  protected:
   CFX_DIBBase();

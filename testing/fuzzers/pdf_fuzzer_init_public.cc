@@ -23,11 +23,6 @@ PDFFuzzerInitPublic::PDFFuzzerInitPublic() {
   UNSAFE_TODO(FXSYS_memset(&config_, '\0', sizeof(config_)));
   config_.version = 1;
   config_.m_pUserFontPaths = nullptr;
-#if defined(PDF_USE_SKIA)
-  config_.m_RendererType = FPDF_RENDERERTYPE_SKIA;
-#else
-  config_.m_RendererType = FPDF_RENDERERTYPE_AGG;
-#endif
   FPDF_InitLibraryWithConfig(&config_);
 
   UNSAFE_TODO(FXSYS_memset(&unsupport_info_, '\0', sizeof(unsupport_info_)));

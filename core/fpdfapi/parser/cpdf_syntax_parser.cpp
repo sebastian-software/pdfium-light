@@ -83,15 +83,14 @@ std::unique_ptr<CPDF_SyntaxParser> CPDF_SyntaxParser::CreateForTesting(
     RetainPtr<IFX_SeekableReadStream> pFileAccess,
     FX_FILESIZE HeaderOffset) {
   return std::make_unique<CPDF_SyntaxParser>(
-      pdfium::MakeRetain<CPDF_ReadValidator>(std::move(pFileAccess), nullptr),
+      pdfium::MakeRetain<CPDF_ReadValidator>(std::move(pFileAccess)),
       HeaderOffset);
 }
 
 CPDF_SyntaxParser::CPDF_SyntaxParser(
     RetainPtr<IFX_SeekableReadStream> pFileAccess)
     : CPDF_SyntaxParser(
-          pdfium::MakeRetain<CPDF_ReadValidator>(std::move(pFileAccess),
-                                                 nullptr),
+          pdfium::MakeRetain<CPDF_ReadValidator>(std::move(pFileAccess)),
           0) {}
 
 CPDF_SyntaxParser::CPDF_SyntaxParser(RetainPtr<CPDF_ReadValidator> validator,
@@ -787,8 +786,7 @@ RetainPtr<CPDF_Stream> CPDF_SyntaxParser::ReadStream(
 
   RetainPtr<IFX_SeekableReadStream> substream;
   if (len > 0) {
-    // Check data availability first to allow the Validator to request data
-    // smoothly, without jumps.
+    // Check the stream range before constructing a substream.
     if (!GetValidator()->CheckDataRangeAndRequestIfUnavailable(
             header_offset_ + GetPos(), len)) {
       return nullptr;
@@ -838,8 +836,7 @@ RetainPtr<CPDF_Stream> CPDF_SyntaxParser::ReadStream(
     DCHECK_GE(len, 0);
     if (len > 0) {
       SetPos(streamStartPos);
-      // Check data availability first to allow the Validator to request data
-      // smoothly, without jumps.
+      // Check the stream range before constructing a substream.
       if (!GetValidator()->CheckDataRangeAndRequestIfUnavailable(
               header_offset_ + GetPos(), len)) {
         return nullptr;

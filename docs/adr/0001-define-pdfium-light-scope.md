@@ -8,8 +8,8 @@ Accepted
 
 PDFium is a broad PDF runtime. It supports static page rendering, text
 extraction, page object editing, saving, annotations, forms, JavaScript, XFA,
-embedding callbacks, progressive loading, and several testing and sample
-surfaces.
+embedding callbacks, progressive loading and rendering, and several testing
+and sample surfaces.
 
 pdfium-light exists to keep the static document pipeline while removing
 interactive PDF runtime features. The target use cases are:
@@ -76,6 +76,7 @@ targets, tests, samples, and dependencies:
   interactive forms;
 - form-specific annotation helpers that require `FPDF_FORMHANDLE`;
 - compatibility stubs for removed features.
+- progressive loading, download-hint, and pause/continue rendering APIs.
 
 The project should not expose removed features as supported-but-failing APIs.
 Callers should discover unsupported features at compile time.

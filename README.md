@@ -98,12 +98,6 @@ A typical `<directory>` name is `out/Debug`.
 use_remoteexec = false # Approved users only.  Do necessary setup & authentication first.
 is_debug = true  # Enable debugging features.
 
-# Set true to enable experimental Skia backend.
-pdf_use_skia = false
-
-# Set true to enable experimental Fontations backend.
-pdf_enable_fontations = false
-
 pdf_enable_light = true  # Default. Exposes only the supported static API.
 pdf_enable_xfa = false   # XFA has been removed.
 pdf_enable_v8 = false    # JavaScript execution has been removed.

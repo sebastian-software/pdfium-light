@@ -57,7 +57,6 @@ typedef enum {
 typedef struct fpdf_action_t__* FPDF_ACTION;
 typedef struct fpdf_annotation_t__* FPDF_ANNOTATION;
 typedef struct fpdf_attachment_t__* FPDF_ATTACHMENT;
-typedef struct fpdf_avail_t__* FPDF_AVAIL;
 typedef struct fpdf_bitmap_t__* FPDF_BITMAP;
 typedef struct fpdf_bookmark_t__* FPDF_BOOKMARK;
 typedef struct fpdf_clippath_t__* FPDF_CLIPPATH;
@@ -74,7 +73,6 @@ typedef const struct fpdf_pagerange_t__* FPDF_PAGERANGE;
 typedef const struct fpdf_pathsegment_t* FPDF_PATHSEGMENT;
 typedef struct fpdf_schhandle_t__* FPDF_SCHHANDLE;
 typedef const struct fpdf_signature_t__* FPDF_SIGNATURE;
-typedef void* FPDF_SKIA_CANVAS;  // Passed into Skia as an SkCanvas.
 typedef struct fpdf_structelement_t__* FPDF_STRUCTELEMENT;
 typedef const struct fpdf_structelement_attr_t__* FPDF_STRUCTELEMENT_ATTR;
 typedef const struct fpdf_structelement_attr_value_t__*
@@ -219,24 +217,6 @@ typedef int FPDF_OBJECT_TYPE;
 extern "C" {
 #endif
 
-// PDF renderer types - Experimental.
-// Selection of 2D graphics library to use for rendering to FPDF_BITMAPs.
-typedef enum {
-  // Anti-Grain Geometry - https://sourceforge.net/projects/agg/
-  FPDF_RENDERERTYPE_AGG = 0,
-  // Skia - https://skia.org/
-  FPDF_RENDERERTYPE_SKIA = 1,
-} FPDF_RENDERER_TYPE;
-
-// PDF font library types - Experimental.
-// Selection of font backend library to use.
-typedef enum {
-  // FreeType - https://freetype.org/
-  FPDF_FONTBACKENDTYPE_FREETYPE = 0,
-  // Fontations - https://github.com/googlefonts/fontations/
-  FPDF_FONTBACKENDTYPE_FONTATIONS = 1,
-} FPDF_FONT_BACKEND_TYPE;
-
 // Process-wide options for initializing the library.
 typedef struct FPDF_LIBRARY_CONFIG_ {
   // Version number of the interface. Currently must be 2.
@@ -248,29 +228,6 @@ typedef struct FPDF_LIBRARY_CONFIG_ {
   // The Array may be NULL itself to use the default paths. May be ignored
   // entirely depending upon the platform.
   const char** m_pUserFontPaths;
-
-  // Version 4 - Experimental.
-
-  // Explicit specification of 2D graphics rendering library to use.
-  // |m_RendererType| must be a valid value for |FPDF_LIBRARY_CONFIG| versions
-  // of this level or higher, or else the initialization will fail with an
-  // immediate crash.
-  // Note that use of a specified |FPDF_RENDERER_TYPE| value for which the
-  // corresponding 2D graphics rendering library is not included in the build
-  // will similarly fail with an immediate crash.
-  FPDF_RENDERER_TYPE m_RendererType;
-
-  // Version 5 - Experimental.
-
-  // Explicit specification of font library to use when |m_RendererType| is set
-  // to |FPDF_RENDERERTYPE_SKIA|.
-  // |m_FontLibraryType| must be a valid value for |FPDF_LIBRARY_CONFIG|
-  // versions of this level or higher, or else the initialization will fail with
-  // an immediate crash.
-  // Note that use of a specified |FPDF_FONT_BACKEND_TYPE| value for which the
-  // corresponding font library is not included in the build will similarly fail
-  // with an immediate crash.
-  FPDF_FONT_BACKEND_TYPE m_FontLibraryType;
 
   // Version 6 - Experimental.
 
@@ -833,22 +790,6 @@ FPDF_RenderPageBitmapWithMatrix(FPDF_BITMAP bitmap,
                                 const FS_RECTF* clipping,
                                 int flags);
 
-#if defined(PDF_USE_SKIA)
-// Experimental API.
-// Function: FPDF_RenderPageSkia
-//          Render contents of a page to a Skia SkCanvas.
-// Parameters:
-//          canvas      -   SkCanvas to render to.
-//          page        -   Handle to the page.
-//          size_x      -   Horizontal size (in pixels) for displaying the page.
-//          size_y      -   Vertical size (in pixels) for displaying the page.
-// Return value:
-//          None.
-FPDF_EXPORT void FPDF_CALLCONV FPDF_RenderPageSkia(FPDF_SKIA_CANVAS canvas,
-                                                   FPDF_PAGE page,
-                                                   int size_x,
-                                                   int size_y);
-#endif
 
 // Function: FPDF_ClosePage
 //          Close a loaded PDF page.
@@ -1002,12 +943,6 @@ FPDF_EXPORT FPDF_BITMAP FPDF_CALLCONV FPDFBitmap_Create(int width,
 // 4 bytes per pixel, byte order: blue, green, red, alpha.
 // Pixel components are independent of alpha.
 #define FPDFBitmap_BGRA 4
-// 4 bytes per pixel, byte order: blue, green, red, alpha.
-// Pixel components are premultiplied by alpha.
-// Note that this is experimental and only supported when rendering with
-// |FPDF_RENDERER_TYPE| is set to |FPDF_RENDERERTYPE_SKIA|.
-#define FPDFBitmap_BGRA_Premul 5
-
 // Function: FPDFBitmap_CreateEx
 //          Create a device independent bitmap (FXDIB)
 // Parameters:

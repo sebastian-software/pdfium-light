@@ -13,14 +13,10 @@ source_set("parser") {
     "cpdf_array.h",
     "cpdf_boolean.cpp",
     "cpdf_boolean.h",
-    "cpdf_cross_ref_avail.cpp",
-    "cpdf_cross_ref_avail.h",
     "cpdf_cross_ref_table.cpp",
     "cpdf_cross_ref_table.h",
     "cpdf_crypto_handler.cpp",
     "cpdf_crypto_handler.h",
-    "cpdf_data_avail.cpp",
-    "cpdf_data_avail.h",
     "cpdf_dictionary.cpp",
     "cpdf_dictionary.h",
     "cpdf_document.cpp",
@@ -29,8 +25,6 @@ source_set("parser") {
     "cpdf_encryptor.h",
     "cpdf_flateencoder.cpp",
     "cpdf_flateencoder.h",
-    "cpdf_hint_tables.cpp",
-    "cpdf_hint_tables.h",
     "cpdf_indirect_object_holder.cpp",
     "cpdf_indirect_object_holder.h",
     "cpdf_linearized_header.cpp",
@@ -43,14 +37,10 @@ source_set("parser") {
     "cpdf_number.h",
     "cpdf_object.cpp",
     "cpdf_object.h",
-    "cpdf_object_avail.cpp",
-    "cpdf_object_avail.h",
     "cpdf_object_stream.cpp",
     "cpdf_object_stream.h",
     "cpdf_object_walker.cpp",
     "cpdf_object_walker.h",
-    "cpdf_page_object_avail.cpp",
-    "cpdf_page_object_avail.h",
     "cpdf_parser.cpp",
     "cpdf_parser.h",
     "cpdf_read_validator.cpp",
@@ -87,16 +77,6 @@ source_set("parser") {
   allow_circular_includes_from = []
   visibility = [ "../../../*" ]
 
-  if (pdf_enable_xfa) {
-    sources += [
-      "cpdf_seekablemultistream.cpp",
-      "cpdf_seekablemultistream.h",
-    ]
-  }
-  if (pdf_use_skia) {
-    deps += [ "../../fxge" ]
-    allow_circular_includes_from += [ "../../fxge" ]
-  }
 }
 
 source_set("unit_test_support") {
@@ -116,17 +96,13 @@ source_set("unit_test_support") {
 pdfium_unittest_source_set("unittests") {
   sources = [
     "cpdf_array_unittest.cpp",
-    "cpdf_cross_ref_avail_unittest.cpp",
     "cpdf_dictionary_unittest.cpp",
     "cpdf_document_unittest.cpp",
-    "cpdf_hint_tables_unittest.cpp",
     "cpdf_indirect_object_holder_unittest.cpp",
     "cpdf_number_unittest.cpp",
-    "cpdf_object_avail_unittest.cpp",
     "cpdf_object_stream_unittest.cpp",
     "cpdf_object_unittest.cpp",
     "cpdf_object_walker_unittest.cpp",
-    "cpdf_page_object_avail_unittest.cpp",
     "cpdf_parser_unittest.cpp",
     "cpdf_read_validator_unittest.cpp",
     "cpdf_simple_parser_unittest.cpp",
@@ -146,9 +122,6 @@ pdfium_unittest_source_set("unittests") {
   ]
   pdfium_root_dir = "../../../"
 
-  if (pdf_enable_xfa) {
-    sources += [ "cpdf_seekablemultistream_unittest.cpp" ]
-  }
 }
 
 pdfium_embeddertest_source_set("embeddertests") {

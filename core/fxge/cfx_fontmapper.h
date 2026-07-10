@@ -83,10 +83,6 @@ class CFX_FontMapper {
       const ByteString& name) const;
 #endif  // BUILDFLAG(IS_WIN)
 
-#ifdef PDF_ENABLE_XFA
-  // `index` must be less than GetFaceSize().
-  FixedSizeDataVector<uint8_t> RawBytesForIndex(size_t index);
-#endif  // PDF_ENABLE_XFA
 
  private:
   friend class TestFontMapper;

@@ -16,9 +16,6 @@ using ScopedFPDFAnnotation =
     std::unique_ptr<std::remove_pointer<FPDF_ANNOTATION>::type,
                     FPDFAnnotationDeleter>;
 
-using ScopedFPDFAvail =
-    std::unique_ptr<std::remove_pointer<FPDF_AVAIL>::type, FPDFAvailDeleter>;
-
 using ScopedFPDFBitmap =
     std::unique_ptr<std::remove_pointer<FPDF_BITMAP>::type, FPDFBitmapDeleter>;
 

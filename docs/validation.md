@@ -83,7 +83,6 @@ public header compile test, `pdfium_unittests`, and `pdfium_embeddertests`.
 | --- | --- | --- |
 | Retained public headers | Compile the public header set a light consumer receives, without implementation-only defines. | `testing/light_api_headers_test.cc` via `pdfium_light_public_headers_test` |
 | Static rendering | Render ordinary pages and compare bitmap expectations. | `fpdfsdk/fpdf_view_embeddertest.cpp`, including `RenderHelloWorldWithFlags` and `RenderManyRectanglesWithFlags` |
-| Progressive rendering | Exercise retained progressive render entry points without a form environment. | `core/fpdfapi/render/fpdf_progressive_render_embeddertest.cpp` |
 | Text extraction | Load text pages, extract text, count chars, search, and inspect text geometry. | `fpdfsdk/fpdf_text_embeddertest.cpp` |
 | Edit/save remove | Remove page objects, regenerate content, save, reload, render, and confirm removed resources stay gone. | `fpdfsdk/fpdf_edit_embeddertest.cpp`, including `RemoveTextObject` |
 | Edit/save insert | Insert page objects, regenerate content, save, reload, and verify ordering/rendering. | `fpdfsdk/fpdf_edit_embeddertest.cpp`, including `InsertPageObjectAndSave` and `InsertObjectAtIndexPersistsOrder` |

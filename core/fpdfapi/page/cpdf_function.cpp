@@ -182,23 +182,3 @@ float CPDF_Function::Interpolate(float x,
   float divisor = xmax - xmin;
   return ymin + (divisor ? (x - xmin) * (ymax - ymin) / divisor : 0);
 }
-
-#if defined(PDF_USE_SKIA)
-const CPDF_SampledFunc* CPDF_Function::ToSampledFunc() const {
-  return type_ == Type::kType0Sampled
-             ? static_cast<const CPDF_SampledFunc*>(this)
-             : nullptr;
-}
-
-const CPDF_ExpIntFunc* CPDF_Function::ToExpIntFunc() const {
-  return type_ == Type::kType2ExponentialInterpolation
-             ? static_cast<const CPDF_ExpIntFunc*>(this)
-             : nullptr;
-}
-
-const CPDF_StitchFunc* CPDF_Function::ToStitchFunc() const {
-  return type_ == Type::kType3Stitching
-             ? static_cast<const CPDF_StitchFunc*>(this)
-             : nullptr;
-}
-#endif  // defined(PDF_USE_SKIA)

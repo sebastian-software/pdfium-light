@@ -18,12 +18,9 @@
 #include "core/fxcrt/bytestring.h"
 #include "core/fxcrt/span.h"
 #include "core/fxcrt/unowned_ptr.h"
-#include "public/cpp/fpdf_scopers.h"
-#include "public/fpdf_dataavail.h"
 #include "public/fpdf_ext.h"
 #include "public/fpdf_save.h"
 #include "public/fpdfview.h"
-#include "testing/fake_file_access.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 class TestLoader;
@@ -120,13 +117,8 @@ class EmbedderTest : public ::testing::Test,
   }
 
 
-  void SetDocumentFromAvail();
   FPDF_DOCUMENT document() const { return document_.get(); }
   FPDF_DOCUMENT saved_document() const { return saved_document_.get(); }
-
-  // Wrapper for FPDFAvail_Create() to set `avail_`.
-  void CreateAvail(FX_FILEAVAIL* file_avail, FPDF_FILEACCESS* file);
-  FPDF_AVAIL avail() { return avail_.get(); }
 
   // Create an empty document.
   void CreateEmptyDocument();
@@ -227,12 +219,6 @@ class EmbedderTest : public ::testing::Test,
  protected:
   using PageNumberToHandleMap = std::map<int, FPDF_PAGE>;
 
-  bool OpenDocumentHelper(const ByteString& password,
-                          LinearizeOption linearize_option,
-                          FakeFileAccess* network_simulator,
-                          ScopedFPDFDocument* document,
-                          ScopedFPDFAvail* avail);
-
   // Return the hash of only the pixels in `bitmap`. i.e. Excluding the gap, if
   // any, at the end of a row where the stride is larger than width * bpp.
   static std::string HashBitmap(FPDF_BITMAP bitmap);
@@ -248,13 +234,12 @@ class EmbedderTest : public ::testing::Test,
 
   // Like CompareBitmap(), except instead of just adding ".png" to
   // `expectation_png_name`, this method will look for the expectation PNG using
-  // several suffixes in order: "_$renderer_$os.png", "_$renderer.png",
-  // "_$os.png".
+  // several suffixes in order: "_agg_$os.png", "_agg.png", "_$os.png".
   //
-  // For example, with "hello_world", using Skia on macOS, the list of
+  // For example, with "hello_world" on macOS, the list of
   // expectation PNGs are:
-  // - hello_world_skia_mac.png
-  // - hello_world_skia.png
+  // - hello_world_agg_mac.png
+  // - hello_world_agg.png
   // - hello_world_mac.png
   // - hello_world.png
   //
@@ -305,8 +290,6 @@ class EmbedderTest : public ::testing::Test,
   void VerifySavedDocumentWithFuzzyExpectationSuffix(
       std::string_view expectation_png_name);
 
-  void SetWholeFileAvailable();
-
 #ifndef NDEBUG
   // For debugging purposes.
   // While open, write any data that gets passed to WriteBlockCallback() to
@@ -355,16 +338,9 @@ class EmbedderTest : public ::testing::Test,
   // must outlive `loader_`.
   std::vector<uint8_t> file_contents_;
   std::unique_ptr<TestLoader> loader_;
-  FPDF_FILEACCESS file_access_;                       // must outlive `avail_`.
-  std::unique_ptr<FakeFileAccess> fake_file_access_;  // must outlive `avail_`.
-  ScopedFPDFAvail avail_;
   ScopedFPDFDocument document_;
   PageNumberToHandleMap page_map_;
 
-  FPDF_FILEACCESS saved_file_access_;  // must outlive `saved_avail_`.
-  // must outlive `saved_avail_`.
-  std::unique_ptr<FakeFileAccess> saved_fake_file_access_;
-  ScopedFPDFAvail saved_avail_;
   ScopedFPDFDocument saved_document_;
   PageNumberToHandleMap saved_page_map_;
 

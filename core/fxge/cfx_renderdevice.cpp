@@ -40,10 +40,6 @@
 #if defined(PDF_USE_AGG)
 #include "core/fxge/agg/cfx_agg_devicedriver.h"
 #endif
-#if defined(PDF_USE_SKIA)
-#include "core/fxge/skia/fx_skia_device.h"
-#include "third_party/skia/include/core/SkTypes.h"  // nogncheck
-#endif
 
 #if BUILDFLAG(IS_WIN)
 #include "core/fxge/win32/cgdi_display_driver.h"
@@ -505,11 +501,6 @@ FXDIB_Format GetCreateCompatibleBitmapFormat(bool bytemask_output,
   if (bytemask_output) {
     return FXDIB_Format::k8bppMask;
   }
-#if defined(PDF_USE_SKIA)
-  if (use_argb_premul) {
-    return FXDIB_Format::kBgraPremul;
-  }
-#endif
   if (alpha_output) {
     return FXDIB_Format::kBgra;
   }
@@ -555,11 +546,7 @@ CFX_RenderDevice::~CFX_RenderDevice() {
 }
 
 bool CFX_RenderDevice::CanUseARGBPremul() const {
-#if defined(PDF_USE_SKIA)
-  return render_cap_premultiplied_alpha_;
-#else
   return false;
-#endif
 }
 
 // static
@@ -588,12 +575,6 @@ void CFX_RenderDevice::InitDeviceInfo() {
   render_cap_soft_clip_ = device_driver_->RenderCapSoftClip();
   render_cap_alpha_output_ = device_driver_->RenderCapAlphaOutput();
   render_cap_bytemask_output_ = device_driver_->RenderCapByteMaskOutput();
-#if defined(PDF_USE_SKIA)
-  render_cap_fillstroke_path_ = device_driver_->RenderCapFillStrokePath();
-  render_cap_shading_ = device_driver_->RenderCapShading();
-  render_cap_premultiplied_alpha_ =
-      device_driver_->RenderCapPremultipliedAlpha();
-#endif
   device_type_ = device_driver_->GetDeviceType();
   clip_box_ = device_driver_->GetClipBox();
 }
@@ -804,24 +785,6 @@ bool CFX_RenderDevice::DrawPath(const CFX_Path& path,
   }
 
   if (fill && fill_alpha && stroke_alpha < 0xff && fill_options.stroke) {
-#if defined(PDF_USE_SKIA)
-    if (render_cap_fillstroke_path_) {
-      const bool using_skia = CFX_GEModule::Get()->UseSkiaRenderer();
-      if (using_skia) {
-        device_driver_->SetGroupKnockout(true);
-      }
-      bool draw_fillstroke_path_result =
-          device_driver_->DrawPath(path, pObject2Device, pGraphState,
-                                   fill_color, stroke_color, fill_options);
-
-      if (using_skia) {
-        // Restore the group knockout status for `device_driver_` after
-        // finishing painting a fill-and-stroke path.
-        device_driver_->SetGroupKnockout(false);
-      }
-      return draw_fillstroke_path_result;
-    }
-#endif  // defined(PDF_USE_SKIA)
     return DrawFillStrokePath(path, pObject2Device, pGraphState, fill_color,
                               stroke_color, fill_options);
   }
@@ -829,7 +792,7 @@ bool CFX_RenderDevice::DrawPath(const CFX_Path& path,
                                   stroke_color, fill_options);
 }
 
-// This can be removed once PDFium entirely relies on Skia
+// This is retained for callers that need the device-state behavior.
 bool CFX_RenderDevice::DrawFillStrokePath(
     const CFX_Path& path,
     const CFX_Matrix* pObject2Device,
@@ -1132,28 +1095,6 @@ bool CFX_RenderDevice::ContinueDIBits(
   return device_driver_->ContinueDIBits(continuation, pPause);
 }
 
-#if defined(PDF_USE_SKIA)
-bool CFX_RenderDevice::DrawShading(const CPDF_ShadingPattern& pattern,
-                                   const CFX_Matrix& matrix,
-                                   const FX_RECT& clip_rect,
-                                   int alpha) {
-  return device_driver_->DrawShading(pattern, matrix, clip_rect, alpha);
-}
-
-bool CFX_RenderDevice::SetBitsWithMask(RetainPtr<const CFX_DIBBase> bitmap,
-                                       RetainPtr<const CFX_DIBBase> mask,
-                                       int left,
-                                       int top,
-                                       float alpha,
-                                       BlendMode blend_type) {
-  return device_driver_->SetBitsWithMask(std::move(bitmap), std::move(mask),
-                                         left, top, alpha, blend_type);
-}
-
-void CFX_RenderDevice::SyncInternalBitmaps() {
-  device_driver_->SyncInternalBitmaps();
-}
-#endif  // defined(PDF_USE_SKIA)
 
 bool CFX_RenderDevice::DrawNormalText(pdfium::span<const TextCharPos> pCharPos,
                                       CFX_Font* font,
@@ -1161,12 +1102,10 @@ bool CFX_RenderDevice::DrawNormalText(pdfium::span<const TextCharPos> pCharPos,
                                       const CFX_Matrix& mtText2Device,
                                       uint32_t fill_color,
                                       const CFX_TextRenderOptions& options) {
-  // `anti_alias` and `normalize` don't affect Skia rendering.
   FontAntiAliasingMode anti_alias = FontAntiAliasingMode::kMono;
   bool normalize = false;
   const bool is_text_smooth = options.IsSmooth();
   // |text_options| has the potential to affect all derived classes of
-  // RenderDeviceDriverIface. But now it only affects Skia rendering.
   CFX_TextRenderOptions text_options(options);
   if (is_text_smooth) {
     if (GetDeviceType() == DeviceType::kDisplay && bpp_ > 1) {
@@ -1177,26 +1116,14 @@ bool CFX_RenderDevice::DrawNormalText(pdfium::span<const TextCharPos> pCharPos,
         // one expires 10/7/19.  This makes LCD anti-aliasing very ugly, so we
         // instead fall back on NORMAL anti-aliasing.
         anti_alias = FontAntiAliasingMode::kNormal;
-#if defined(PDF_USE_SKIA)
-        if (CFX_GEModule::Get()->UseSkiaRenderer()) {
-          // Since |anti_alias| doesn't affect Skia rendering, and Skia only
-          // follows strictly to the options provided by |text_options|, we need
-          // to update |text_options| so that Skia falls back on normal
-          // anti-aliasing as well.
-          text_options.aliasing_type = CFX_TextRenderOptions::kAntiAliasing;
-        }
-#endif
       } else if (render_cap_alpha_output_) {
-        // Whether Skia uses LCD optimization should strictly follow the
         // rendering options provided by |text_options|. No change needs to be
         // done for |text_options| here.
         anti_alias = FontAntiAliasingMode::kLcd;
         normalize = true;
       } else if (bpp_ < 16) {
-        // This case doesn't apply to Skia since Skia always have |bpp_| = 32.
         anti_alias = FontAntiAliasingMode::kNormal;
       } else {
-        // Whether Skia uses LCD optimization should strictly follow the
         // rendering options provided by |text_options|. No change needs to be
         // done for |text_options| here.
         anti_alias = FontAntiAliasingMode::kLcd;
@@ -1662,12 +1589,6 @@ bool CFX_RenderDevice::AttachImpl(RetainPtr<CFX_DIBitmap> pBitmap,
                                   bool bRgbByteOrder,
                                   RetainPtr<CFX_DIBitmap> pBackdropBitmap,
                                   bool bGroupKnockout) {
-#if defined(PDF_USE_SKIA)
-  if (CFX_GEModule::Get()->UseSkiaRenderer()) {
-    return AttachSkiaImpl(std::move(pBitmap), bRgbByteOrder,
-                          std::move(pBackdropBitmap), bGroupKnockout);
-  }
-#endif
 #if defined(PDF_USE_AGG)
   return AttachAggImpl(std::move(pBitmap), bRgbByteOrder,
                        std::move(pBackdropBitmap), bGroupKnockout);
@@ -1684,11 +1605,6 @@ bool CFX_RenderDevice::CreateWithBackdrop(int width,
                                           int height,
                                           FXDIB_Format format,
                                           RetainPtr<CFX_DIBitmap> backdrop) {
-#if defined(PDF_USE_SKIA)
-  if (CFX_GEModule::Get()->UseSkiaRenderer()) {
-    return CreateSkia(width, height, format, backdrop);
-  }
-#endif
 #if defined(PDF_USE_AGG)
   return CreateAgg(width, height, format, backdrop);
 #else
@@ -1770,16 +1686,3 @@ CFX_RenderDevice::CreateForNewBitmapWithBackdrop(
   }
   return device;
 }
-
-#if defined(PDF_USE_SKIA)
-// static
-std::unique_ptr<CFX_RenderDevice> CFX_RenderDevice::CreateForSkiaCanvas(
-    SkCanvas& canvas) {
-  // Private ctor.
-  auto device = pdfium::WrapUnique(new CFX_RenderDevice());
-  if (!device->AttachCanvas(canvas)) {
-    return nullptr;
-  }
-  return device;
-}
-#endif

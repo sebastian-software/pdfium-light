@@ -20,10 +20,6 @@ class CFX_CharmapResolver {
   static std::unique_ptr<CFX_CharmapResolver> CreateUnicode(
       const CFX_Font* font);
 
-#if defined(PDF_ENABLE_XFA)
-  static std::unique_ptr<CFX_CharmapResolver> CreateAlternate(
-      const CFX_Font* font);
-#endif
 
   virtual ~CFX_CharmapResolver();
 

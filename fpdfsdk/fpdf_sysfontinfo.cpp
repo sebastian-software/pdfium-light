@@ -24,10 +24,6 @@
 #include "core/fxge/fx_font.h"
 #include "core/fxge/systemfontinfo_iface.h"
 
-#ifdef PDF_ENABLE_XFA
-#include "xfa/fgas/font/cfgas_fontmgr.h"
-#include "xfa/fgas/font/cfgas_gemodule.h"
-#endif
 
 static_assert(FXFONT_ANSI_CHARSET == static_cast<int>(FX_Charset::kANSI));
 static_assert(FXFONT_DEFAULT_CHARSET == static_cast<int>(FX_Charset::kDefault));
@@ -173,9 +169,6 @@ FPDF_SetSystemFontInfo(FPDF_SYSFONTINFO* font_infoExt) {
   // Version 2: Skip font enumeration, use per-request matching via `MapFont()`.
   mapper->SetSkipFontEnumeration(font_infoExt->version == 2);
 
-#ifdef PDF_ENABLE_XFA
-  CFGAS_GEModule::Get()->GetFontMgr()->EnumFonts();
-#endif
 }
 
 FPDF_EXPORT const FPDF_CharsetFontMap* FPDF_CALLCONV FPDF_GetDefaultTTFMap() {

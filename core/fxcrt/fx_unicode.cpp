@@ -48,41 +48,6 @@ uint16_t GetUnicodeProperties(wchar_t wch) {
   return 0;
 }
 
-#ifdef PDF_ENABLE_XFA
-// Format of uint16_t values in kExtendedTextLayoutCodeProperties[].
-constexpr uint16_t kBreakTypeBitPos = 0;
-constexpr uint16_t kBreakTypeBitCount = 6;
-constexpr uint16_t kBreakTypeBitMask =
-    (((1u << kBreakTypeBitCount) - 1) << kBreakTypeBitPos);
-
-constexpr uint16_t kCharTypeBitPos = 6;
-constexpr uint16_t kCharTypeBitCount = 4;
-constexpr uint16_t kCharTypeBitMask =
-    (((1u << kCharTypeBitCount) - 1) << kCharTypeBitPos);
-
-#undef CHARPROP____
-#define CHARPROP____(mirror, ct, bd, bt)                         \
-  ((static_cast<uint16_t>(FX_CHARTYPE::ct) << kCharTypeBitPos) | \
-   (static_cast<uint16_t>(FX_BREAKPROPERTY::bt) << kBreakTypeBitPos)),
-constexpr uint16_t kExtendedTextLayoutCodeProperties[] = {
-#include "core/fxcrt/fx_ucddata.inc"  // NOLINT(build/include)
-};
-#undef CHARPROP____
-
-static_assert(std::size(kExtendedTextLayoutCodeProperties) == 65536,
-              "missing characters");
-
-uint16_t GetExtendedUnicodeProperties(wchar_t wch) {
-  size_t idx = static_cast<size_t>(wch);
-  if (idx < std::size(kExtendedTextLayoutCodeProperties)) {
-    // SAFETY: `std::size(kExtendedTextLayoutCodeProperties)` is the size of
-    // the table, so the condition above verifies `idx` is in range.
-    return UNSAFE_BUFFERS(kExtendedTextLayoutCodeProperties[idx]);
-  }
-  return 0;
-}
-
-#endif  // PDF_ENABLE_XFA
 
 constexpr uint16_t kFXTextLayoutBidiMirror[] = {
     0x0029, 0x0028, 0x003E, 0x003C, 0x005D, 0x005B, 0x007D, 0x007B, 0x00BB,
@@ -160,20 +125,5 @@ FX_BIDICLASS GetBidiClass(wchar_t wch) {
   return static_cast<FX_BIDICLASS>(result);
 }
 
-#ifdef PDF_ENABLE_XFA
-FX_CHARTYPE GetCharType(wchar_t wch) {
-  uint16_t prop = GetExtendedUnicodeProperties(wch);
-  uint16_t result = (prop & kCharTypeBitMask) >> kCharTypeBitPos;
-  DCHECK(result <= static_cast<uint16_t>(FX_CHARTYPE::kArabic));
-  return static_cast<FX_CHARTYPE>(result);
-}
-
-FX_BREAKPROPERTY GetBreakProperty(wchar_t wch) {
-  uint16_t prop = GetExtendedUnicodeProperties(wch);
-  uint16_t result = (prop & kBreakTypeBitMask) >> kBreakTypeBitPos;
-  DCHECK(result <= static_cast<uint16_t>(FX_BREAKPROPERTY::kTB));
-  return static_cast<FX_BREAKPROPERTY>(result);
-}
-#endif  // PDF_ENABLE_XFA
 
 }  // namespace pdfium::unicode

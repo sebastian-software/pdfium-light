@@ -244,9 +244,7 @@ TEST_F(DocumentTest, IsValidPageObject) {
 }
 
 TEST_F(DocumentTest, UseCachedPageObjNumIfHaveNotPagesDict) {
-  // ObjNum can be added in CPDF_DataAvail::IsPageAvail(), and PagesDict may not
-  // exist in this case, e.g. when hint table is used to page check in
-  // CPDF_DataAvail.
+  // A pages dictionary may not have an object number in every parser state.
   static constexpr int kPageCount = 100;
   static constexpr int kTestPageNum = 33;
 

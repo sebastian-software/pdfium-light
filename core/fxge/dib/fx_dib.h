@@ -30,9 +30,6 @@ enum class FXDIB_Format : uint16_t {
   k1bppMask = 0x101,
   k8bppMask = 0x108,
   kBgra = 0x220,
-#if defined(PDF_USE_SKIA)
-  kBgraPremul = 0x620,
-#endif
 };
 
 // Endian-dependent (in theory).
@@ -236,41 +233,6 @@ UNSAFE_BUFFER_USAGE inline void ReverseCopy3Bytes(uint8_t* dest,
   UNSAFE_BUFFERS(dest[0] = src[2]);
 }
 
-#if defined(PDF_USE_SKIA)
-template <typename T>
-T PreMultiplyColor(const T& input) {
-  if (input.alpha == 255) {
-    return input;
-  }
-
-  T output;
-  output.alpha = input.alpha;
-  output.blue = static_cast<float>(input.blue) * input.alpha / 255.0f;
-  output.green = static_cast<float>(input.green) * input.alpha / 255.0f;
-  output.red = static_cast<float>(input.red) * input.alpha / 255.0f;
-  return output;
-}
-
-template <typename T>
-T UnPreMultiplyColor(const T& input) {
-  if (input.alpha == 255) {
-    return input;
-  }
-
-  T output;
-  output.alpha = input.alpha;
-  if (input.alpha == 0) {
-    output.blue = 0;
-    output.green = 0;
-    output.red = 0;
-  } else {
-    output.blue = static_cast<float>(input.blue) * 255.0f / input.alpha;
-    output.green = static_cast<float>(input.green) * 255.0f / input.alpha;
-    output.red = static_cast<float>(input.red) * 255.0f / input.alpha;
-  }
-  return output;
-}
-#endif  // defined(PDF_USE_SKIA)
 
 }  // namespace fxge
 
@@ -303,9 +265,5 @@ using fxge::FXSYS_GetRValue;
 using fxge::FXSYS_GetUnsignedAlpha;
 using fxge::ReverseCopy3Bytes;
 
-#if defined(PDF_USE_SKIA)
-using fxge::PreMultiplyColor;
-using fxge::UnPreMultiplyColor;
-#endif
 
 #endif  // CORE_FXGE_DIB_FX_DIB_H_

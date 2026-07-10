@@ -153,7 +153,6 @@ TEST_F(CPDFSecurityHandlerEmbedderTest, PasswordAfterGenerateSave) {
     ScopedFPDFBitmap bitmap = RenderLoadedPage(page.get());
     CompareBitmapWithExpectationSuffix(bitmap.get(), kBasename);
     EXPECT_TRUE(FPDFPage_GenerateContent(page.get()));
-    SetWholeFileAvailable();
     EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
   }
   std::string new_file = GetString();

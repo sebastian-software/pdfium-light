@@ -35,9 +35,6 @@ enum class BorderStyle { kSolid, kDash, kBeveled, kInset, kUnderline };
 class CFX_PSFontTracker;
 #endif
 
-#if defined(PDF_USE_SKIA)
-class SkCanvas;
-#endif
 
 class CFX_RenderDevice final {
  public:
@@ -75,10 +72,6 @@ class CFX_RenderDevice final {
       CFX_PSFontTracker* ps_font_tracker);
 #endif
 
-#if defined(PDF_USE_SKIA)
-  static std::unique_ptr<CFX_RenderDevice> CreateForSkiaCanvas(
-      SkCanvas& canvas);
-#endif
 
   static CFX_Matrix GetFlipMatrix(float width,
                                   float height,
@@ -100,9 +93,6 @@ class CFX_RenderDevice final {
   bool RenderCapBlendMode() const { return render_cap_blend_mode_; }
   bool RenderCapSoftClip() const { return render_cap_soft_clip_; }
   bool RenderCapAlphaOutput() const { return render_cap_alpha_output_; }
-#if defined(PDF_USE_SKIA)
-  bool RenderCapShading() const { return render_cap_shading_; }
-#endif
 #if BUILDFLAG(IS_WIN)
   int GetHorzSize() const;
   int GetVertSize() const;
@@ -235,19 +225,6 @@ class CFX_RenderDevice final {
   bool MultiplyAlpha(float alpha);
   bool MultiplyAlphaMask(RetainPtr<const CFX_DIBitmap> mask);
 
-#if defined(PDF_USE_SKIA)
-  bool DrawShading(const CPDF_ShadingPattern& pattern,
-                   const CFX_Matrix& matrix,
-                   const FX_RECT& clip_rect,
-                   int alpha);
-  bool SetBitsWithMask(RetainPtr<const CFX_DIBBase> bitmap,
-                       RetainPtr<const CFX_DIBBase> mask,
-                       int left,
-                       int top,
-                       float alpha,
-                       BlendMode blend_type);
-  void SyncInternalBitmaps();
-#endif  // defined(PDF_USE_SKIA)
 
  private:
   CFX_RenderDevice();
@@ -262,9 +239,6 @@ class CFX_RenderDevice final {
       RetainPtr<CFX_DIBitmap> pBitmap,
       RetainPtr<CFX_DIBitmap> pBackdropBitmap,
       bool bGroupKnockout);
-#if defined(PDF_USE_SKIA)
-  [[nodiscard]] bool AttachCanvas(SkCanvas& canvas);
-#endif
 
   [[nodiscard]] bool Create(int width, int height, FXDIB_Format format);
   [[nodiscard]] bool CreateWithBackdrop(int width,
@@ -317,19 +291,6 @@ class CFX_RenderDevice final {
                  RetainPtr<CFX_DIBitmap> pBackdropBitmap);
 #endif
 
-#if defined(PDF_USE_SKIA)
-  // Implemented in skia/fx_skia_device.cpp
-  bool AttachSkiaImpl(RetainPtr<CFX_DIBitmap> pBitmap,
-                      bool bRgbByteOrder,
-                      RetainPtr<CFX_DIBitmap> pBackdropBitmap,
-                      bool bGroupKnockout);
-
-  // Implemented in skia/fx_skia_device.cpp
-  bool CreateSkia(int width,
-                  int height,
-                  FXDIB_Format format,
-                  RetainPtr<CFX_DIBitmap> pBackdropBitmap);
-#endif
 
   RetainPtr<CFX_DIBitmap> bitmap_;
   int width_ = 0;
@@ -341,11 +302,6 @@ class CFX_RenderDevice final {
   bool render_cap_soft_clip_ = false;
   bool render_cap_alpha_output_ = false;
   bool render_cap_bytemask_output_ = false;
-#if defined(PDF_USE_SKIA)
-  bool render_cap_fillstroke_path_ = false;
-  bool render_cap_shading_ = false;
-  bool render_cap_premultiplied_alpha_ = false;
-#endif
   DeviceType device_type_ = DeviceType::kDisplay;
   FX_RECT clip_box_;
   std::unique_ptr<RenderDeviceDriverIface> device_driver_;

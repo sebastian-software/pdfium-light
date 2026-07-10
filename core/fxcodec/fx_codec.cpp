@@ -33,11 +33,6 @@ constexpr EncoderIface kEncoderIface = {
 
 namespace fxcodec {
 
-#ifdef PDF_ENABLE_XFA
-CFX_DIBAttribute::CFX_DIBAttribute() = default;
-
-CFX_DIBAttribute::~CFX_DIBAttribute() = default;
-#endif  // PDF_ENABLE_XFA
 
 void ReverseRGB(pdfium::span<uint8_t> pDestBuf,
                 pdfium::span<const uint8_t> pSrcBuf,

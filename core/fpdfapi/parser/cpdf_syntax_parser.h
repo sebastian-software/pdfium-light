@@ -91,7 +91,6 @@ class CPDF_SyntaxParser {
  private:
   enum class WordType : bool { kWord, kNumber };
 
-  friend class CPDF_DataAvail;
   friend class cpdf_syntax_parser_ReadHexString_Test;
 
   static constexpr int kParserMaxRecursionDepth = 64;

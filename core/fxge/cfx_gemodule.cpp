@@ -32,11 +32,9 @@ WindowsPrintMode CFX_GEModule::GetPrintMode() {
 #endif
 
 // static
-void CFX_GEModule::Create(const char** pUserFontPaths,
-                          RendererType renderer_type,
-                          CFX_FontMgr::FontBackend backend) {
+void CFX_GEModule::Create(const char** pUserFontPaths) {
   DCHECK(!g_GEModule);
-  g_GEModule = new CFX_GEModule(pUserFontPaths, renderer_type, backend);
+  g_GEModule = new CFX_GEModule(pUserFontPaths);
   g_GEModule->platform_->Init();
   g_GEModule->font_mgr_->GetBuiltinMapper()->SetSystemFontInfo(
       g_GEModule->platform_->CreateDefaultSystemFontInfo());
@@ -56,12 +54,9 @@ CFX_GEModule* CFX_GEModule::Get() {
   return g_GEModule;
 }
 
-CFX_GEModule::CFX_GEModule(const char** pUserFontPaths,
-                           RendererType renderer_type,
-                           CFX_FontMgr::FontBackend backend)
-    : renderer_type_(renderer_type),
-      platform_(PlatformIface::Create()),
-      font_mgr_(std::make_unique<CFX_FontMgr>(backend)),
+CFX_GEModule::CFX_GEModule(const char** pUserFontPaths)
+    : platform_(PlatformIface::Create()),
+      font_mgr_(std::make_unique<CFX_FontMgr>()),
       user_font_paths_(pUserFontPaths) {}
 
 CFX_GEModule::~CFX_GEModule() = default;

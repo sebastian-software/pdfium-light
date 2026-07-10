@@ -38,19 +38,6 @@ bool RenderDeviceDriverIface::RenderCapByteMaskOutput() const {
   return false;
 }
 
-#if defined(PDF_USE_SKIA)
-bool RenderDeviceDriverIface::RenderCapFillStrokePath() const {
-  return false;
-}
-
-bool RenderDeviceDriverIface::RenderCapShading() const {
-  return false;
-}
-
-bool RenderDeviceDriverIface::RenderCapPremultipliedAlpha() const {
-  return false;
-}
-#endif
 
 #if BUILDFLAG(IS_WIN)
 int RenderDeviceDriverIface::GetHorzSize() const {
@@ -111,28 +98,6 @@ int RenderDeviceDriverIface::GetDriverType() const {
   return 0;
 }
 
-#if defined(PDF_USE_SKIA)
-bool RenderDeviceDriverIface::DrawShading(const CPDF_ShadingPattern& pattern,
-                                          const CFX_Matrix& matrix,
-                                          const FX_RECT& clip_rect,
-                                          int alpha) {
-  return false;
-}
-
-bool RenderDeviceDriverIface::SetBitsWithMask(
-    RetainPtr<const CFX_DIBBase> bitmap,
-    RetainPtr<const CFX_DIBBase> mask,
-    int left,
-    int top,
-    float alpha,
-    BlendMode blend_type) {
-  return false;
-}
-
-void RenderDeviceDriverIface::SetGroupKnockout(bool group_knockout) {}
-
-void RenderDeviceDriverIface::SyncInternalBitmaps() {}
-#endif  // defined(PDF_USE_SKIA)
 
 RenderDeviceDriverIface::StartResult::StartResult(
     Result result,

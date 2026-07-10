@@ -26,7 +26,6 @@
 #include "core/fxge/dib/fx_dib.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "public/cpp/fpdf_scopers.h"
-#include "public/fpdf_dataavail.h"
 #include "public/fpdf_edit.h"
 #include "public/fpdf_text.h"
 #include "public/fpdfview.h"
@@ -104,11 +103,6 @@ std::vector<std::string> GetEmbedderTestExpectationsWithSuffixPath(
   const std::string basename(expectation_png_name);
   const std::string platform_suffix(GetPlatformNameSuffix());
   std::string renderer = "_agg";
-#if defined(PDF_USE_SKIA)
-  if (CFX_GEModule::Get()->UseSkiaRenderer()) {
-    renderer = "_skia";
-  }
-#endif
 
   std::vector<std::string> expectation_names;
   expectation_names.reserve(4);
@@ -206,26 +200,6 @@ int CompareGrayBitmapToPng(pdfium::span<const uint8_t> bitmap_span,
                                 max_pixel_per_channel_delta);
 }
 
-#ifdef PDF_USE_SKIA
-int CompareBGRxPremultBitmapToPng(pdfium::span<const uint8_t> bitmap_span,
-                                  size_t bitmap_stride,
-                                  const DecodedPng& decoded_png,
-                                  int max_pixel_per_channel_delta) {
-  std::vector<uint8_t> bitmap_data(bitmap_span.begin(), bitmap_span.end());
-  pdfium::span<uint8_t> converted_bitmap_span{bitmap_data};
-
-  for (int h = 0; h < decoded_png.height; ++h) {
-    auto bitmap_row = fxcrt::reinterpret_span<FX_BGRA_STRUCT<uint8_t>>(
-        converted_bitmap_span.first(bitmap_stride));
-    converted_bitmap_span = converted_bitmap_span.subspan(bitmap_stride);
-    for (int w = 0; w < decoded_png.width; ++w) {
-      bitmap_row[w] = UnPreMultiplyColor(bitmap_row[w]);
-    }
-  }
-  return CompareBGRxBitmapToPng(bitmap_span, bitmap_stride, decoded_png,
-                                max_pixel_per_channel_delta);
-}
-#endif  // PDF_USE_SKIA
 
 int CompareBGRBitmapToPng(pdfium::span<const uint8_t> bitmap_span,
                           size_t bitmap_stride,
@@ -312,12 +286,6 @@ void CompareBitmapToPngFile(FPDF_BITMAP bitmap,
           bitmap_span, stride, decoded_png, max_pixel_per_channel_delta);
       break;
     }
-#ifdef PDF_USE_SKIA
-    case FPDFBitmap_BGRA_Premul:
-      pixels_different = CompareBGRxPremultBitmapToPng(
-          bitmap_span, stride, decoded_png, max_pixel_per_channel_delta);
-      break;
-#endif  // PDF_USE_SKIA
     default:
       // Support other formats as-needed.
       NOTREACHED();
@@ -387,6 +355,7 @@ bool EmbedderTest::OpenDocumentWithPassword(const std::string& filename,
 bool EmbedderTest::OpenDocumentWithOptions(const std::string& filename,
                                            const ByteString& password,
                                            LinearizeOption linearize_option) {
+  static_cast<void>(linearize_option);
   std::string file_path = PathService::GetTestFilePath(filename);
   if (file_path.empty()) {
     return false;
@@ -400,88 +369,13 @@ bool EmbedderTest::OpenDocumentWithOptions(const std::string& filename,
   EXPECT_TRUE(!loader_);
   loader_ = std::make_unique<TestLoader>(file_contents_);
 
-  file_access_ = {
-      .m_FileLen = pdfium::checked_cast<unsigned long>(file_contents_.size()),
-      .m_GetBlock = TestLoader::GetBlock,
-      .m_Param = loader_.get(),
-  };
-
-  fake_file_access_ = std::make_unique<FakeFileAccess>(&file_access_);
-  return OpenDocumentHelper(password, linearize_option, fake_file_access_.get(),
-                            &document_, &avail_);
-}
-
-bool EmbedderTest::OpenDocumentHelper(const ByteString& password,
-                                      LinearizeOption linearize_option,
-                                      FakeFileAccess* network_simulator,
-                                      ScopedFPDFDocument* document,
-                                      ScopedFPDFAvail* avail) {
-  network_simulator->AddSegment(0, 1024);
-  network_simulator->SetRequestedDataAvailable();
-  avail->reset(FPDFAvail_Create(network_simulator->GetFileAvail(),
-                                network_simulator->GetFileAccess()));
-  FPDF_AVAIL avail_ptr = avail->get();
-  FPDF_DOCUMENT document_ptr = nullptr;
-  if (FPDFAvail_IsLinearized(avail_ptr) == PDF_LINEARIZED) {
-    int32_t nRet = PDF_DATA_NOTAVAIL;
-    while (nRet == PDF_DATA_NOTAVAIL) {
-      network_simulator->SetRequestedDataAvailable();
-      nRet = FPDFAvail_IsDocAvail(avail_ptr,
-                                  network_simulator->GetDownloadHints());
-    }
-    if (nRet == PDF_DATA_ERROR) {
-      return false;
-    }
-
-    document->reset(FPDFAvail_GetDocument(avail_ptr, password.c_str()));
-    document_ptr = document->get();
-    if (!document_ptr) {
-      return false;
-    }
-
-    nRet = PDF_DATA_NOTAVAIL;
-    while (nRet == PDF_DATA_NOTAVAIL) {
-      network_simulator->SetRequestedDataAvailable();
-      nRet = FPDFAvail_IsFormAvail(avail_ptr,
-                                   network_simulator->GetDownloadHints());
-    }
-    if (nRet == PDF_FORM_ERROR) {
-      return false;
-    }
-
-    int page_count = FPDF_GetPageCount(document_ptr);
-    for (int i = 0; i < page_count; ++i) {
-      nRet = PDF_DATA_NOTAVAIL;
-      while (nRet == PDF_DATA_NOTAVAIL) {
-        network_simulator->SetRequestedDataAvailable();
-        nRet = FPDFAvail_IsPageAvail(avail_ptr, i,
-                                     network_simulator->GetDownloadHints());
-      }
-      if (nRet == PDF_DATA_ERROR) {
-        return false;
-      }
-    }
-  } else {
-    if (linearize_option == LinearizeOption::kMustLinearize) {
-      return false;
-    }
-    network_simulator->SetWholeFileAvailable();
-    document->reset(FPDF_LoadCustomDocument(network_simulator->GetFileAccess(),
-                                            password.c_str()));
-    document_ptr = document->get();
-    if (!document_ptr) {
-      return false;
-    }
-  }
-
-  return true;
+  document_.reset(FPDF_LoadMemDocument64(
+      file_contents_.data(), file_contents_.size(), password.c_str()));
+  return !!document_;
 }
 
 void EmbedderTest::CloseDocument() {
   document_.reset();
-  avail_.reset();
-  fake_file_access_.reset();
-  file_access_ = {};
   loader_.reset();
   file_contents_ = {};
 }
@@ -489,18 +383,11 @@ void EmbedderTest::CloseDocument() {
 void EmbedderTest::DoOpenActions() {}
 
 int EmbedderTest::GetFirstPageNum() {
-  int first_page = FPDFAvail_GetFirstPageNum(document());
-  (void)FPDFAvail_IsPageAvail(avail(), first_page,
-                              fake_file_access_->GetDownloadHints());
-  return first_page;
+  return 0;
 }
 
 int EmbedderTest::GetPageCount() {
   int page_count = FPDF_GetPageCount(document());
-  for (int i = 0; i < page_count; ++i) {
-    (void)FPDFAvail_IsPageAvail(avail(), i,
-                                fake_file_access_->GetDownloadHints());
-  }
   return page_count;
 }
 
@@ -674,17 +561,10 @@ FPDF_DOCUMENT EmbedderTest::OpenSavedDocumentWithPassword(
     const ByteString& password) {
   // Copy data to prevent clearing it before saved document close.
   saved_document_file_data_ = data_string_;
-  saved_file_access_ = {
-      .m_FileLen = pdfium::checked_cast<unsigned long>(data_string_.size()),
-      .m_GetBlock = GetBlockFromString,
-      .m_Param = &saved_document_file_data_,
-  };
-  saved_fake_file_access_ =
-      std::make_unique<FakeFileAccess>(&saved_file_access_);
-
-  EXPECT_TRUE(OpenDocumentHelper(
-      password, LinearizeOption::kDefaultLinearize, saved_fake_file_access_.get(),
-      &saved_document_, &saved_avail_));
+  saved_document_.reset(FPDF_LoadMemDocument64(
+      saved_document_file_data_.data(), saved_document_file_data_.size(),
+      password.c_str()));
+  EXPECT_TRUE(saved_document_);
   return saved_document();
 }
 
@@ -692,7 +572,6 @@ void EmbedderTest::CloseSavedDocument() {
   CHECK(saved_document());
 
   saved_document_.reset();
-  saved_avail_.reset();
 }
 
 EmbedderTest::ScopedSavedPage EmbedderTest::LoadScopedSavedPage(
@@ -771,20 +650,6 @@ ScopedFPDFBitmap EmbedderTest::VerifySavedDocumentCommon() {
 
   ScopedSavedPage page = LoadScopedSavedPage(0);
   return VerifySavedRenderingCommon(page.get());
-}
-
-void EmbedderTest::SetWholeFileAvailable() {
-  CHECK(fake_file_access_);
-  fake_file_access_->SetWholeFileAvailable();
-}
-
-void EmbedderTest::SetDocumentFromAvail() {
-  document_.reset(FPDFAvail_GetDocument(avail(), nullptr));
-}
-
-void EmbedderTest::CreateAvail(FX_FILEAVAIL* file_avail,
-                               FPDF_FILEACCESS* file) {
-  avail_.reset(FPDFAvail_Create(file_avail, file));
 }
 
 

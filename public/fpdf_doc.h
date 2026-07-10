@@ -405,9 +405,6 @@ FPDF_GetFileIdentifier(FPDF_DOCUMENT document,
 // bytes of zeros indicating the end of the string.  If |buflen| is less than
 // the returned length, or |buffer| is NULL, |buffer| will not be modified.
 //
-// For linearized files, FPDFAvail_IsFormAvail must be called before this, and
-// it must have returned PDF_FORM_AVAIL or PDF_FORM_NOTEXIST. Before that, there
-// is no guarantee the metadata has been loaded.
 FPDF_EXPORT unsigned long FPDF_CALLCONV FPDF_GetMetaText(FPDF_DOCUMENT document,
                                                          FPDF_BYTESTRING tag,
                                                          void* buffer,

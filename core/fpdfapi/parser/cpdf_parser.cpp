@@ -235,8 +235,8 @@ bool CPDF_Parser::ParseFileVersion() {
 CPDF_Parser::Error CPDF_Parser::StartParse(
     RetainPtr<IFX_SeekableReadStream> pFileAccess,
     const ByteString& password) {
-  if (!InitSyntaxParser(pdfium::MakeRetain<CPDF_ReadValidator>(
-          std::move(pFileAccess), nullptr))) {
+  if (!InitSyntaxParser(
+          pdfium::MakeRetain<CPDF_ReadValidator>(std::move(pFileAccess)))) {
     return FORMAT_ERROR;
   }
   SetPassword(password);

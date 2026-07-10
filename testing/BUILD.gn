@@ -71,17 +71,6 @@ source_set("test_support") {
   }
 }
 
-if (build_with_chromium && pdf_use_skia) {
-  source_set("discardable_memory_allocator") {
-    testonly = true
-    sources = [
-      "chromium_support/discardable_memory_allocator.cc",
-      "chromium_support/discardable_memory_allocator.h",
-    ]
-    deps = [ "//base/test:test_support" ]
-    configs += [ "../:pdfium_strict_config" ]
-  }
-}
 
 source_set("pixel_diff_utils") {
   testonly = true
@@ -154,10 +143,6 @@ source_set("embedder_test_support") {
     "embedder_test_constants.h",
     "embedder_test_environment.cpp",
     "embedder_test_environment.h",
-    "fake_file_access.cpp",
-    "fake_file_access.h",
-    "range_set.cpp",
-    "range_set.h",
     "utils/compare_coordinates.cc",
     "utils/compare_coordinates.h",
   ]

@@ -13,14 +13,11 @@ source_set("fpdfsdk") {
     "cpdfsdk_filewriteadapter.h",
     "cpdfsdk_helpers.cpp",
     "cpdfsdk_helpers.h",
-    "cpdfsdk_pauseadapter.cpp",
-    "cpdfsdk_pauseadapter.h",
     "cpdfsdk_renderpage.cpp",
     "cpdfsdk_renderpage.h",
     "fpdf_annot.cpp",
     "fpdf_attachment.cpp",
     "fpdf_catalog.cpp",
-    "fpdf_dataavail.cpp",
     "fpdf_doc.cpp",
     "fpdf_editimg.cpp",
     "fpdf_editpage.cpp",
@@ -29,7 +26,6 @@ source_set("fpdfsdk") {
     "fpdf_ext.cpp",
     "fpdf_flatten.cpp",
     "fpdf_ppo.cpp",
-    "fpdf_progressive.cpp",
     "fpdf_save.cpp",
     "fpdf_searchex.cpp",
     "fpdf_signature.cpp",
@@ -88,7 +84,6 @@ pdfium_embeddertest_source_set("embeddertests") {
   sources = [
     "fpdf_attachment_embeddertest.cpp",
     "fpdf_catalog_embeddertest.cpp",
-    "fpdf_dataavail_embeddertest.cpp",
     "fpdf_doc_embeddertest.cpp",
     "fpdf_edit_embeddertest.cpp",
     "fpdf_editimg_embeddertest.cpp",
@@ -117,10 +112,6 @@ pdfium_embeddertest_source_set("embeddertests") {
     "../core/fxge",
   ]
   pdfium_root_dir = "../"
-
-  if (pdf_use_skia) {
-    deps += [ "//skia" ]
-  }
 
   # TODO(crbug.com/40031409): Fix code that adds exit-time destructors and
   # enable the diagnostic by removing this line.

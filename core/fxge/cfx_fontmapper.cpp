@@ -756,30 +756,6 @@ std::optional<ByteString> CFX_FontMapper::LocalizedFontNameStartingWith(
 }
 #endif  // BUILDFLAG(IS_WIN)
 
-#ifdef PDF_ENABLE_XFA
-FixedSizeDataVector<uint8_t> CFX_FontMapper::RawBytesForIndex(size_t index) {
-  CHECK_LT(index, face_array_.size());
-
-  void* font_handle = font_info_->MapFont(this, 0, false, FX_Charset::kDefault,
-                                          0, GetFaceName(index));
-  if (!font_handle) {
-    return FixedSizeDataVector<uint8_t>();
-  }
-  ScopedFontDeleter scoped_font(font_info_.get(), font_handle);
-  size_t required_size =
-      font_info_->GetFontData(font_handle, SystemFontInfoIface::kTableNone, {});
-  if (required_size == 0) {
-    return FixedSizeDataVector<uint8_t>();
-  }
-  auto result = FixedSizeDataVector<uint8_t>::Uninit(required_size);
-  size_t actual_size = font_info_->GetFontData(
-      font_handle, SystemFontInfoIface::kTableNone, result.span());
-  if (actual_size != required_size) {
-    return FixedSizeDataVector<uint8_t>();
-  }
-  return result;
-}
-#endif  // PDF_ENABLE_XFA
 
 RetainPtr<CFX_Face> CFX_FontMapper::GetCachedTTCFace(void* font_handle,
                                                      size_t ttc_size,

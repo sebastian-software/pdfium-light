@@ -120,10 +120,6 @@ source_set("page") {
     "../../fxcrt",
     "../font",
   ]
-  allow_circular_includes_from = []
-  if (pdf_use_skia) {
-    allow_circular_includes_from += [ "../../fxge" ]
-  }
   visibility = [ "../../../*" ]
 }
 

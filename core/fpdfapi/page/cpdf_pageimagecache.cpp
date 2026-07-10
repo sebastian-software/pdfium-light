@@ -25,12 +25,6 @@
 #include "core/fxge/dib/cfx_dibbase.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
 
-#if defined(PDF_USE_SKIA)
-#include "core/fxcrt/data_vector.h"
-#include "core/fxge/cfx_gemodule.h"
-#include "third_party/skia/include/core/SkImage.h"   // nogncheck
-#include "third_party/skia/include/core/SkRefCnt.h"  // nogncheck
-#endif
 
 namespace {
 
@@ -44,69 +38,12 @@ struct CacheInfo {
   bool operator<(const CacheInfo& other) const { return time < other.time; }
 };
 
-#if defined(PDF_USE_SKIA)
-// Wrapper around a `CFX_DIBBase` that memoizes `RealizeSkImage()`. This is only
-// safe if the underlying `CFX_DIBBase` is not mutable.
-class CachedImage final : public CFX_DIBBase {
- public:
-  explicit CachedImage(RetainPtr<CFX_DIBBase> image)
-      : image_(std::move(image)) {
-    SetFormat(image_->GetFormat());
-    SetWidth(image_->GetWidth());
-    SetHeight(image_->GetHeight());
-    SetPitch(image_->GetPitch());
 
-    if (image_->HasPalette()) {
-      pdfium::span<const uint32_t> palette = image_->GetPaletteSpan();
-      palette_ = DataVector<uint32_t>(palette.begin(), palette.end());
-    }
-  }
-
-  pdfium::span<const uint8_t> GetScanline(int line) const override {
-    // TODO(crbug.com/40096192): Still needed for `Realize()` call in
-    // `CPDF_ImageRenderer`.
-    return image_->GetScanline(line);
-  }
-
-  bool SkipToScanline(int line, PauseIndicatorIface* pause) const override {
-    return image_->SkipToScanline(line, pause);
-  }
-
-  size_t GetEstimatedImageMemoryBurden() const override {
-    // A better estimate would account for realizing the `SkImage`.
-    return image_->GetEstimatedImageMemoryBurden();
-  }
-
-#if BUILDFLAG(IS_WIN) || defined(PDF_USE_SKIA)
-  RetainPtr<const CFX_DIBitmap> RealizeIfNeeded() const override {
-    return image_->RealizeIfNeeded();
-  }
-#endif
-
-  sk_sp<SkImage> RealizeSkImage() const override {
-    if (!cached_skia_image_) {
-      cached_skia_image_ = image_->RealizeSkImage();
-    }
-    return cached_skia_image_;
-  }
-
- private:
-  RetainPtr<CFX_DIBBase> image_;
-  mutable sk_sp<SkImage> cached_skia_image_;
-};
-#endif  // defined(PDF_USE_SKIA)
-
-// Makes a `CachedImage` backed by `image` if Skia is the default renderer,
+// Makes a `CachedImage` backed by `image`.
 // otherwise return the image itself. `realize_hint` indicates whether it would
 // be beneficial to realize `image` before caching.
 RetainPtr<CFX_DIBBase> MakeCachedImage(RetainPtr<CFX_DIBBase> image,
                                        bool realize_hint) {
-#if defined(PDF_USE_SKIA)
-  if (CFX_GEModule::Get()->UseSkiaRenderer()) {
-    // Ignore `realize_hint`, as `RealizeSkImage()` doesn't benefit from it.
-    return pdfium::MakeRetain<CachedImage>(std::move(image));
-  }
-#endif  // defined(PDF_USE_SKIA)
   return realize_hint ? image->Realize() : image;
 }
 

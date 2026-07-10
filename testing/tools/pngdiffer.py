@@ -24,13 +24,6 @@ _GDI_AGG_SUFFIX_ORDER = (
     '_gdi_{os}',
     '_gdi',
 ) + _COMMON_SUFFIX_ORDER
-_GDI_SKIA_SUFFIX_ORDER = (
-    '_gdi_skia_{os}',
-    '_gdi_skia',
-    '_gdi_{os}',
-    '_gdi',
-) + _COMMON_SUFFIX_ORDER
-_SKIA_SUFFIX_ORDER = ('_skia_{os}', '_skia') + _COMMON_SUFFIX_ORDER
 
 
 @dataclass
@@ -62,12 +55,8 @@ class PNGDiffer:
     if rendering_option == 'gdi':
       if default_renderer == 'agg':
         self.suffix_order = _GDI_AGG_SUFFIX_ORDER
-      elif default_renderer == 'skia':
-        self.suffix_order = _GDI_SKIA_SUFFIX_ORDER
     elif rendering_option == 'agg':
       self.suffix_order = _AGG_SUFFIX_ORDER
-    elif rendering_option == 'skia':
-      self.suffix_order = _SKIA_SUFFIX_ORDER
 
     if not self.suffix_order:
       raise ValueError(f'rendering_option={rendering_option}')

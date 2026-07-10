@@ -26,6 +26,8 @@ REMOVED_PUBLIC_HEADERS = (
     "public/fpdf_formfill.h",
     "public/fpdf_fwlevent.h",
     "public/fpdf_javascript.h",
+    "public/fpdf_dataavail.h",
+    "public/fpdf_progressive.h",
 )
 
 REMOVED_PUBLIC_TOKENS = (
@@ -39,6 +41,10 @@ REMOVED_PUBLIC_TOKENS = (
     "FPDFDOC_GetPageAAction",
     "FPDFDOC_GetJavaScriptAction",
     "FPDFPage_GetAA",
+    "FPDFAvail_",
+    "FPDF_RenderPageBitmap_Start",
+    "FPDF_RenderPage_Continue",
+    "FPDF_RenderPage_Close",
 )
 
 RETAINED_BUILD_PATTERNS = {
@@ -86,14 +92,6 @@ SMOKE_COVERAGE = {
             "RenderHelloWorldWithFlags",
             "RenderManyRectanglesWithFlags",
             "TestRenderPageBitmapWithFlags",
-        ),
-    ),
-    "progressive rendering": (
-        "core/fpdfapi/render/fpdf_progressive_render_embeddertest.cpp",
-        (
-            "RenderWithoutPause",
-            "RenderAnnotWithPause",
-            "FPDF_RenderPageBitmap_Start",
         ),
     ),
     "text extraction": (

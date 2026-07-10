@@ -5,7 +5,6 @@ gclient_gn_args = [
   'android_ndk_version',
   'build_with_chromium',
   'checkout_android',
-  'checkout_skia',
 ]
 
 vars = {
@@ -20,7 +19,7 @@ vars = {
   # things are not strictly needed to build pdfium for development purposes,
   # by adding the following line to the .gclient file inside a solutions entry:
   #      "custom_vars": { "checkout_configuration": "small" },
-  # Similarly, this var can be set to 'minimal' to also skip the Skia and V8
+  # Similarly, this var can be set to 'minimal' to skip optional test and V8
   # checkouts for the smallest possible checkout, where some features will not
   # work.
   'checkout_configuration': 'default',
@@ -55,8 +54,6 @@ vars = {
   # }
   'checkout_rust': False,
 
-  'checkout_skia': 'checkout_configuration != "minimal"',
-
   'checkout_testing_corpus': 'checkout_configuration != "small" and checkout_configuration != "minimal"',
 
   'checkout_v8': 'checkout_configuration != "minimal"',
@@ -78,7 +75,6 @@ vars = {
 
   'chromium_git': 'https://chromium.googlesource.com',
   'pdfium_git': 'https://pdfium.googlesource.com',
-  'skia_git': 'https://skia.googlesource.com',
 
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling abseil
@@ -234,10 +230,6 @@ vars = {
   # the commit queue can handle CLs rolling siso
   # and whatever else without interference from each other.
   'siso_version': 'git_revision:24b80aff540b202a88417f9f93b0dc86229eca7a',
-  # Three lines of non-changing comments so that
-  # the commit queue can handle CLs rolling skia
-  # and whatever else without interference from each other.
-  'skia_revision': '3ba832f8688f6215c4591941355f9e6b1070a012',
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling test_fonts
   # and whatever else without interference from each other.
@@ -695,11 +687,6 @@ deps = {
       }
     ],
     'dep_type': 'cipd',
-  },
-
-  'third_party/skia': {
-    'url': Var('skia_git') + '/skia.git@' + Var('skia_revision'),
-    'condition': 'checkout_skia',
   },
 
   'third_party/test_fonts':

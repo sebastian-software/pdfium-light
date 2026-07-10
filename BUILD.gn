@@ -39,18 +39,6 @@ config("pdfium_common_config") {
     defines += [ "PDF_ENABLE_CLICK_LOGGING" ]
   }
 
-  if (pdf_use_skia && pdf_enable_fontations) {
-    defines += [ "PDF_ENABLE_FONTATIONS" ]
-  }
-
-  if (pdf_use_skia && pdf_enable_skia_typeface_checks) {
-    defines += [ "PDF_ENABLE_SKIA_TYPEFACE_CHECKS" ]
-  }
-
-  if (pdf_use_skia && pdf_enable_rust_png) {
-    defines += [ "PDF_ENABLE_RUST_PNG" ]
-  }
-
   if (pdf_use_partition_alloc) {
     defines += [ "PDF_USE_PARTITION_ALLOC" ]
   }
@@ -129,9 +117,6 @@ config("pdfium_public_config") {
   if (pdf_use_agg) {
     defines += [ "PDF_USE_AGG" ]
   }
-  if (pdf_use_skia) {
-    defines += [ "PDF_USE_SKIA" ]
-  }
 }
 
 config("pdfium_core_config") {
@@ -171,13 +156,11 @@ pdfium_light_public_headers = [
   "public/fpdf_annot.h",
   "public/fpdf_attachment.h",
   "public/fpdf_catalog.h",
-  "public/fpdf_dataavail.h",
   "public/fpdf_doc.h",
   "public/fpdf_edit.h",
   "public/fpdf_ext.h",
   "public/fpdf_flatten.h",
   "public/fpdf_ppo.h",
-  "public/fpdf_progressive.h",
   "public/fpdf_save.h",
   "public/fpdf_searchex.h",
   "public/fpdf_signature.h",
@@ -351,10 +334,6 @@ test("pdfium_embeddertests") {
     use_raw_android_executable = true
   }
 
-  if (build_with_chromium && pdf_use_skia) {
-    deps += [ "testing:discardable_memory_allocator" ]
-    configs += [ "testing:pdfium_in_chromium_config" ]
-  }
 }
 
 executable("pdfium_diff") {
@@ -379,19 +358,6 @@ group("pdfium_all") {
     ":pdfium_unittests",
     "testing/fuzzers",
   ]
-}
-
-# Makes additional targets reachable only for "gn check". These are not always
-# built by the "all" Ninja target, which uses the "default" group, which in turn
-# depends on the "pdfium_all" group.
-group("gn_check") {
-  deps = []
-
-  # TODO(crbug.com/pdfium/1832): Remove !is_android when //third_party/expat is
-  # available.
-  if (defined(checkout_skia) && checkout_skia && !is_android) {
-    deps += [ "//skia" ]
-  }
 }
 
 # GN evaluates each .gn file once per toolchain, so restricting to default

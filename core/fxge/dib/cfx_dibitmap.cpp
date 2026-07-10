@@ -126,7 +126,7 @@ size_t CFX_DIBitmap::GetEstimatedImageMemoryBurden() const {
   return result;
 }
 
-#if BUILDFLAG(IS_WIN) || defined(PDF_USE_SKIA)
+#if BUILDFLAG(IS_WIN)
 RetainPtr<const CFX_DIBitmap> CFX_DIBitmap::RealizeIfNeeded() const {
   if (GetBuffer().empty()) {
     return Realize();
@@ -169,31 +169,12 @@ void CFX_DIBitmap::Clear(uint32_t color) {
       break;
     }
     case FXDIB_Format::kBgrx:
-#if defined(PDF_USE_SKIA)
-      if (CFX_GEModule::Get()->UseSkiaRenderer()) {
-        // TODO(crbug.com/42271025): This is not reliable because alpha may
-        // be modified outside of this operation.
-        color |= 0xFF000000;
-      }
-#endif
       [[fallthrough]];
     case FXDIB_Format::kBgra:
       for (int row = 0; row < GetHeight(); row++) {
         std::ranges::fill(GetWritableScanlineAs<uint32_t>(row), color);
       }
       break;
-#if defined(PDF_USE_SKIA)
-    case FXDIB_Format::kBgraPremul: {
-      CHECK(CFX_GEModule::Get()->UseSkiaRenderer());
-      const FX_BGRA_STRUCT<uint8_t> bgra =
-          PreMultiplyColor(ArgbToBGRAStruct(color));
-      for (int row = 0; row < GetHeight(); row++) {
-        std::ranges::fill(GetWritableScanlineAs<FX_BGRA_STRUCT<uint8_t>>(row),
-                          bgra);
-      }
-      break;
-    }
-#endif  // defined(PDF_USE_SKIA)
   }
 }
 
@@ -409,53 +390,6 @@ bool CFX_DIBitmap::MultiplyAlpha(float alpha) {
   return true;
 }
 
-#if defined(PDF_USE_SKIA)
-uint32_t CFX_DIBitmap::GetPixelForTesting(int x, int y) const {
-  if (!buffer_) {
-    return 0;
-  }
-
-  FX_SAFE_UINT32 offset = x;
-  offset *= GetBPP();
-  offset /= 8;
-  if (!offset.IsValid()) {
-    return 0;
-  }
-
-  auto pos = GetScanline(y).subspan(offset.ValueOrDie());
-  switch (GetFormat()) {
-    case FXDIB_Format::kInvalid:
-      return 0;
-    case FXDIB_Format::k1bppMask: {
-      if ((pos[0]) & (1 << (7 - x % 8))) {
-        return 0xff000000;
-      }
-      return 0;
-    }
-    case FXDIB_Format::k1bppRgb: {
-      if ((pos[0]) & (1 << (7 - x % 8))) {
-        return HasPalette() ? GetPaletteSpan()[1] : 0xffffffff;
-      }
-      return HasPalette() ? GetPaletteSpan()[0] : 0xff000000;
-    }
-    case FXDIB_Format::k8bppMask:
-      return (pos[0]) << 24;
-    case FXDIB_Format::k8bppRgb:
-      return HasPalette() ? GetPaletteSpan()[pos[0]]
-                          : ArgbEncode(0xff, pos[0], pos[0], pos[0]);
-    case FXDIB_Format::kBgr:
-    case FXDIB_Format::kBgrx:
-      return FXARGB_GetDIB(pos.first<4u>()) | 0xff000000;
-    case FXDIB_Format::kBgra:
-      return FXARGB_GetDIB(pos.first<4u>());
-    case FXDIB_Format::kBgraPremul: {
-      // TODO(crbug.com/42271020): Consider testing with
-      // `FXDIB_Format::kBgraPremul`
-      NOTREACHED();
-    }
-  }
-}
-#endif  // defined(PDF_USE_SKIA)
 
 void CFX_DIBitmap::ConvertColorScale(bool is_white_on_black) {
   if (!buffer_ || IsMaskFormat()) {
@@ -928,9 +862,6 @@ bool CFX_DIBitmap::ConvertFormat(FXDIB_Format dest_format) {
   static constexpr FXDIB_Format kAllowedDestFormats[] = {
       FXDIB_Format::k8bppMask,
       FXDIB_Format::kBgra,
-#if defined(PDF_USE_SKIA)
-      FXDIB_Format::kBgraPremul,
-#endif
       FXDIB_Format::kBgr,
   };
   CHECK(pdfium::Contains(kAllowedDestFormats, dest_format));
@@ -953,27 +884,8 @@ bool CFX_DIBitmap::ConvertFormat(FXDIB_Format dest_format) {
         SetUniformOpaqueAlpha();
         return true;
       }
-#if defined(PDF_USE_SKIA)
-      if (GetFormat() == FXDIB_Format::kBgraPremul) {
-        UnPreMultiply();
-        return true;
-      }
-#endif  // defined(PDF_USE_SKIA)
       break;
 
-#if defined(PDF_USE_SKIA)
-    case FXDIB_Format::kBgraPremul:
-      if (GetFormat() == FXDIB_Format::kBgrx) {
-        SetFormat(FXDIB_Format::kBgraPremul);
-        SetUniformOpaqueAlpha();
-        return true;
-      }
-      if (GetFormat() == FXDIB_Format::kBgra) {
-        PreMultiply();
-        return true;
-      }
-      break;
-#endif  // defined(PDF_USE_SKIA)
 
     default:
       break;
@@ -1012,27 +924,3 @@ bool CFX_DIBitmap::ConvertFormat(FXDIB_Format dest_format) {
   SetPitch(dest_pitch);
   return true;
 }
-
-#if defined(PDF_USE_SKIA)
-CFX_DIBitmap::ScopedPremultiplier::ScopedPremultiplier(
-    RetainPtr<CFX_DIBitmap> bitmap)
-    : bitmap_(std::move(bitmap)), do_premultiply_(NeedToPremultiplyBitmap()) {
-  if (do_premultiply_) {
-    CHECK(!bitmap_->IsPremultiplied());
-    bitmap_->PreMultiply();
-  }
-}
-
-CFX_DIBitmap::ScopedPremultiplier::~ScopedPremultiplier() {
-  if (do_premultiply_) {
-    CHECK(bitmap_->IsPremultiplied());
-    bitmap_->UnPreMultiply();
-  }
-}
-
-bool CFX_DIBitmap::ScopedPremultiplier::NeedToPremultiplyBitmap() const {
-  return CFX_GEModule::Get()->UseSkiaRenderer() &&
-         bitmap_->GetFormat() == FXDIB_Format::kBgra;
-}
-
-#endif  // defined(PDF_USE_SKIA)
