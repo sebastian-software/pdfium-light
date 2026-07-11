@@ -62,6 +62,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `64b671193` Phase 1 stretch-weight slice | 10,594 | 3,783 | 241 | 1,355 | 6,570 | 267,944 | 3.95% | 1.94% | Prior surfaces plus bounded stretch-table layout and exact nearest, bilinear, area, clipped, and mirrored fixed-point weights |
 | `f1ec24da9` Phase 1 horizontal-stretch slice | 10,980 | 4,169 | 241 | 1,403 | 6,570 | 268,477 | 4.09% | 2.13% | Prior surfaces plus all six horizontal pixel transforms for mask, indexed, BGR, BGRx, and BGRA scanlines |
 | `626a359b0` Phase 1 vertical-stretch slice | 11,281 | 4,470 | 241 | 1,453 | 6,570 | 268,837 | 4.20% | 2.28% | Prior surfaces plus vertical scalar/color filtering and BGRA unpremultiplication for complete destination rows |
+| `2363f01d1` Phase 1 bitmap-transpose slice | 11,452 | 4,641 | 241 | 1,489 | 6,570 | 269,103 | 4.26% | 2.37% | Prior surfaces plus packed-bit and 8-/24-/32-bpp transposition with independent axis mirroring |
 
 ## Toolchain
 
@@ -214,6 +215,13 @@ unpremultiplies filtered BGRA colors with the reference's integer rounding.
 Zero-alpha rows retain their existing RGB bytes while setting alpha to zero.
 C++ continues to own the intermediate/output buffers, scanline composition,
 pause protocol, and retained fallback implementation.
+
+Bitmap transposition keeps result allocation, palette propagation, and
+abstract source scanlines in C++. Rust maps each complete source row into the
+transposed destination for packed 1-bpp and 8-/24-/32-bpp pixels, including
+independent X/Y mirroring and the retained all-ones initialization for 1-bpp
+padding. Thirty-six same-process cases cover every retained format, default
+and custom palettes, and all four flip combinations.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
