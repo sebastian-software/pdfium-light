@@ -40,7 +40,7 @@ TEST(fxge, RustCmykMatchesCppReferenceAcrossInterpolationBoundaries) {
     for (const uint8_t magenta : kChannels) {
       for (const uint8_t yellow : kChannels) {
         for (const uint8_t key : kChannels) {
-          const auto expected = AdobeCmykToStandardRgbReferenceForTesting(
+          const auto expected = fxge::AdobeCmykToStandardRgbReferenceForTesting(
               cyan, magenta, yellow, key);
           const auto actual =
               AdobeCmykToStandardRgb(cyan, magenta, yellow, key);
