@@ -413,3 +413,43 @@ TEST(CFXDIBitmapTest, RustEqualFormatTransferMatchesCppReference) {
     }
   }
 }
+
+TEST(CFXDIBitmapTest, RustOneBppMaskCompositeMatchesCppReference) {
+  struct CompositeCase {
+    int destination_left;
+    int destination_top;
+    int width;
+    int height;
+    int source_left;
+    int source_top;
+  };
+  static constexpr std::array<CompositeCase, 3> kCases = {
+      CompositeCase{2, 1, 7, 3, 1, 1},
+      CompositeCase{-2, -1, 9, 4, 1, 0},
+      CompositeCase{3, 0, 8, 3, -2, 1},
+  };
+  for (const auto& composite : kCases) {
+    auto source = CreatePatternedBitmap(FXDIB_Format::k1bppMask, 11, 5);
+    auto reference = CreatePatternedBitmap(FXDIB_Format::k1bppRgb, 9, 4);
+    auto candidate = CreatePatternedBitmap(FXDIB_Format::k1bppRgb, 9, 4);
+    ASSERT_TRUE(source);
+    ASSERT_TRUE(reference);
+    ASSERT_TRUE(candidate);
+    {
+      fxge::ScopedRustDibImplementationForTesting implementation(false);
+      reference->CompositeOneBPPMask(
+          composite.destination_left, composite.destination_top,
+          composite.width, composite.height, source, composite.source_left,
+          composite.source_top);
+    }
+    candidate->CompositeOneBPPMask(
+        composite.destination_left, composite.destination_top, composite.width,
+        composite.height, source, composite.source_left, composite.source_top);
+    EXPECT_THAT(candidate->GetBuffer(),
+                ElementsAreArray(reference->GetBuffer()))
+        << "destination_left=" << composite.destination_left
+        << " destination_top=" << composite.destination_top
+        << " source_left=" << composite.source_left
+        << " source_top=" << composite.source_top;
+  }
+}

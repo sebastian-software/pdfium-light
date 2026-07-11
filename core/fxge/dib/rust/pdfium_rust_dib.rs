@@ -1899,6 +1899,42 @@ mod tests {
     }
 
     #[test]
+    fn composite_1bpp_mask_row_should_only_set_source_bits() {
+        let source = [0b1011_0110];
+        let mut destination = [0b0100_0001];
+        // SAFETY: The stack arrays cover the single-byte source/destination
+        // regions supplied to the FFI function.
+        assert!(unsafe {
+            pdfium_rust_composite_1bpp_mask_row(
+                source.as_ptr(),
+                source.len(),
+                2,
+                destination.as_mut_ptr(),
+                destination.len(),
+                1,
+                4,
+            )
+        });
+        assert_eq!([0b0110_1001], destination);
+
+        let clear_source = [0];
+        // SAFETY: The same valid destination region is reused with a distinct
+        // one-byte source.
+        assert!(unsafe {
+            pdfium_rust_composite_1bpp_mask_row(
+                clear_source.as_ptr(),
+                clear_source.len(),
+                0,
+                destination.as_mut_ptr(),
+                destination.len(),
+                0,
+                8,
+            )
+        });
+        assert_eq!([0b0110_1001], destination);
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(
