@@ -89,6 +89,8 @@ static_assert(static_cast<uint32_t>(CPDF_PageObject::Type::kPath) == 2);
 static_assert(static_cast<uint32_t>(CPDF_PageObject::Type::kImage) == 3);
 static_assert(static_cast<uint32_t>(CPDF_PageObject::Type::kShading) == 4);
 static_assert(static_cast<uint32_t>(CPDF_PageObject::Type::kForm) == 5);
+static_assert(static_cast<int8_t>(TextRenderingMode::MODE_FILL) == 0);
+static_assert(static_cast<int8_t>(TextRenderingMode::MODE_CLIP) == 7);
 
 pdfium::rust::PageObjectRenderCommand BuildCppPageObjectRenderCommand(
     CPDF_PageObject::Type page_object_type) {
@@ -938,17 +940,36 @@ bool CPDF_RenderStatus::ProcessText(CPDF_TextObject* textobj,
   }
 
   RetainPtr<CPDF_Font> pFont = textobj->text_state().GetFont();
-  if (pFont->IsType3Font()) {
-    return ProcessType3Text(textobj, mtObj2Device);
-  }
-
   bool is_fill = false;
   bool is_stroke = false;
   bool is_clip = false;
-  if (clipping_path) {
-    is_clip = true;
+  const auto rust_plan = pdfium::rust::UseRustRenderCandidate()
+                             ? pdfium::rust::BuildRustTextRenderPlan(
+                                   /*has_char_codes=*/true,
+                                   static_cast<int8_t>(text_render_mode),
+                                   pFont->IsType3Font(), !!clipping_path,
+                                   pFont->HasFace())
+                             : std::nullopt;
+  if (rust_plan.has_value()) {
+    switch (rust_plan->action()) {
+      case pdfium::rust::TextRenderAction::kSkip:
+        return true;
+      case pdfium::rust::TextRenderAction::kType3:
+        return ProcessType3Text(textobj, mtObj2Device);
+      case pdfium::rust::TextRenderAction::kNormal:
+        is_fill = rust_plan->fill();
+        is_stroke = rust_plan->stroke();
+        is_clip = rust_plan->clip();
+        break;
+    }
   } else {
-    switch (text_render_mode) {
+    if (pFont->IsType3Font()) {
+      return ProcessType3Text(textobj, mtObj2Device);
+    }
+    if (clipping_path) {
+      is_clip = true;
+    } else {
+      switch (text_render_mode) {
       case TextRenderingMode::MODE_FILL:
       case TextRenderingMode::MODE_FILL_CLIP:
         is_fill = true;
@@ -976,6 +997,7 @@ bool CPDF_RenderStatus::ProcessText(CPDF_TextObject* textobj,
         return true;
       case TextRenderingMode::MODE_UNKNOWN:
         NOTREACHED();
+      }
     }
   }
   FX_ARGB stroke_argb = 0;

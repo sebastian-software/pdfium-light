@@ -63,6 +63,13 @@ const PATH_OPTIONS_ADJUST_STROKE: u8 = 1 << 4;
 const PATH_OPTIONS_STROKE: u8 = 1 << 5;
 const PATH_OPTIONS_TEXT_MODE: u8 = 1 << 6;
 
+const TEXT_PLAN_SKIP: u8 = 1;
+const TEXT_PLAN_TYPE3: u8 = 2;
+const TEXT_PLAN_NORMAL: u8 = 3;
+const TEXT_PLAN_FILL: u8 = 1 << 0;
+const TEXT_PLAN_STROKE: u8 = 1 << 1;
+const TEXT_PLAN_CLIP: u8 = 1 << 2;
+
 type RenderLayerCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
 
 fn build_render_request_plan(flags: u32, has_color_scheme: bool, restore_device: bool) -> u32 {
@@ -227,6 +234,39 @@ fn build_path_fill_options(
         options |= PATH_OPTIONS_TEXT_MODE;
     }
     Some(options)
+}
+
+fn build_text_render_plan(
+    has_char_codes: bool,
+    text_mode: i8,
+    is_type3: bool,
+    has_clipping_path: bool,
+    font_has_face: bool,
+) -> Option<(u8, u8)> {
+    if !has_char_codes || text_mode == 3 {
+        return Some((TEXT_PLAN_SKIP, 0));
+    }
+    if is_type3 {
+        return Some((TEXT_PLAN_TYPE3, 0));
+    }
+    if text_mode == 7 {
+        return Some((TEXT_PLAN_SKIP, 0));
+    }
+    if !(0..=6).contains(&text_mode) {
+        return None;
+    }
+    if has_clipping_path {
+        return Some((TEXT_PLAN_NORMAL, TEXT_PLAN_CLIP));
+    }
+    let bits = match text_mode {
+        0 | 4 => TEXT_PLAN_FILL,
+        1 | 5 if font_has_face => TEXT_PLAN_STROKE,
+        1 | 5 => TEXT_PLAN_FILL,
+        2 | 6 if font_has_face => TEXT_PLAN_FILL | TEXT_PLAN_STROKE,
+        2 | 6 => TEXT_PLAN_FILL,
+        _ => return None,
+    };
+    Some((TEXT_PLAN_NORMAL, bits))
 }
 
 /// Builds a compact render request plan from the supported public flags.
@@ -468,6 +508,43 @@ pub unsafe extern "C" fn pdfium_rust_build_path_fill_options(
     // SAFETY: The caller contract guarantees one writable output value.
     unsafe {
         *output = options;
+    }
+    true
+}
+
+/// Plans text dispatch while C++ retains fonts, colors, matrices, and drawing.
+///
+/// # Safety
+///
+/// Both outputs must point to one writable `u8` value. Neither is written
+/// when the rendering mode is outside PDF's supported range.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_text_render_plan(
+    has_char_codes: bool,
+    text_mode: i8,
+    is_type3: bool,
+    has_clipping_path: bool,
+    font_has_face: bool,
+    output_action: *mut u8,
+    output_bits: *mut u8,
+) -> bool {
+    if output_action.is_null() || output_bits.is_null() {
+        return false;
+    }
+    let Some((action, bits)) = build_text_render_plan(
+        has_char_codes,
+        text_mode,
+        is_type3,
+        has_clipping_path,
+        font_has_face,
+    ) else {
+        return false;
+    };
+    // SAFETY: Both pointers were checked and the caller guarantees one
+    // writable byte at each location.
+    unsafe {
+        *output_action = action;
+        *output_bits = bits;
     }
     true
 }
@@ -842,5 +919,38 @@ mod tests {
                 core::ptr::null_mut(),
             )
         });
+    }
+
+    #[test]
+    fn text_render_plan_should_preserve_pdf_mode_dispatch() {
+        assert_eq!(Some((TEXT_PLAN_SKIP, 0)), build_text_render_plan(false, 0, false, false, true));
+        assert_eq!(Some((TEXT_PLAN_SKIP, 0)), build_text_render_plan(true, 3, false, false, true));
+        assert_eq!(Some((TEXT_PLAN_TYPE3, 0)), build_text_render_plan(true, 0, true, false, true));
+        assert_eq!(Some((TEXT_PLAN_TYPE3, 0)), build_text_render_plan(true, 7, true, false, true));
+        assert_eq!(
+            Some((TEXT_PLAN_NORMAL, TEXT_PLAN_FILL | TEXT_PLAN_STROKE)),
+            build_text_render_plan(true, 2, false, false, true)
+        );
+        assert_eq!(
+            Some((TEXT_PLAN_NORMAL, TEXT_PLAN_FILL)),
+            build_text_render_plan(true, 5, false, false, false)
+        );
+        assert_eq!(
+            Some((TEXT_PLAN_NORMAL, TEXT_PLAN_CLIP)),
+            build_text_render_plan(true, 0, false, true, true)
+        );
+        assert_eq!(None, build_text_render_plan(true, -1, false, false, true));
+    }
+
+    #[test]
+    fn text_render_plan_ffi_should_reject_invalid_boundaries_without_mutation() {
+        let mut action = 91_u8;
+        let mut bits = 92_u8;
+        // SAFETY: The outputs are live; an invalid mode is rejected before
+        // either one is written.
+        assert!(!unsafe {
+            pdfium_rust_build_text_render_plan(true, -1, false, false, true, &mut action, &mut bits)
+        });
+        assert_eq!((action, bits), (91, 92));
     }
 }

@@ -96,6 +96,22 @@ class PathPaintPlan final {
   bool should_draw_;
 };
 
+enum class TextRenderAction : uint8_t { kSkip = 1, kType3, kNormal };
+
+class TextRenderPlan final {
+ public:
+  TextRenderPlan(TextRenderAction action, uint8_t bits)
+      : action_(action), bits_(bits) {}
+  TextRenderAction action() const { return action_; }
+  bool fill() const { return bits_ & 1u; }
+  bool stroke() const { return bits_ & 2u; }
+  bool clip() const { return bits_ & 4u; }
+
+ private:
+  TextRenderAction action_;
+  uint8_t bits_;
+};
+
 class RenderRequestPlan final {
  public:
   explicit RenderRequestPlan(uint32_t bits) : bits_(bits) {}
@@ -154,6 +170,12 @@ std::optional<CFX_FillRenderOptions> BuildRustPathFillOptions(
     bool stroke_adjust,
     bool stroke,
     bool type3_char);
+std::optional<TextRenderPlan> BuildRustTextRenderPlan(
+    bool has_char_codes,
+    int8_t text_mode,
+    bool is_type3,
+    bool has_clipping_path,
+    bool font_has_face);
 
 class ScopedRenderTraceForTesting final {
  public:
@@ -174,6 +196,7 @@ void RecordRenderTraceForTesting(const RenderLayerCompletion& completion);
 void RecordRenderTraceForTesting(const PathPaintPlan& plan);
 void RecordPathMatrixAvailabilityForTesting(bool available);
 void RecordPathFillOptionsForTesting(const CFX_FillRenderOptions& options);
+void RecordTextRenderPlanForTesting(const TextRenderPlan& plan);
 
 // Production defaults to the Rust candidate. The setter exists only so the
 // same-process differential harness can keep the retained C++ oracle isolated.

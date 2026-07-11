@@ -57,6 +57,14 @@ extern "C" bool pdfium_rust_build_path_fill_options(uint8_t fill_type,
                                                     bool stroke,
                                                     bool type3_char,
                                                     uint8_t* output);
+extern "C" bool pdfium_rust_build_text_render_plan(
+    bool has_char_codes,
+    int8_t text_mode,
+    bool is_type3,
+    bool has_clipping_path,
+    bool font_has_face,
+    uint8_t* output_action,
+    uint8_t* output_bits);
 
 thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
@@ -67,6 +75,7 @@ constexpr uint8_t kRenderLayerCompletionTraceBase = 0x30;
 constexpr uint8_t kPathPaintPlanTraceBase = 0x40;
 constexpr uint8_t kPathMatrixAvailabilityTraceBase = 0x50;
 constexpr uint8_t kPathFillOptionsTrace = 0x60;
+constexpr uint8_t kTextRenderPlanTraceBase = 0x70;
 
 constexpr uint8_t kPathPlanFillMask = 0x03;
 constexpr uint8_t kPathPlanStroke = 1u << 2;
@@ -291,6 +300,25 @@ std::optional<CFX_FillRenderOptions> BuildRustPathFillOptions(
   return options;
 }
 
+std::optional<TextRenderPlan> BuildRustTextRenderPlan(
+    bool has_char_codes,
+    int8_t text_mode,
+    bool is_type3,
+    bool has_clipping_path,
+    bool font_has_face) {
+  uint8_t action = 0;
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_text_render_plan(
+          has_char_codes, text_mode, is_type3, has_clipping_path,
+          font_has_face, &action, &bits) ||
+      action < static_cast<uint8_t>(TextRenderAction::kSkip) ||
+      action > static_cast<uint8_t>(TextRenderAction::kNormal) ||
+      (bits & ~0x07u) != 0) {
+    return std::nullopt;
+  }
+  return TextRenderPlan(static_cast<TextRenderAction>(action), bits);
+}
+
 ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(
     std::vector<uint8_t>* trace)
     : previous_(g_render_trace_for_testing) {
@@ -383,6 +411,16 @@ void RecordPathFillOptionsForTesting(const CFX_FillRenderOptions& options) {
   }
   g_render_trace_for_testing->push_back(kPathFillOptionsTrace);
   g_render_trace_for_testing->push_back(bits);
+}
+
+void RecordTextRenderPlanForTesting(const TextRenderPlan& plan) {
+  if (g_render_trace_for_testing) {
+    uint8_t bits = static_cast<uint8_t>(plan.action()) << 3;
+    bits |= static_cast<uint8_t>(plan.fill());
+    bits |= static_cast<uint8_t>(plan.stroke()) << 1;
+    bits |= static_cast<uint8_t>(plan.clip()) << 2;
+    g_render_trace_for_testing->push_back(kTextRenderPlanTraceBase + bits);
+  }
 }
 
 bool UseRustRenderCandidate() {
