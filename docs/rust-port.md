@@ -87,6 +87,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `074c9b1b5` Phase 4 glyph-bounds slice | 14,657 | 7,846 | 241 | 3,075 | 6,570 | 274,766 | 5.33% | 3.92% | Prior surfaces plus Rust-owned borrowed glyph iteration, LCD width adjustment, checked edge construction, skip behavior, and bounding-box min/max aggregation |
 | `8d94db0fa` Phase 4 bitmap-lookup slice | 14,740 | 7,929 | 241 | 3,131 | 6,570 | 274,956 | 5.36% | 3.96% | Prior surfaces plus Rust-owned invalid-glyph rejection, requested-key lookup, native-cache return, and non-native fallback/option-update planning |
 | `b8ba94e27` Phase 4 path/width cache slice | 14,984 | 8,173 | 241 | 3,209 | 6,570 | 275,308 | 5.44% | 4.07% | Prior surfaces plus Rust-owned glyph-path and glyph-width cache key planning; C++ retains cache maps, font calls, and path ownership |
+| `23789239e` Phase 4 FreeType load slice | 15,109 | 8,298 | 241 | 3,269 | 6,570 | 275,531 | 5.48% | 4.13% | Prior surfaces plus Rust-owned render/path load-flag and retry planning; C++ retains face state and FreeType calls |
 
 ## Toolchain
 
@@ -607,9 +608,23 @@ substitution exists, matching the retained C++ tuple construction. C++ keeps
 the `std::map` containers, font calls, path objects, and their lifetimes; any
 failed Rust boundary call falls back to the unchanged tuple construction.
 
-Nineteen native Rust tests now cover the complete scalar key shapes, signed
+Twenty-one native Rust tests now cover the complete scalar key shapes, signed
 metadata, absent substitutions, and null-output rejection without caller
-mutation. The FreeType adapter boundary remains the final Phase 4 candidate.
+mutation. The narrow FreeType adapter boundary follows.
+
+The seventh and final Phase 4 slice moves FreeType glyph-load planning into
+Rust. Rust selects no-hinting, pedantic, and render-retry behavior from the
+existing TT/OT and tricky-font properties. C++ maps that plan to FreeType
+constants and continues to own the face, all FreeType calls, transforms,
+emboldening, bitmap/path allocation, and backend error handling. The existing
+C++ load planner remains the fallback on an invalid boundary result.
+
+The renderer trace now records the complete render/path load plan, including
+the retry decision. The 21 native Rust tests cover every render/path hinting
+combination and the FFI's no-mutation rejection behavior; the exact renderer
+corpus asserts that a real glyph render reaches the new trace event. Phase 4
+is complete. Phase 5 begins with page/render and font-facing PDF logic while
+the C++ parser and object graph remain the oracle.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

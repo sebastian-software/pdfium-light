@@ -80,9 +80,10 @@ ACTIVE_SURFACES = (
     "glyph bitmap bounding-box aggregation",
     "glyph bitmap lookup and native fallback action planning",
     "glyph path and width cache key planning",
+    "FreeType glyph load-flag planning",
 )
 CANDIDATE_SURFACES = (
-    "the FreeType adapter boundary",
+    "page/render and font-facing PDF logic",
 )
 
 
