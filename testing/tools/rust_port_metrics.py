@@ -64,8 +64,9 @@ ACTIVE_SURFACES = (
     "public render flag request planning",
     "page-object render command dispatch",
     "page-object list stop, activity, and clip planning",
+    "render-layer setup, completion, and ordered iteration",
 )
-CANDIDATE_SURFACES = ("remaining page rendering orchestration",)
+CANDIDATE_SURFACES = ("path processing and the AGG adapter boundary",)
 
 
 def tracked_paths(root: Path) -> tuple[Path, ...]:

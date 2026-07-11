@@ -71,6 +71,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `dc837a462` Phase 2 render-request slice | 12,279 | 5,468 | 241 | 1,755 | 6,570 | 270,440 | 4.54% | 2.77% | Prior surfaces plus Rust planning for public render flags, color mode, print/view usage, annotations, and device restoration |
 | `da914a73c` Phase 2 object-dispatch slice | 12,355 | 5,544 | 241 | 1,808 | 6,570 | 270,607 | 4.57% | 2.81% | Prior surfaces plus Rust-owned dispatch planning for text, path, image, shading, and form page objects |
 | `c78f121a5` Phase 2 object-list slice | 12,506 | 5,695 | 241 | 1,910 | 6,570 | 270,904 | 4.62% | 2.88% | Prior surfaces plus stop-object precedence, active-state filtering, exact float clip rejection, and same-process render-command traces |
+| `aa5d3cdba` Phase 2 render-layer slice | 12,707 | 5,896 | 241 | 2,054 | 6,570 | 271,338 | 4.68% | 2.98% | Prior surfaces plus Rust-owned layer setup/completion planning and ordered layer iteration with stop-aware C++ callbacks |
 
 ## Toolchain
 
@@ -341,6 +342,39 @@ identical bitmap dimensions, format, stride, and bytes. Four new native tests
 cover stop precedence, missing/inactive entries, all four outside directions,
 touching bounds, NaN comparison semantics, and null FFI output; 8/8 native
 render tests pass.
+
+Render-layer orchestration completes Phase 2. Rust plans optional render
+options and last-matrix setup, cache optimization and stopped completion, then
+owns the ordered layer loop itself. Each layer invokes one borrowed C++
+callback containing the retained `CPDF_RenderStatus`, page-object holder,
+device, matrix multiplication, cache object, and concrete render methods. The
+loop adds no allocation, preserves cache cleanup before the stop decision, and
+stops immediately when the callback reports the retained status.
+
+Three native plan tests cover every setup/completion bit combination and null
+outputs; two loop tests prove ascending indices, early stop, and rejection of
+null context or callback. All 13 native render tests pass. The fourteen
+same-process corpus cases compare non-empty layer, object-list, and object-type
+traces as well as exact bitmap dimensions, format, stride, and bytes.
+
+The intentionally retained C++ after Phase 2 is now explicit:
+
+- public C entry points, page/device/context objects, annotation construction,
+  save/restore, and clipping-device calls;
+- the C++ object graph, page-object holders, matrices, render options/status,
+  cache storage, visibility, clip-path and transparency evaluation;
+- concrete text, path, image, shading, and form render methods plus their
+  background fallback, with AGG and FreeType unchanged;
+- the narrow callback/ABI adapter, test-only trace collector, and C++ planning
+  functions retained as the same-process oracle/fallback.
+
+The Phase 2 broad gate builds `pdfium_all` and
+`pdfium_light_validation`, passes all 1,056 unit tests, all 13 native Rust
+render tests, and all 14 zero-tolerance bitmap-plus-trace cases. The full
+embedder run passes 500 of 551 tests; its 51 failed static `_agg_mac.png`
+goldens are the exact same named baseline set recorded at Phase 1, while the
+nine additional Phase 2 corpus cases all pass. Phase 3 therefore starts at
+path processing and the narrow AGG adapter boundary.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
