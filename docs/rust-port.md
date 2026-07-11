@@ -92,6 +92,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `85f0e3191` Phase 5 text-pattern slice | 15,260 | 8,449 | 241 | 3,351 | 6,570 | 275,791 | 5.53% | 4.20% | Prior surfaces plus Rust-owned active fill/stroke pattern-path selection; C++ retains ARGB resolution and drawing |
 | `4ce390dcd` Phase 5 text-matrix slice | 15,260 | 8,449 | 241 | 3,351 | 6,570 | 275,799 | 5.53% | 4.20% | Prior surfaces plus Rust-owned text-matrix availability validation; C++ retains matrix composition and drawing |
 | `8dc87fd9e` Phase 5 text-backend slice | 15,292 | 8,481 | 241 | 3,364 | 6,570 | 275,848 | 5.54% | 4.22% | Prior surfaces plus Rust-owned normal/path text-backend route; C++ retains backend calls and arguments |
+| `8ff532f47` Phase 5 text-CTM slice | 15,326 | 8,515 | 241 | 3,383 | 6,570 | 275,906 | 5.55% | 4.23% | Prior surfaces plus Rust-owned stroked-text CTM-adjustment decision; C++ retains matrix work and backend calls |
 
 ## Toolchain
 
@@ -663,6 +664,12 @@ Rust: clipping or stroking selects the existing path-text call; otherwise the
 normal-text call is used. C++ retains every call argument, device-matrix
 adjustment, and backend operation. The native Rust test target covers all four
 clip/stroke combinations and the common local gate passes.
+
+The fifth Phase 5 slice moves the stroked-text CTM-adjustment decision into
+Rust. Only stroked text with a non-identity horizontal or vertical scale takes
+the existing adjustment path. C++ still constructs the CTM, computes its
+inverse, composes the device matrix, and invokes the retained backend. Native
+tests include identity, non-stroke, signed-zero, and NaN scale inputs.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

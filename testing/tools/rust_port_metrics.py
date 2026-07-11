@@ -85,9 +85,10 @@ ACTIVE_SURFACES = (
     "PDF text pattern-path planning",
     "PDF text matrix availability validation",
     "PDF text backend route planning",
+    "PDF stroked-text device-matrix adjustment planning",
 )
 CANDIDATE_SURFACES = (
-    "PDF text device-matrix adjustment",
+    "PDF text path backend parameter planning",
 )
 
 
