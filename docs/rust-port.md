@@ -76,6 +76,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `adab6e20f` Phase 3 path-matrix slice | 12,884 | 6,073 | 241 | 2,164 | 6,570 | 271,655 | 4.74% | 3.07% | Prior surfaces plus Rust-owned path matrix availability across scale, swapped axes, shear, signed zero, infinity, and NaN semantics |
 | `336749474` Phase 3 fill-options slice | 13,016 | 6,205 | 241 | 2,244 | 6,570 | 271,876 | 4.79% | 3.13% | Prior surfaces plus Rust-owned fill rule, rectangle AA, path aliasing, stroke adjustment, stroke, and Type3 path-option planning |
 | `b2613c9f5` Phase 3 AGG dash slice | 13,111 | 6,300 | 241 | 2,339 | 6,570 | 272,075 | 4.82% | 3.18% | Prior surfaces plus Rust-owned dash-pattern applicability at the AGG stroke boundary, including exact threshold and non-finite semantics |
+| `3b1aa7950` Phase 3 AGG stroke-plan slice | 13,301 | 6,490 | 241 | 2,423 | 6,570 | 272,378 | 4.88% | 3.27% | Prior surfaces plus Rust-owned line-cap, line-join, effective-width, and miter-limit planning at the AGG stroke boundary |
 
 ## Toolchain
 
@@ -427,6 +428,17 @@ and fallback. A dedicated test selector and trace keep the reference render on
 the C++ decision while the candidate render uses Rust. All 3 native AGG tests,
 all 21 native render/path tests, and all 18 zero-tolerance bitmap-plus-core-and-
 AGG-trace corpus cases pass.
+
+AGG stroke setup now also receives a compact Rust plan for line cap, line join,
+effective width, and miter limit. The three pinned PDF cap and join values map
+to AGG's butt/round/square and miter-revert/round/bevel modes; unknown wire
+values fall closed to the historical defaults. Rust preserves the matrix-unit
+width floor and the first-operand behavior of `std::max()`, including a NaN
+line width. C++ still owns the graph state, matrix unit calculation inputs,
+AGG converter objects, and the complete oracle/fallback. The exact scalar plan
+is included in the independent AGG trace. All 6 native AGG tests, all 21 native
+render/path tests, and all 18 zero-tolerance bitmap-plus-core-and-AGG-trace
+corpus cases pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
