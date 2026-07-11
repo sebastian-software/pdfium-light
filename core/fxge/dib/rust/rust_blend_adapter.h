@@ -132,6 +132,22 @@ class RustBlendAdapter final {
                               pdfium::span<uint8_t> destination,
                               int destination_left,
                               int width);
+  static std::optional<std::array<int32_t, 6>> GetOverlapRect(
+      int destination_width,
+      int destination_height,
+      int destination_left,
+      int destination_top,
+      int width,
+      int height,
+      int source_width,
+      int source_height,
+      int source_left,
+      int source_top,
+      bool has_clip,
+      int clip_left,
+      int clip_top,
+      int clip_right,
+      int clip_bottom);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

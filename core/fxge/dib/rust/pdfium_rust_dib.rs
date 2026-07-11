@@ -751,6 +751,161 @@ pub unsafe extern "C" fn pdfium_rust_transfer_1bpp_row(
     true
 }
 
+#[derive(Clone, Copy)]
+struct IntRect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+impl IntRect {
+    fn normalize(mut self) -> Self {
+        if self.left > self.right {
+            std::mem::swap(&mut self.left, &mut self.right);
+        }
+        if self.top > self.bottom {
+            std::mem::swap(&mut self.top, &mut self.bottom);
+        }
+        self
+    }
+
+    fn intersect(self, other: Self) -> Self {
+        let this = self.normalize();
+        let other = other.normalize();
+        let intersection = Self {
+            left: this.left.max(other.left),
+            top: this.top.max(other.top),
+            right: this.right.min(other.right),
+            bottom: this.bottom.min(other.bottom),
+        };
+        if intersection.left > intersection.right || intersection.top > intersection.bottom {
+            Self { left: 0, top: 0, right: 0, bottom: 0 }
+        } else {
+            intersection
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        self.right <= self.left || self.bottom <= self.top
+    }
+}
+
+#[expect(clippy::too_many_arguments, reason = "C ABI mirrors PDFium's rectangle contract")]
+fn overlap_rect(
+    destination_width: i32,
+    destination_height: i32,
+    mut destination_left: i32,
+    mut destination_top: i32,
+    mut width: i32,
+    mut height: i32,
+    source_width: i32,
+    source_height: i32,
+    mut source_left: i32,
+    mut source_top: i32,
+    clip: Option<IntRect>,
+) -> Option<[i32; 6]> {
+    if width == 0
+        || height == 0
+        || destination_left > destination_width
+        || destination_top > destination_height
+    {
+        return None;
+    }
+    let source_right = source_left.checked_add(width)?;
+    let source_bottom = source_top.checked_add(height)?;
+    let source_rect =
+        IntRect { left: source_left, top: source_top, right: source_right, bottom: source_bottom }
+            .intersect(IntRect { left: 0, top: 0, right: source_width, bottom: source_height });
+    let x_offset = destination_left.checked_sub(source_left)?;
+    let y_offset = destination_top.checked_sub(source_top)?;
+    let destination_right = x_offset.checked_add(source_rect.right)?;
+    let destination_bottom = y_offset.checked_add(source_rect.bottom)?;
+    let mut destination_rect = IntRect {
+        left: x_offset.checked_add(source_rect.left)?,
+        top: y_offset.checked_add(source_rect.top)?,
+        right: destination_right,
+        bottom: destination_bottom,
+    }
+    .intersect(IntRect {
+        left: 0,
+        top: 0,
+        right: destination_width,
+        bottom: destination_height,
+    });
+    if let Some(clip) = clip {
+        destination_rect = destination_rect.intersect(clip);
+    }
+    destination_left = destination_rect.left;
+    destination_top = destination_rect.top;
+    source_left = destination_left.checked_sub(x_offset)?;
+    source_top = destination_top.checked_sub(y_offset)?;
+    if destination_rect.is_empty() {
+        return None;
+    }
+    width = destination_rect.right - destination_rect.left;
+    height = destination_rect.bottom - destination_rect.top;
+    Some([destination_left, destination_top, width, height, source_left, source_top])
+}
+
+/// Normalizes source/destination overlap and optional clipping rectangles.
+///
+/// The six output values are destination left/top, width/height, and source
+/// left/top, matching `CFX_DIBBase::GetOverlapRect()`.
+///
+/// # Safety
+///
+/// `output` must point to six writable `i32` values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_get_overlap_rect(
+    destination_width: i32,
+    destination_height: i32,
+    destination_left: i32,
+    destination_top: i32,
+    width: i32,
+    height: i32,
+    source_width: i32,
+    source_height: i32,
+    source_left: i32,
+    source_top: i32,
+    has_clip: bool,
+    clip_left: i32,
+    clip_top: i32,
+    clip_right: i32,
+    clip_bottom: i32,
+    output: *mut i32,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let clip = has_clip.then_some(IntRect {
+        left: clip_left,
+        top: clip_top,
+        right: clip_right,
+        bottom: clip_bottom,
+    });
+    let Some(result) = overlap_rect(
+        destination_width,
+        destination_height,
+        destination_left,
+        destination_top,
+        width,
+        height,
+        source_width,
+        source_height,
+        source_left,
+        source_top,
+        clip,
+    ) else {
+        return false;
+    };
+    // SAFETY: The caller contract guarantees six writable output values.
+    unsafe {
+        std::ptr::copy_nonoverlapping(result.as_ptr(), output, result.len());
+    }
+    true
+}
+
 /// Copies each packed BGRA pixel's alpha channel into its red channel.
 ///
 /// # Safety
@@ -1404,5 +1559,14 @@ mod tests {
             )
         });
         assert_eq!([0b0110_1001], destination);
+    }
+
+    #[test]
+    fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
+        let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
+        assert_eq!(
+            Some([0, 30, 50, 60, 15, 20]),
+            overlap_rect(400, 300, -10, 20, 100, 80, 200, 200, 5, 10, Some(clip))
+        );
     }
 }

@@ -28,6 +28,7 @@
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/cfx_imagestretcher.h"
 #include "core/fxge/dib/cfx_imagetransformer.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 
 namespace {
 
@@ -625,6 +626,23 @@ bool CFX_DIBBase::GetOverlapRect(int& dest_left,
                                  const FX_RECT* clip_rect) const {
   if (width == 0 || height == 0) {
     return false;
+  }
+
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const auto candidate = fxge::RustBlendAdapter::GetOverlapRect(
+        GetWidth(), GetHeight(), dest_left, dest_top, width, height, src_width,
+        src_height, src_left, src_top, clip_rect != nullptr,
+        clip_rect ? clip_rect->left : 0, clip_rect ? clip_rect->top : 0,
+        clip_rect ? clip_rect->right : 0, clip_rect ? clip_rect->bottom : 0);
+    if (candidate.has_value()) {
+      dest_left = (*candidate)[0];
+      dest_top = (*candidate)[1];
+      width = (*candidate)[2];
+      height = (*candidate)[3];
+      src_left = (*candidate)[4];
+      src_top = (*candidate)[5];
+      return true;
+    }
   }
 
   DCHECK_GT(width, 0);

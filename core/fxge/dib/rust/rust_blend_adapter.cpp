@@ -155,6 +155,23 @@ extern "C" bool pdfium_rust_transfer_1bpp_row(const uint8_t* source,
                                                size_t destination_len,
                                                size_t destination_left,
                                                size_t width);
+extern "C" bool pdfium_rust_get_overlap_rect(
+    int32_t destination_width,
+    int32_t destination_height,
+    int32_t destination_left,
+    int32_t destination_top,
+    int32_t width,
+    int32_t height,
+    int32_t source_width,
+    int32_t source_height,
+    int32_t source_left,
+    int32_t source_top,
+    bool has_clip,
+    int32_t clip_left,
+    int32_t clip_top,
+    int32_t clip_right,
+    int32_t clip_bottom,
+    int32_t* output);
 
 namespace {
 
@@ -592,6 +609,34 @@ bool RustBlendAdapter::Transfer1bppRow(
          pdfium_rust_transfer_1bpp_row(
              source.data(), source.size(), source_left, destination.data(),
              destination.size(), destination_left, width);
+}
+
+// static
+std::optional<std::array<int32_t, 6>> RustBlendAdapter::GetOverlapRect(
+    int destination_width,
+    int destination_height,
+    int destination_left,
+    int destination_top,
+    int width,
+    int height,
+    int source_width,
+    int source_height,
+    int source_left,
+    int source_top,
+    bool has_clip,
+    int clip_left,
+    int clip_top,
+    int clip_right,
+    int clip_bottom) {
+  std::array<int32_t, 6> output;
+  if (!pdfium_rust_get_overlap_rect(
+          destination_width, destination_height, destination_left,
+          destination_top, width, height, source_width, source_height,
+          source_left, source_top, has_clip, clip_left, clip_top, clip_right,
+          clip_bottom, output.data())) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 // static
