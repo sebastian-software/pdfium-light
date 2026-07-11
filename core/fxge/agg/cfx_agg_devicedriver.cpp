@@ -473,10 +473,12 @@ fxge::AggPathDrawPlan PlanAggPathDraw(const CFX_FillRenderOptions& fill_options,
                 static_cast<uint8_t>(fill_options.fill_type), fill_color,
                 has_graph_state, stroke_color, fill_options.zero_area)
           : std::nullopt;
-  return rust_plan.has_value()
-             ? *rust_plan
-             : PlanAggPathDrawCpp(fill_options, fill_color, has_graph_state,
-                                  stroke_color);
+  const fxge::AggPathDrawPlan plan =
+      rust_plan.has_value() ? *rust_plan
+                            : PlanAggPathDrawCpp(fill_options, fill_color,
+                                                 has_graph_state, stroke_color);
+  fxge::RecordAggPathDrawPlanForTesting(plan);
+  return plan;
 }
 
 agg::filling_rule_e ToAggFillRule(fxge::AggFillRule fill_rule) {

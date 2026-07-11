@@ -97,6 +97,7 @@ TEST_P(RustRendererParityEmbedderTest, CandidateMatchesCppReferenceExactly) {
   }
   if (test_case.name == "Rectangles") {
     EXPECT_TRUE(fxge::AggTraceHasPathCommandsForTesting(reference_agg_trace));
+    EXPECT_TRUE(fxge::AggTraceHasPathDrawPlansForTesting(reference_agg_trace));
   }
 }
 

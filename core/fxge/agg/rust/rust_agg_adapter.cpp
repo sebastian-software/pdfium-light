@@ -94,6 +94,9 @@ bool AggTraceHasRecord(pdfium::span<const uint8_t> trace, uint8_t wanted_tag) {
       case 0x44:
         record_size = 2;
         break;
+      case 0x42:
+        record_size = 4;
+        break;
       case 0x53:
         record_size = 11;
         break;
@@ -273,12 +276,26 @@ void RecordAggPathCommandForTesting(uint8_t command,
   }
 }
 
+void RecordAggPathDrawPlanForTesting(const AggPathDrawPlan& plan) {
+  if (!g_agg_trace_for_testing) {
+    return;
+  }
+  g_agg_trace_for_testing->push_back(0x42);
+  g_agg_trace_for_testing->push_back(static_cast<uint8_t>(plan.draw_fill));
+  g_agg_trace_for_testing->push_back(static_cast<uint8_t>(plan.stroke_mode));
+  g_agg_trace_for_testing->push_back(static_cast<uint8_t>(plan.fill_rule));
+}
+
 bool AggTraceHasDashValuesForTesting(pdfium::span<const uint8_t> trace) {
   return AggTraceHasRecord(trace, 0x56);
 }
 
 bool AggTraceHasPathCommandsForTesting(pdfium::span<const uint8_t> trace) {
   return AggTraceHasRecord(trace, 0x41);
+}
+
+bool AggTraceHasPathDrawPlansForTesting(pdfium::span<const uint8_t> trace) {
+  return AggTraceHasRecord(trace, 0x42);
 }
 
 }  // namespace fxge

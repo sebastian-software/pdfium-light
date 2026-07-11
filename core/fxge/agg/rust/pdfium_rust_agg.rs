@@ -790,4 +790,43 @@ mod tests {
             )
         });
     }
+
+    #[test]
+    fn path_draw_plan_should_preserve_fill_activation_and_rule() {
+        let no_fill = plan_path_draw(FILL_TYPE_NO_FILL, 0xffff_ffff, false, 0, false);
+        assert_eq!(no_fill.draw_fill, 0);
+        assert_eq!(no_fill.fill_rule, AGG_FILL_EVEN_ODD);
+
+        let transparent_even_odd = plan_path_draw(1, 0, false, 0, false);
+        assert_eq!(transparent_even_odd.draw_fill, 0);
+        assert_eq!(transparent_even_odd.fill_rule, AGG_FILL_EVEN_ODD);
+
+        let winding = plan_path_draw(FILL_TYPE_WINDING, 1, false, 0, false);
+        assert_eq!(winding.draw_fill, 1);
+        assert_eq!(winding.fill_rule, AGG_FILL_NON_ZERO);
+
+        let unknown = plan_path_draw(u8::MAX, 1, false, 0, false);
+        assert_eq!(unknown.draw_fill, 1);
+        assert_eq!(unknown.fill_rule, AGG_FILL_EVEN_ODD);
+    }
+
+    #[test]
+    fn path_draw_plan_should_select_all_stroke_modes() {
+        assert_eq!(plan_path_draw(1, 1, false, 0xffff_ffff, true).stroke_mode, STROKE_MODE_NONE);
+        assert_eq!(plan_path_draw(1, 1, true, 0x00ff_ffff, true).stroke_mode, STROKE_MODE_NONE);
+        assert_eq!(
+            plan_path_draw(1, 1, true, 0xffff_ffff, true).stroke_mode,
+            STROKE_MODE_ZERO_AREA
+        );
+        assert_eq!(plan_path_draw(1, 1, true, 0x01ff_ffff, false).stroke_mode, STROKE_MODE_NORMAL);
+    }
+
+    #[test]
+    fn path_draw_plan_ffi_should_reject_null_output() {
+        // SAFETY: A null output is explicitly supported and rejected before
+        // any write occurs.
+        assert!(!unsafe {
+            pdfium_rust_plan_agg_path_draw(1, 1, true, 0xffff_ffff, false, core::ptr::null_mut())
+        });
+    }
 }
