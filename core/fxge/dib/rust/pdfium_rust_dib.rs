@@ -436,6 +436,86 @@ pub unsafe extern "C" fn pdfium_rust_clone_alpha_mask_row(
     true
 }
 
+fn read_native_u32(bytes: &[u8], index: usize) -> Option<u32> {
+    let offset = index.checked_mul(4)?;
+    let end = offset.checked_add(4)?;
+    Some(u32::from_ne_bytes(bytes.get(offset..end)?.try_into().ok()?))
+}
+
+/// Copies one clipped bitmap row, including PDFium's unaligned 1-bpp shift.
+///
+/// # Safety
+///
+/// Source and destination pointers must cover their supplied lengths and must
+/// not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_clip_bitmap_row(
+    source: *const u8,
+    source_len: usize,
+    source_left: usize,
+    bits_per_pixel: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_width: usize,
+) -> bool {
+    if source.is_null()
+        || destination.is_null()
+        || !matches!(bits_per_pixel, 1 | 8 | 24 | 32)
+        || destination_width == 0
+    {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees distinct source and destination
+    // row regions for their supplied lengths.
+    let (source, destination) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    if bits_per_pixel == 1 && !source_left.is_multiple_of(8) {
+        let left_shift = source_left % 32;
+        let right_shift = 32 - left_shift;
+        let source_word_offset = source_left / 32;
+        let destination_word_count = destination_len / 4;
+        for index in 0..destination_word_count {
+            let Some(current) = read_native_u32(source, source_word_offset + index) else {
+                return false;
+            };
+            let next = read_native_u32(source, source_word_offset + index + 1).unwrap_or(0);
+            let output = (current << left_shift) | (next >> right_shift);
+            let offset = index * 4;
+            destination[offset..offset + 4].copy_from_slice(&output.to_ne_bytes());
+        }
+        return true;
+    }
+
+    let Some(source_offset) =
+        source_left.checked_mul(bits_per_pixel).and_then(|bits| bits.checked_div(8))
+    else {
+        return false;
+    };
+    let Some(copy_len) = destination_width
+        .checked_mul(bits_per_pixel)
+        .and_then(|bits| bits.checked_add(7))
+        .and_then(|bits| bits.checked_div(8))
+        .map(|len| len.min(source_len))
+    else {
+        return false;
+    };
+    let Some(source_end) = source_offset.checked_add(copy_len) else {
+        return false;
+    };
+    let Some(source) = source.get(source_offset..source_end) else {
+        return false;
+    };
+    let Some(destination) = destination.get_mut(..copy_len) else {
+        return false;
+    };
+    destination.copy_from_slice(source);
+    true
+}
+
 /// Clears a packed bitmap with one pixel value.
 ///
 /// When `fill_padding` is set, the first pixel byte is written across the

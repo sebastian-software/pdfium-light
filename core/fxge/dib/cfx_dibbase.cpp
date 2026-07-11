@@ -497,6 +497,17 @@ RetainPtr<CFX_DIBitmap> CFX_DIBBase::ClipToInternal(
   }
 
   pNewBitmap->SetPalette(GetPaletteSpan());
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    bool clipped = true;
+    for (int row = rect.top; clipped && row < rect.bottom; ++row) {
+      clipped = fxge::RustBlendAdapter::ClipBitmapRow(
+          GetScanline(row), rect.left, GetBPP(),
+          pNewBitmap->GetWritableScanline(row - rect.top), rect.Width());
+    }
+    if (clipped) {
+      return pNewBitmap;
+    }
+  }
   if (GetBPP() == 1 && rect.left % 8 != 0) {
     int left_shift = rect.left % 32;
     int right_shift = 32 - left_shift;

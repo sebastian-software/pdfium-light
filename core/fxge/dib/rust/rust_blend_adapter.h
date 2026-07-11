@@ -96,6 +96,11 @@ class RustBlendAdapter final {
   static bool CloneAlphaMaskRow(pdfium::span<const uint8_t> source,
                                 pdfium::span<uint8_t> destination,
                                 int width);
+  static bool ClipBitmapRow(pdfium::span<const uint8_t> source,
+                            int source_left,
+                            int bits_per_pixel,
+                            pdfium::span<uint8_t> destination,
+                            int destination_width);
   static bool ClearBitmap(pdfium::span<uint8_t> buffer,
                           int width,
                           int height,

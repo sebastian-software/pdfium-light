@@ -108,6 +108,13 @@ extern "C" bool pdfium_rust_clone_alpha_mask_row(const uint8_t* source,
                                                   uint8_t* destination,
                                                   size_t destination_len,
                                                   size_t width);
+extern "C" bool pdfium_rust_clip_bitmap_row(const uint8_t* source,
+                                             size_t source_len,
+                                             size_t source_left,
+                                             size_t bits_per_pixel,
+                                             uint8_t* destination,
+                                             size_t destination_len,
+                                             size_t destination_width);
 extern "C" bool pdfium_rust_clear_bitmap(uint8_t* buffer,
                                           size_t buffer_len,
                                           size_t width,
@@ -569,6 +576,18 @@ bool RustBlendAdapter::CloneAlphaMaskRow(
          pdfium_rust_clone_alpha_mask_row(
              source.data(), source.size(), destination.data(),
              destination.size(), width);
+}
+
+// static
+bool RustBlendAdapter::ClipBitmapRow(pdfium::span<const uint8_t> source,
+                                     int source_left,
+                                     int bits_per_pixel,
+                                     pdfium::span<uint8_t> destination,
+                                     int destination_width) {
+  return source_left >= 0 && bits_per_pixel > 0 && destination_width > 0 &&
+         pdfium_rust_clip_bitmap_row(
+             source.data(), source.size(), source_left, bits_per_pixel,
+             destination.data(), destination.size(), destination_width);
 }
 
 // static
