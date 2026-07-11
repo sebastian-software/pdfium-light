@@ -181,6 +181,9 @@ std::optional<bool> RustTextUsesPattern(bool is_fill,
                                         bool fill_is_pattern,
                                         bool stroke_is_pattern);
 std::optional<bool> RustTextUsesPathBackend(bool is_clip, bool is_stroke);
+std::optional<bool> RustTextNeedsDeviceMatrixAdjustment(bool is_stroke,
+                                                        float ctm_a,
+                                                        float ctm_d);
 
 class ScopedRenderTraceForTesting final {
  public:

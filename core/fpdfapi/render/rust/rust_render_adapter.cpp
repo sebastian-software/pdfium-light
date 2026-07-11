@@ -73,6 +73,11 @@ extern "C" bool pdfium_rust_text_uses_pattern(bool is_fill,
 extern "C" bool pdfium_rust_text_uses_path_backend(bool is_clip,
                                                     bool is_stroke,
                                                     bool* output);
+extern "C" bool pdfium_rust_text_needs_device_matrix_adjustment(
+    bool is_stroke,
+    float ctm_a,
+    float ctm_d,
+    bool* output);
 
 thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
@@ -346,6 +351,17 @@ std::optional<bool> RustTextUsesPathBackend(bool is_clip, bool is_stroke) {
     return std::nullopt;
   }
   return uses_path_backend;
+}
+
+std::optional<bool> RustTextNeedsDeviceMatrixAdjustment(bool is_stroke,
+                                                        float ctm_a,
+                                                        float ctm_d) {
+  bool needs_adjustment = false;
+  if (!pdfium_rust_text_needs_device_matrix_adjustment(
+          is_stroke, ctm_a, ctm_d, &needs_adjustment)) {
+    return std::nullopt;
+  }
+  return needs_adjustment;
 }
 
 ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(

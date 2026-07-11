@@ -1050,7 +1050,12 @@ bool CPDF_RenderStatus::ProcessText(CPDF_TextObject* textobj,
     CFX_Matrix device_matrix;
     if (is_stroke) {
       pdfium::span<const float, 4> pCTM = textobj->text_state().GetCTM();
-      if (pCTM[0] != 1.0f || pCTM[3] != 1.0f) {
+      const auto rust_needs_adjustment =
+          pdfium::rust::UseRustRenderCandidate()
+              ? pdfium::rust::RustTextNeedsDeviceMatrixAdjustment(
+                    is_stroke, pCTM[0], pCTM[3])
+              : std::nullopt;
+      if (rust_needs_adjustment.value_or(pCTM[0] != 1.0f || pCTM[3] != 1.0f)) {
         CFX_Matrix ctm(pCTM[0], pCTM[1], pCTM[2], pCTM[3], 0, 0);
         text_matrix *= ctm.GetInverse();
         device_matrix = ctm * mtObj2Device;

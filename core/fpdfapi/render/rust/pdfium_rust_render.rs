@@ -282,6 +282,10 @@ fn text_uses_path_backend(is_clip: bool, is_stroke: bool) -> bool {
     is_clip || is_stroke
 }
 
+fn text_needs_device_matrix_adjustment(is_stroke: bool, ctm_a: f32, ctm_d: f32) -> bool {
+    is_stroke && (ctm_a != 1.0 || ctm_d != 1.0)
+}
+
 /// Builds a compact render request plan from the supported public flags.
 ///
 /// # Safety
@@ -602,6 +606,28 @@ pub unsafe extern "C" fn pdfium_rust_text_uses_path_backend(
     // SAFETY: The caller guarantees one writable bool output.
     unsafe {
         *output = text_uses_path_backend(is_clip, is_stroke);
+    }
+    true
+}
+
+/// Decides whether a stroked text call needs the existing CTM adjustment.
+///
+/// # Safety
+///
+/// `output` must point to one writable `bool` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_needs_device_matrix_adjustment(
+    is_stroke: bool,
+    ctm_a: f32,
+    ctm_d: f32,
+    output: *mut bool,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller guarantees one writable bool output.
+    unsafe {
+        *output = text_needs_device_matrix_adjustment(is_stroke, ctm_a, ctm_d);
     }
     true
 }
@@ -1025,5 +1051,13 @@ mod tests {
         assert!(!text_uses_path_backend(false, false));
         assert!(text_uses_path_backend(true, false));
         assert!(text_uses_path_backend(false, true));
+    }
+
+    #[test]
+    fn text_matrix_adjustment_should_require_stroke_and_nonidentity_scale() {
+        assert!(!text_needs_device_matrix_adjustment(false, 2.0, 3.0));
+        assert!(!text_needs_device_matrix_adjustment(true, 1.0, 1.0));
+        assert!(text_needs_device_matrix_adjustment(true, 2.0, 1.0));
+        assert!(text_needs_device_matrix_adjustment(true, -0.0, f32::NAN));
     }
 }
