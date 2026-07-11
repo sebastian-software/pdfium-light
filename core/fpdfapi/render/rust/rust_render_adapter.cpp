@@ -15,6 +15,18 @@ extern "C" bool pdfium_rust_build_render_request_plan(uint32_t flags,
 extern "C" bool pdfium_rust_build_page_object_render_command(
     uint32_t page_object_type,
     uint8_t* output);
+extern "C" bool pdfium_rust_build_object_list_command(bool is_stop_object,
+                                                      bool is_present,
+                                                      bool is_active,
+                                                      float object_left,
+                                                      float object_bottom,
+                                                      float object_right,
+                                                      float object_top,
+                                                      float clip_left,
+                                                      float clip_bottom,
+                                                      float clip_right,
+                                                      float clip_top,
+                                                      uint8_t* output);
 
 thread_local bool g_use_rust_render_candidate = true;
 
@@ -64,6 +76,36 @@ std::optional<PageObjectRenderCommand> BuildRustPageObjectRenderCommand(
       return PageObjectRenderCommand::kShading;
     case static_cast<uint8_t>(PageObjectRenderCommand::kForm):
       return PageObjectRenderCommand::kForm;
+    default:
+      return std::nullopt;
+  }
+}
+
+std::optional<ObjectListCommand> BuildRustObjectListCommand(bool is_stop_object,
+                                                            bool is_present,
+                                                            bool is_active,
+                                                            float object_left,
+                                                            float object_bottom,
+                                                            float object_right,
+                                                            float object_top,
+                                                            float clip_left,
+                                                            float clip_bottom,
+                                                            float clip_right,
+                                                            float clip_top) {
+  uint8_t command = 0;
+  if (!pdfium_rust_build_object_list_command(
+          is_stop_object, is_present, is_active, object_left, object_bottom,
+          object_right, object_top, clip_left, clip_bottom, clip_right,
+          clip_top, &command)) {
+    return std::nullopt;
+  }
+  switch (command) {
+    case static_cast<uint8_t>(ObjectListCommand::kStop):
+      return ObjectListCommand::kStop;
+    case static_cast<uint8_t>(ObjectListCommand::kSkip):
+      return ObjectListCommand::kSkip;
+    case static_cast<uint8_t>(ObjectListCommand::kRender):
+      return ObjectListCommand::kRender;
     default:
       return std::nullopt;
   }

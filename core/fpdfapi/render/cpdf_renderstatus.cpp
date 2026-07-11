@@ -106,6 +106,27 @@ pdfium::rust::PageObjectRenderCommand BuildCppPageObjectRenderCommand(
   }
 }
 
+pdfium::rust::ObjectListCommand BuildCppObjectListCommand(
+    bool is_stop_object,
+    bool is_present,
+    bool is_active,
+    const CFX_FloatRect& object_rect,
+    const CFX_FloatRect& clip_rect) {
+  if (is_stop_object) {
+    return pdfium::rust::ObjectListCommand::kStop;
+  }
+  if (!is_present || !is_active) {
+    return pdfium::rust::ObjectListCommand::kSkip;
+  }
+  if (object_rect.left > clip_rect.right ||
+      object_rect.right < clip_rect.left ||
+      object_rect.bottom > clip_rect.top ||
+      object_rect.top < clip_rect.bottom) {
+    return pdfium::rust::ObjectListCommand::kSkip;
+  }
+  return pdfium::rust::ObjectListCommand::kRender;
+}
+
 CFX_FillRenderOptions GetFillOptionsForDrawPathWithBlend(
     const CPDF_RenderOptions::Options& options,
     const CPDF_PathObject* path_obj,
@@ -235,19 +256,32 @@ void CPDF_RenderStatus::RenderObjectList(
   CFX_FloatRect clip_rect = mtObj2Device.GetInverse().TransformRect(
       CFX_FloatRect(device_->GetClipBox()));
   for (const auto& pCurObj : *pObjectHolder) {
-    if (pCurObj.get() == stop_obj_) {
-      stopped_ = true;
-      return;
-    }
-    if (!pCurObj || !pCurObj->IsActive()) {
-      continue;
-    }
-
-    if (pCurObj->GetRect().left > clip_rect.right ||
-        pCurObj->GetRect().right < clip_rect.left ||
-        pCurObj->GetRect().bottom > clip_rect.top ||
-        pCurObj->GetRect().top < clip_rect.bottom) {
-      continue;
+    const CPDF_PageObject* page_object = pCurObj.get();
+    const bool is_stop_object = page_object == stop_obj_;
+    const bool is_present = page_object != nullptr;
+    const bool is_active =
+        !is_stop_object && is_present && page_object->IsActive();
+    const CFX_FloatRect object_rect =
+        is_active ? page_object->GetRect() : CFX_FloatRect();
+    const auto rust_command =
+        pdfium::rust::UseRustRenderCandidate()
+            ? pdfium::rust::BuildRustObjectListCommand(
+                  is_stop_object, is_present, is_active, object_rect.left,
+                  object_rect.bottom, object_rect.right, object_rect.top,
+                  clip_rect.left, clip_rect.bottom, clip_rect.right,
+                  clip_rect.top)
+            : std::nullopt;
+    const pdfium::rust::ObjectListCommand command = rust_command.value_or(
+        BuildCppObjectListCommand(is_stop_object, is_present, is_active,
+                                  object_rect, clip_rect));
+    switch (command) {
+      case pdfium::rust::ObjectListCommand::kStop:
+        stopped_ = true;
+        return;
+      case pdfium::rust::ObjectListCommand::kSkip:
+        continue;
+      case pdfium::rust::ObjectListCommand::kRender:
+        break;
     }
     RenderSingleObject(pCurObj.get(), mtObj2Device);
     if (stopped_) {

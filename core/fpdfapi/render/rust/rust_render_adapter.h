@@ -35,6 +35,12 @@ enum class PageObjectRenderCommand : uint8_t {
   kForm,
 };
 
+enum class ObjectListCommand : uint8_t {
+  kStop = 1,
+  kSkip,
+  kRender,
+};
+
 class RenderRequestPlan final {
  public:
   explicit RenderRequestPlan(uint32_t bits) : bits_(bits) {}
@@ -54,6 +60,18 @@ std::optional<RenderRequestPlan> BuildRustRenderRequestPlan(
 
 std::optional<PageObjectRenderCommand> BuildRustPageObjectRenderCommand(
     uint32_t page_object_type);
+
+std::optional<ObjectListCommand> BuildRustObjectListCommand(bool is_stop_object,
+                                                            bool is_present,
+                                                            bool is_active,
+                                                            float object_left,
+                                                            float object_bottom,
+                                                            float object_right,
+                                                            float object_top,
+                                                            float clip_left,
+                                                            float clip_bottom,
+                                                            float clip_right,
+                                                            float clip_top);
 
 // Production defaults to the Rust candidate. The setter exists only so the
 // same-process differential harness can keep the retained C++ oracle isolated.

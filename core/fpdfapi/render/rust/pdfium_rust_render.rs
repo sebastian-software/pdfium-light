@@ -40,6 +40,10 @@ const RENDER_COMMAND_IMAGE: u8 = 3;
 const RENDER_COMMAND_SHADING: u8 = 4;
 const RENDER_COMMAND_FORM: u8 = 5;
 
+const OBJECT_LIST_COMMAND_STOP: u8 = 1;
+const OBJECT_LIST_COMMAND_SKIP: u8 = 2;
+const OBJECT_LIST_COMMAND_RENDER: u8 = 3;
+
 fn build_render_request_plan(flags: u32, has_color_scheme: bool, restore_device: bool) -> u32 {
     let mappings = [
         (FPDF_ANNOT, PLAN_ANNOTATIONS),
@@ -82,6 +86,37 @@ fn build_page_object_render_command(page_object_type: u32) -> Option<u8> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct FloatRect {
+    left: f32,
+    bottom: f32,
+    right: f32,
+    top: f32,
+}
+
+fn build_object_list_command(
+    is_stop_object: bool,
+    is_present: bool,
+    is_active: bool,
+    object_rect: FloatRect,
+    clip_rect: FloatRect,
+) -> u8 {
+    if is_stop_object {
+        return OBJECT_LIST_COMMAND_STOP;
+    }
+    if !is_present || !is_active {
+        return OBJECT_LIST_COMMAND_SKIP;
+    }
+    if object_rect.left > clip_rect.right
+        || object_rect.right < clip_rect.left
+        || object_rect.bottom > clip_rect.top
+        || object_rect.top < clip_rect.bottom
+    {
+        return OBJECT_LIST_COMMAND_SKIP;
+    }
+    OBJECT_LIST_COMMAND_RENDER
+}
+
 /// Builds a compact render request plan from the supported public flags.
 ///
 /// # Safety
@@ -120,6 +155,48 @@ pub unsafe extern "C" fn pdfium_rust_build_page_object_render_command(
     let Some(command) = build_page_object_render_command(page_object_type) else {
         return false;
     };
+    // SAFETY: The caller contract guarantees one writable output value.
+    unsafe {
+        *output = command;
+    }
+    true
+}
+
+/// Plans whether one object-list entry stops, skips, or enters rendering.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u8` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_object_list_command(
+    is_stop_object: bool,
+    is_present: bool,
+    is_active: bool,
+    object_left: f32,
+    object_bottom: f32,
+    object_right: f32,
+    object_top: f32,
+    clip_left: f32,
+    clip_bottom: f32,
+    clip_right: f32,
+    clip_top: f32,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let command = build_object_list_command(
+        is_stop_object,
+        is_present,
+        is_active,
+        FloatRect {
+            left: object_left,
+            bottom: object_bottom,
+            right: object_right,
+            top: object_top,
+        },
+        FloatRect { left: clip_left, bottom: clip_bottom, right: clip_right, top: clip_top },
+    );
     // SAFETY: The caller contract guarantees one writable output value.
     unsafe {
         *output = command;
