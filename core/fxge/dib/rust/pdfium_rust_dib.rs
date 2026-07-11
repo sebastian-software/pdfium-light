@@ -26,6 +26,10 @@ enum BlendMode {
     SoftLight = 9,
     Difference = 10,
     Exclusion = 11,
+    Hue = 12,
+    Saturation = 13,
+    Color = 14,
+    Luminosity = 15,
 }
 
 impl TryFrom<u8> for BlendMode {
@@ -45,6 +49,10 @@ impl TryFrom<u8> for BlendMode {
             9 => Ok(Self::SoftLight),
             10 => Ok(Self::Difference),
             11 => Ok(Self::Exclusion),
+            12 => Ok(Self::Hue),
+            13 => Ok(Self::Saturation),
+            14 => Ok(Self::Color),
+            15 => Ok(Self::Luminosity),
             _ => Err(()),
         }
     }
@@ -99,8 +107,84 @@ fn blend(mode: BlendMode, backdrop: u8, source: u8) -> u8 {
         }
         BlendMode::Difference => (backdrop - source).abs(),
         BlendMode::Exclusion => backdrop + source - 2 * backdrop * source / 255,
+        BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity => source,
     };
     result as u8
+}
+
+#[derive(Clone, Copy)]
+struct Rgb {
+    red: i32,
+    green: i32,
+    blue: i32,
+}
+
+fn lum(color: Rgb) -> i32 {
+    (color.red * 30 + color.green * 59 + color.blue * 11) / 100
+}
+
+fn clip_color(mut color: Rgb) -> Rgb {
+    let luminosity = lum(color);
+    let minimum = color.red.min(color.green).min(color.blue);
+    let maximum = color.red.max(color.green).max(color.blue);
+    if minimum < 0 {
+        color.red = luminosity + (color.red - luminosity) * luminosity / (luminosity - minimum);
+        color.green = luminosity + (color.green - luminosity) * luminosity / (luminosity - minimum);
+        color.blue = luminosity + (color.blue - luminosity) * luminosity / (luminosity - minimum);
+    }
+    if maximum > 255 {
+        color.red =
+            luminosity + (color.red - luminosity) * (255 - luminosity) / (maximum - luminosity);
+        color.green =
+            luminosity + (color.green - luminosity) * (255 - luminosity) / (maximum - luminosity);
+        color.blue =
+            luminosity + (color.blue - luminosity) * (255 - luminosity) / (maximum - luminosity);
+    }
+    color
+}
+
+fn set_lum(mut color: Rgb, luminosity: i32) -> Rgb {
+    let delta = luminosity - lum(color);
+    color.red += delta;
+    color.green += delta;
+    color.blue += delta;
+    clip_color(color)
+}
+
+fn saturation(color: Rgb) -> i32 {
+    color.red.max(color.green).max(color.blue) - color.red.min(color.green).min(color.blue)
+}
+
+fn set_saturation(mut color: Rgb, saturation: i32) -> Rgb {
+    let minimum = color.red.min(color.green).min(color.blue);
+    let maximum = color.red.max(color.green).max(color.blue);
+    if minimum == maximum {
+        return Rgb { red: 0, green: 0, blue: 0 };
+    }
+    color.red = (color.red - minimum) * saturation / (maximum - minimum);
+    color.green = (color.green - minimum) * saturation / (maximum - minimum);
+    color.blue = (color.blue - minimum) * saturation / (maximum - minimum);
+    color
+}
+
+fn rgb_blend(mode: BlendMode, source: [u8; 4], backdrop: [u8; 4]) -> [u8; 3] {
+    let source =
+        Rgb { red: i32::from(source[2]), green: i32::from(source[1]), blue: i32::from(source[0]) };
+    let backdrop = Rgb {
+        red: i32::from(backdrop[2]),
+        green: i32::from(backdrop[1]),
+        blue: i32::from(backdrop[0]),
+    };
+    let result = match mode {
+        BlendMode::Hue => set_lum(set_saturation(source, saturation(backdrop)), lum(backdrop)),
+        BlendMode::Saturation => {
+            set_lum(set_saturation(backdrop, saturation(source)), lum(backdrop))
+        }
+        BlendMode::Color => set_lum(source, lum(backdrop)),
+        BlendMode::Luminosity => set_lum(backdrop, lum(source)),
+        _ => source,
+    };
+    [result.blue as u8, result.green as u8, result.red as u8]
 }
 
 fn alpha_merge(backdrop: u8, source: u8, source_alpha: u8) -> u8 {
@@ -124,9 +208,16 @@ fn composite_bgra_pixel(mode: BlendMode, input: [u8; 4], clip: u8, output: &mut 
     let destination_alpha = (u16::from(output[3]) + u16::from(source_alpha)
         - u16::from(output[3]) * u16::from(source_alpha) / 255) as u8;
     let alpha_ratio = (u16::from(source_alpha) * 255 / u16::from(destination_alpha)) as u8;
+    let non_separable = matches!(
+        mode,
+        BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity
+    );
+    let blended_channels = non_separable.then(|| rgb_blend(mode, input, *output));
     for channel in 0..3 {
         let candidate = if mode == BlendMode::Normal {
             input[channel]
+        } else if let Some(blended) = blended_channels {
+            alpha_merge(input[channel], blended[channel], output[3])
         } else {
             let blended = blend(mode, output[channel], input[channel]);
             alpha_merge(input[channel], blended, output[3])
@@ -144,10 +235,22 @@ fn composite_bgra_to_bgr_pixel(
     output: &mut [u8],
 ) {
     let source_alpha = (u16::from(input[3]) * u16::from(clip) / 255) as u8;
+    let non_separable = matches!(
+        mode,
+        BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity
+    );
+    let backdrop = if rgb_byte_order {
+        [output[2], output[1], output[0], 255]
+    } else {
+        [output[0], output[1], output[2], 255]
+    };
+    let blended_channels = non_separable.then(|| rgb_blend(mode, input, backdrop));
     for (channel, destination) in output[..3].iter_mut().enumerate() {
         let source_channel = if rgb_byte_order { 2 - channel } else { channel };
         let source = if mode == BlendMode::Normal {
             input[source_channel]
+        } else if let Some(blended) = blended_channels {
+            blended[source_channel]
         } else {
             blend(mode, *destination, input[source_channel])
         };
@@ -585,6 +688,11 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn rgb_blend_should_preserve_non_separable_reference_case() {
+        assert_eq!([0, 123, 49], rgb_blend(BlendMode::Hue, [0, 255, 100, 255], [255, 100, 0, 255]));
     }
 
     #[test]

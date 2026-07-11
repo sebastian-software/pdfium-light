@@ -107,7 +107,7 @@ bool RustBlendAdapter::CompositeBgraRow(BlendMode mode,
   constexpr size_t kBytesPerPixel = 4;
   if (source.size() != output.size() || source.size() % kBytesPerPixel != 0 ||
       (!clip.empty() && clip.size() != source.size() / kBytesPerPixel) ||
-      mode > BlendMode::kExclusion) {
+      mode > BlendMode::kLast) {
     return false;
   }
   return pdfium_rust_composite_bgra_row(
@@ -129,7 +129,7 @@ bool RustBlendAdapter::CompositeBgraToBgrRow(
       (output_components != 3 && output_components != 4) ||
       output.size() != source.size() / kSourceBytesPerPixel * output_components ||
       (!clip.empty() && clip.size() != source.size() / kSourceBytesPerPixel) ||
-      mode > BlendMode::kExclusion) {
+      mode > BlendMode::kLast) {
     return false;
   }
   return pdfium_rust_composite_bgra_to_bgr_row(

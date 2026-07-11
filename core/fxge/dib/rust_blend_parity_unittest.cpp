@@ -72,7 +72,7 @@ TEST(RustBlendParityTest, BgraRowsMatchCppReferenceWithAndWithoutClip) {
   }
 
   for (int mode_value = static_cast<int>(BlendMode::kNormal);
-       mode_value <= static_cast<int>(BlendMode::kExclusion); ++mode_value) {
+       mode_value <= static_cast<int>(BlendMode::kLast); ++mode_value) {
     const auto mode = static_cast<BlendMode>(mode_value);
     for (bool rgb_byte_order : {false, true}) {
       for (bool use_clip : {false, true}) {
@@ -123,7 +123,7 @@ TEST(RustBlendParityTest, BgraToBgrRowsMatchCppReference) {
       initial_destination[index] = static_cast<uint8_t>((index * 31) % 256);
     }
     for (int mode_value = static_cast<int>(BlendMode::kNormal);
-         mode_value <= static_cast<int>(BlendMode::kExclusion); ++mode_value) {
+         mode_value <= static_cast<int>(BlendMode::kLast); ++mode_value) {
       const auto mode = static_cast<BlendMode>(mode_value);
       for (bool rgb_byte_order : {false, true}) {
         for (bool use_clip : {false, true}) {
