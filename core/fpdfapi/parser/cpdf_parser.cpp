@@ -927,15 +927,24 @@ bool CPDF_Parser::LoadCrossRefStream(FX_FILESIZE* pos, bool is_main_xref) {
   pdfium::span<const uint8_t> data_span = pAcc->GetSpan();
   uint32_t segindex = 0;
   for (const auto& index : indices) {
-    FX_SAFE_UINT32 seg_end = segindex;
-    seg_end += index.obj_count;
-    seg_end *= total_width;
-    if (!seg_end.IsValid() || seg_end.ValueOrDie() > data_span.size()) {
-      continue;
+    std::optional<pdfium::rust::CrossRefSegmentRange> rust_range;
+    if (pdfium::rust::UseRustParserCandidate()) {
+      rust_range = pdfium::rust::RustCrossRefSegmentRange(
+          segindex, index.obj_count, total_width, data_span.size());
     }
-
-    pdfium::span<const uint8_t> seg_span = data_span.subspan(
-        segindex * total_width, index.obj_count * total_width);
+    if (!rust_range.has_value()) {
+      FX_SAFE_UINT32 seg_end = segindex;
+      seg_end += index.obj_count;
+      seg_end *= total_width;
+      if (!seg_end.IsValid() || seg_end.ValueOrDie() > data_span.size()) {
+        continue;
+      }
+      rust_range = pdfium::rust::CrossRefSegmentRange{
+          .offset = segindex * total_width,
+          .len = index.obj_count * total_width};
+    }
+    pdfium::span<const uint8_t> seg_span =
+        data_span.subspan(rust_range->offset, rust_range->len);
     FX_SAFE_UINT32 safe_new_size = index.start_obj_num;
     safe_new_size += index.obj_count;
     if (!safe_new_size.IsValid()) {

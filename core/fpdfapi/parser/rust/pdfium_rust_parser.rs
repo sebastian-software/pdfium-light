@@ -44,6 +44,18 @@ fn cross_ref_index_pair(start: i32, count: i32) -> Option<(u32, u32)> {
     Some((start as u32, count as u32))
 }
 
+fn cross_ref_segment_range(
+    segment_index: u32,
+    object_count: u32,
+    entry_width: u32,
+    data_len: u64,
+) -> Option<(u64, u64)> {
+    let offset = u64::from(segment_index).checked_mul(u64::from(entry_width))?;
+    let len = u64::from(object_count).checked_mul(u64::from(entry_width))?;
+    let end = offset.checked_add(len)?;
+    (end <= data_len).then_some((offset, len))
+}
+
 /// Reads a variable-width big-endian cross-reference field.
 ///
 /// # Safety
@@ -175,6 +187,37 @@ pub unsafe extern "C" fn pdfium_rust_cross_ref_index_pair(
     true
 }
 
+/// Plans the checked byte range for one cross-reference stream segment.
+///
+/// # Safety
+///
+/// Both outputs must point to writable `u64` values. Overflow or an
+/// out-of-bounds range leaves both unchanged and returns `false`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_segment_range(
+    segment_index: u32,
+    object_count: u32,
+    entry_width: u32,
+    data_len: u64,
+    output_offset: *mut u64,
+    output_len: *mut u64,
+) -> bool {
+    if output_offset.is_null() || output_len.is_null() {
+        return false;
+    }
+    let Some((offset, len)) =
+        cross_ref_segment_range(segment_index, object_count, entry_width, data_len)
+    else {
+        return false;
+    };
+    // SAFETY: Both checked pointers refer to one writable scalar.
+    unsafe {
+        *output_offset = offset;
+        *output_len = len;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,5 +285,16 @@ mod tests {
         );
         assert_eq!(None, cross_ref_index_pair(-1, 1));
         assert_eq!(None, cross_ref_index_pair(0, 0));
+    }
+
+    #[test]
+    fn cross_ref_segment_range_should_bound_multiplication_and_data_length() {
+        assert_eq!(Some((12, 8)), cross_ref_segment_range(3, 2, 4, 20));
+        assert_eq!(
+            Some((u64::from(u32::MAX) * 4, 4)),
+            cross_ref_segment_range(u32::MAX, 1, 4, u64::MAX)
+        );
+        assert_eq!(None, cross_ref_segment_range(3, 2, 4, 19));
+        assert_eq!(None, cross_ref_segment_range(u32::MAX, u32::MAX, u32::MAX, 1));
     }
 }

@@ -1,5 +1,7 @@
 #include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 
+#include <limits>
+
 namespace {
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
@@ -20,6 +22,13 @@ extern "C" bool pdfium_rust_cross_ref_index_pair(int32_t start,
                                                   int32_t count,
                                                   uint32_t* output_start,
                                                   uint32_t* output_count);
+extern "C" bool pdfium_rust_cross_ref_segment_range(
+    uint32_t segment_index,
+    uint32_t object_count,
+    uint32_t entry_width,
+    uint64_t data_len,
+    uint64_t* output_offset,
+    uint64_t* output_len);
 
 thread_local bool g_use_rust_parser_candidate = true;
 
@@ -78,6 +87,23 @@ std::optional<CrossRefIndexPair> RustCrossRefIndexPair(int32_t start,
     return std::nullopt;
   }
   return result;
+}
+
+std::optional<CrossRefSegmentRange> RustCrossRefSegmentRange(
+    uint32_t segment_index,
+    uint32_t object_count,
+    uint32_t entry_width,
+    size_t data_len) {
+  uint64_t offset = 0;
+  uint64_t len = 0;
+  if (!pdfium_rust_cross_ref_segment_range(
+          segment_index, object_count, entry_width, data_len, &offset, &len) ||
+      offset > std::numeric_limits<size_t>::max() ||
+      len > std::numeric_limits<size_t>::max()) {
+    return std::nullopt;
+  }
+  return CrossRefSegmentRange{.offset = static_cast<size_t>(offset),
+                              .len = static_cast<size_t>(len)};
 }
 
 bool UseRustParserCandidate() {

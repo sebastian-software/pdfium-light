@@ -24,6 +24,15 @@ struct CrossRefIndexPair {
 };
 std::optional<CrossRefIndexPair> RustCrossRefIndexPair(int32_t start,
                                                         int32_t count);
+struct CrossRefSegmentRange {
+  size_t offset;
+  size_t len;
+};
+std::optional<CrossRefSegmentRange> RustCrossRefSegmentRange(
+    uint32_t segment_index,
+    uint32_t object_count,
+    uint32_t entry_width,
+    size_t data_len);
 
 bool UseRustParserCandidate();
 bool SetUseRustParserCandidateForTesting(bool use_candidate);
