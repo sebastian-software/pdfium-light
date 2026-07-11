@@ -80,6 +80,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `2220a8c1b` Phase 3 AGG dash-normalization slice | 13,425 | 6,614 | 241 | 2,499 | 6,570 | 272,601 | 4.92% | 3.33% | Prior surfaces plus Rust-owned dash replacement, absolute scaling, and dash-phase normalization through an allocation-free callback boundary |
 | `44b0aa456` Phase 3 AGG path-emission slice | 13,749 | 6,938 | 241 | 2,595 | 6,570 | 273,129 | 5.03% | 3.49% | Prior surfaces plus Rust-owned path iteration, matrix transformation, hard clipping, degenerate-line repair, Bezier grouping, and Move/Line/Bezier/Close emission |
 | `9f7257f29` Phase 3 AGG path-draw-plan slice | 13,848 | 7,037 | 241 | 2,663 | 6,570 | 273,341 | 5.07% | 3.53% | Prior surfaces plus Rust-owned fill activation, even-odd/non-zero rule selection, stroke suppression, and zero-area/normal stroke-mode orchestration |
+| `4e881dc78` Phase 3 AGG stroke-matrix slice | 14,005 | 7,194 | 241 | 2,740 | 6,570 | 273,619 | 5.12% | 3.61% | Prior surfaces plus Rust-owned identity, scale extraction, normalized stroke matrix, inverse, and path-matrix decomposition |
 
 ## Toolchain
 
@@ -466,6 +467,18 @@ suppression, both fill rules, unknown wire values, all three stroke modes, and
 null output. The exact plan is part of the AGG trace. All 15 native AGG tests,
 all 21 native render/path tests, and all 19 zero-tolerance bitmap-plus-core-and-
 AGG-trace corpus cases pass.
+
+The final stroke-specific path math now runs in Rust. An absent object matrix
+produces two identity matrices and unit scale. Otherwise Rust preserves the
+first-operand `std::max(abs(a), abs(b))` scale semantics, constructs the
+normalized AGG stroke matrix, applies the retained inverse rules, and
+multiplies the original matrix into the path-emission matrix in the same
+operation order. C++ retains the matrix objects passed to AGG and the complete
+oracle/fallback. Native tests cover identity, regular scale/translation,
+singular division behavior, first-operand NaN, and null output. Both matrices
+and the scale are included bit-for-bit in the AGG trace. All 18 native AGG
+tests, all 21 native render/path tests, and all 19 zero-tolerance bitmap-plus-
+core-and-AGG-trace corpus cases pass.
 
 `BuildAggPath()` now delegates path iteration and command formation to Rust.
 Rust borrows points individually from their C++ owner, applies the optional

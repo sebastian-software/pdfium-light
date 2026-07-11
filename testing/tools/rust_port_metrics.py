@@ -73,6 +73,7 @@ ACTIVE_SURFACES = (
     "AGG dash-value and phase normalization",
     "AGG path transform, clipping, and command emission",
     "AGG path fill-rule and stroke-mode orchestration",
+    "AGG stroke matrix decomposition",
 )
 CANDIDATE_SURFACES = ("remaining path processing and the AGG adapter boundary",)
 
