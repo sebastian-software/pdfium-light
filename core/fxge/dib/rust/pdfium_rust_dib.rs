@@ -442,6 +442,310 @@ fn read_native_u32(bytes: &[u8], index: usize) -> Option<u32> {
     Some(u32::from_ne_bytes(bytes.get(offset..end)?.try_into().ok()?))
 }
 
+fn write_native_i32(bytes: &mut [u8], offset: usize, value: i32) -> bool {
+    let Some(end) = offset.checked_add(4) else {
+        return false;
+    };
+    let Some(destination) = bytes.get_mut(offset..end) else {
+        return false;
+    };
+    destination.copy_from_slice(&value.to_ne_bytes());
+    true
+}
+
+fn write_native_u32(bytes: &mut [u8], offset: usize, value: u32) -> bool {
+    let Some(end) = offset.checked_add(4) else {
+        return false;
+    };
+    let Some(destination) = bytes.get_mut(offset..end) else {
+        return false;
+    };
+    destination.copy_from_slice(&value.to_ne_bytes());
+    true
+}
+
+fn fixed_from_double(value: f64) -> u32 {
+    (value * 65_536.0).round() as u32
+}
+
+fn stretch_weight_layout(
+    destination_length: i32,
+    destination_minimum: i32,
+    destination_maximum: i32,
+    source_length: i32,
+) -> Option<(usize, usize, usize)> {
+    let scale = f64::from(source_length) / f64::from(destination_length);
+    let weight_count = (scale.abs().ceil() as usize).checked_add(1)?;
+    let item_size = 8usize.checked_add(weight_count.checked_mul(4)?)?;
+    let destination_range = destination_maximum.checked_sub(destination_minimum)?;
+    let destination_range = usize::try_from(destination_range).ok()?;
+    const MAXIMUM_TABLE_BYTES: usize = 512 * 1024 * 1024;
+    if destination_range > MAXIMUM_TABLE_BYTES / item_size {
+        return None;
+    }
+    Some((weight_count, item_size, destination_range.checked_mul(item_size)?))
+}
+
+fn set_stretch_weight_header(
+    output: &mut [u8],
+    item_offset: usize,
+    source_start: i32,
+    source_end: i32,
+    weight_count: usize,
+) -> bool {
+    let Some(range) = source_end.checked_sub(source_start) else {
+        return false;
+    };
+    if range >= i32::try_from(weight_count).unwrap_or(i32::MAX) {
+        return false;
+    }
+    write_native_i32(output, item_offset, source_start)
+        && write_native_i32(output, item_offset + 4, source_end)
+}
+
+fn set_stretch_weight(
+    output: &mut [u8],
+    item_offset: usize,
+    source_start: i32,
+    position: i32,
+    weight: u32,
+) -> bool {
+    let Some(index) = position.checked_sub(source_start) else {
+        return false;
+    };
+    let Ok(index) = usize::try_from(index) else {
+        return false;
+    };
+    let Some(offset) = item_offset
+        .checked_add(8)
+        .and_then(|offset| index.checked_mul(4).and_then(|index| offset.checked_add(index)))
+    else {
+        return false;
+    };
+    write_native_u32(output, offset, weight)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the function mirrors the complete retained weight-table contract"
+)]
+fn calculate_stretch_weights(
+    destination_length: i32,
+    destination_minimum: i32,
+    destination_maximum: i32,
+    source_length: i32,
+    source_minimum: i32,
+    source_maximum: i32,
+    no_smoothing: bool,
+    bilinear: bool,
+    output: &mut [u8],
+    weight_count: usize,
+    item_size: usize,
+) -> bool {
+    let scale = f64::from(source_length) / f64::from(destination_length);
+    let base = if destination_length < 0 { f64::from(source_length) } else { 0.0 };
+    for destination_pixel in destination_minimum..destination_maximum {
+        let Ok(item_index) = usize::try_from(destination_pixel - destination_minimum) else {
+            return false;
+        };
+        let Some(item_offset) = item_index.checked_mul(item_size) else {
+            return false;
+        };
+        if no_smoothing || scale.abs() < 1.0 {
+            let source_position = f64::from(destination_pixel) * scale + scale / 2.0 + base;
+            if bilinear {
+                let source_start = ((source_position - 0.5).floor() as i32).max(source_minimum);
+                let source_end = ((source_position + 0.5).floor() as i32).min(source_maximum - 1);
+                if !set_stretch_weight_header(
+                    output,
+                    item_offset,
+                    source_start,
+                    source_end,
+                    weight_count,
+                ) {
+                    return false;
+                }
+                if source_start >= source_end {
+                    if !set_stretch_weight(output, item_offset, source_start, source_start, 65_536)
+                    {
+                        return false;
+                    }
+                } else {
+                    let second = fixed_from_double(source_position - f64::from(source_start) - 0.5);
+                    if !set_stretch_weight(
+                        output,
+                        item_offset,
+                        source_start,
+                        source_start + 1,
+                        second,
+                    ) || !set_stretch_weight(
+                        output,
+                        item_offset,
+                        source_start,
+                        source_start,
+                        65_536 - second,
+                    ) {
+                        return false;
+                    }
+                }
+            } else {
+                let pixel_position = source_position.floor() as i32;
+                let source_start = pixel_position.max(source_minimum);
+                let source_end = pixel_position.min(source_maximum - 1);
+                if !set_stretch_weight_header(
+                    output,
+                    item_offset,
+                    source_start,
+                    source_end,
+                    weight_count,
+                ) || !set_stretch_weight(output, item_offset, source_start, source_start, 65_536)
+                {
+                    return false;
+                }
+            }
+            continue;
+        }
+
+        let source_start_f64 = f64::from(destination_pixel) * scale + base;
+        let source_end_f64 = source_start_f64 + scale;
+        let mut source_start = source_start_f64.min(source_end_f64).floor() as i32;
+        let mut source_end = source_start_f64.max(source_end_f64).floor() as i32;
+        source_start = source_start.max(source_minimum);
+        source_end = source_end.min(source_maximum - 1);
+        if source_start > source_end {
+            source_start = source_start.min(source_maximum - 1);
+            if !set_stretch_weight_header(
+                output,
+                item_offset,
+                source_start,
+                source_start,
+                weight_count,
+            ) {
+                return false;
+            }
+            continue;
+        }
+        if !set_stretch_weight_header(output, item_offset, source_start, source_end, weight_count) {
+            return false;
+        }
+        let mut remaining = 65_536_u32;
+        let mut rounding_error = 0.0;
+        for position in source_start..source_end {
+            let mut destination_start = (f64::from(position) - base) / scale;
+            let mut destination_end = (f64::from(position + 1) - base) / scale;
+            if destination_start > destination_end {
+                std::mem::swap(&mut destination_start, &mut destination_end);
+            }
+            let area_start = destination_start.max(f64::from(destination_pixel));
+            let area_end = destination_end.min(f64::from(destination_pixel + 1));
+            let weight = (area_end - area_start).max(0.0);
+            let fixed_weight = fixed_from_double(weight + rounding_error);
+            if !set_stretch_weight(output, item_offset, source_start, position, fixed_weight) {
+                return false;
+            }
+            remaining = remaining.wrapping_sub(fixed_weight);
+            rounding_error = weight - f64::from(fixed_weight) / 65_536.0;
+        }
+        if remaining != 0 && remaining <= 65_536 {
+            if !set_stretch_weight(output, item_offset, source_start, source_end, remaining) {
+                return false;
+            }
+        } else {
+            if source_end <= source_start
+                || !write_native_i32(output, item_offset + 4, source_end - 1)
+            {
+                return false;
+            }
+            let adjusted_position = source_end - 1;
+            let Some(index) = adjusted_position.checked_sub(source_start) else {
+                return false;
+            };
+            let Ok(index) = usize::try_from(index) else {
+                return false;
+            };
+            let Some(offset) = item_offset.checked_add(8).and_then(|offset| {
+                index.checked_mul(4).and_then(|index| offset.checked_add(index))
+            }) else {
+                return false;
+            };
+            let Some(existing) = read_native_u32(&output[item_offset..], 2 + index) else {
+                return false;
+            };
+            if !write_native_u32(output, offset, existing.wrapping_add(remaining)) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Sizes or fills the complete stretch-engine weight table.
+///
+/// An empty output slice performs only the bounded layout calculation.
+///
+/// # Safety
+///
+/// Output and size pointers must cover their supplied lengths. A non-empty
+/// output must be writable and must not overlap either size output.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_calculate_stretch_weights(
+    destination_length: i32,
+    destination_minimum: i32,
+    destination_maximum: i32,
+    source_length: i32,
+    source_minimum: i32,
+    source_maximum: i32,
+    no_smoothing: bool,
+    bilinear: bool,
+    output: *mut u8,
+    output_len: usize,
+    item_size_output: *mut usize,
+    table_size_output: *mut usize,
+) -> bool {
+    if item_size_output.is_null()
+        || table_size_output.is_null()
+        || destination_length == 0
+        || destination_minimum > destination_maximum
+    {
+        return false;
+    }
+    let Some((weight_count, item_size, table_size)) = stretch_weight_layout(
+        destination_length,
+        destination_minimum,
+        destination_maximum,
+        source_length,
+    ) else {
+        return false;
+    };
+    // SAFETY: The caller contract guarantees both writable size outputs.
+    unsafe {
+        *item_size_output = item_size;
+        *table_size_output = table_size;
+    }
+    if output_len == 0 {
+        return true;
+    }
+    if output.is_null() || output_len < table_size {
+        return false;
+    }
+    // SAFETY: The caller contract and size check guarantee the complete table.
+    let output = unsafe { slice::from_raw_parts_mut(output, output_len) };
+    output[..table_size].fill(0);
+    calculate_stretch_weights(
+        destination_length,
+        destination_minimum,
+        destination_maximum,
+        source_length,
+        source_minimum,
+        source_maximum,
+        no_smoothing,
+        bilinear,
+        &mut output[..table_size],
+        weight_count,
+        item_size,
+    )
+}
+
 /// Copies one clipped bitmap row, including PDFium's unaligned 1-bpp shift.
 ///
 /// # Safety

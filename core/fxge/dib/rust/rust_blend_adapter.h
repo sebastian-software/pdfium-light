@@ -103,6 +103,16 @@ class RustBlendAdapter final {
                             int destination_width);
   static bool CopyBitmapRow(pdfium::span<const uint8_t> source,
                             pdfium::span<uint8_t> destination);
+  static std::optional<std::array<size_t, 2>> CalculateStretchWeights(
+      int destination_length,
+      int destination_minimum,
+      int destination_maximum,
+      int source_length,
+      int source_minimum,
+      int source_maximum,
+      bool no_smoothing,
+      bool bilinear,
+      pdfium::span<uint8_t> output);
   static bool ClearBitmap(pdfium::span<uint8_t> buffer,
                           int width,
                           int height,

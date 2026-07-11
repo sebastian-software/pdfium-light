@@ -20,6 +20,7 @@
 #include "core/fxge/dib/cfx_dibbase.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/fx_dib.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 #include "core/fxge/dib/scanlinecomposer_iface.h"
 
 static_assert(
@@ -85,6 +86,23 @@ bool CStretchEngine::WeightTable::CalculateWeights(
   }
 
   dest_min_ = dest_min;
+
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const auto layout = fxge::RustBlendAdapter::CalculateStretchWeights(
+        dest_len, dest_min, dest_max, src_len, src_min, src_max,
+        options.bNoSmoothing, bilinear, {});
+    if (!layout.has_value()) {
+      return false;
+    }
+    item_size_bytes_ = (*layout)[0];
+    weight_tables_size_bytes_ = (*layout)[1];
+    weight_tables_.resize(weight_tables_size_bytes_);
+    const auto result = fxge::RustBlendAdapter::CalculateStretchWeights(
+        dest_len, dest_min, dest_max, src_len, src_min, src_max,
+        options.bNoSmoothing, bilinear, weight_tables_);
+    return result.has_value() && (*result)[0] == item_size_bytes_ &&
+           (*result)[1] == weight_tables_size_bytes_;
+  }
 
   const double scale = static_cast<double>(src_len) / dest_len;
   const double base = dest_len < 0 ? src_len : 0;

@@ -119,6 +119,19 @@ extern "C" bool pdfium_rust_copy_bitmap_row(const uint8_t* source,
                                              size_t source_len,
                                              uint8_t* destination,
                                              size_t destination_len);
+extern "C" bool pdfium_rust_calculate_stretch_weights(
+    int32_t destination_length,
+    int32_t destination_minimum,
+    int32_t destination_maximum,
+    int32_t source_length,
+    int32_t source_minimum,
+    int32_t source_maximum,
+    bool no_smoothing,
+    bool bilinear,
+    uint8_t* output,
+    size_t output_len,
+    size_t* item_size_output,
+    size_t* table_size_output);
 extern "C" bool pdfium_rust_clear_bitmap(uint8_t* buffer,
                                           size_t buffer_len,
                                           size_t width,
@@ -600,6 +613,28 @@ bool RustBlendAdapter::CopyBitmapRow(pdfium::span<const uint8_t> source,
   return source.data() != destination.data() &&
          pdfium_rust_copy_bitmap_row(source.data(), source.size(),
                                      destination.data(), destination.size());
+}
+
+// static
+std::optional<std::array<size_t, 2>>
+RustBlendAdapter::CalculateStretchWeights(
+    int destination_length,
+    int destination_minimum,
+    int destination_maximum,
+    int source_length,
+    int source_minimum,
+    int source_maximum,
+    bool no_smoothing,
+    bool bilinear,
+    pdfium::span<uint8_t> output) {
+  std::array<size_t, 2> sizes;
+  if (!pdfium_rust_calculate_stretch_weights(
+          destination_length, destination_minimum, destination_maximum,
+          source_length, source_minimum, source_maximum, no_smoothing,
+          bilinear, output.data(), output.size(), &sizes[0], &sizes[1])) {
+    return std::nullopt;
+  }
+  return sizes;
 }
 
 // static
