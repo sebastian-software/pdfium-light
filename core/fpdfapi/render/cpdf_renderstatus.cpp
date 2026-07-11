@@ -536,7 +536,10 @@ bool CPDF_RenderStatus::ProcessPath(CPDF_PathObject* path_obj,
           ? pdfium::rust::RustPathMatrixIsAvailable(
                 path_matrix.a, path_matrix.b, path_matrix.c, path_matrix.d)
           : std::nullopt;
-  if (!rust_matrix_available.value_or(IsAvailableMatrix(path_matrix))) {
+  const bool matrix_available =
+      rust_matrix_available.value_or(IsAvailableMatrix(path_matrix));
+  pdfium::rust::RecordPathMatrixAvailabilityForTesting(matrix_available);
+  if (!matrix_available) {
     return true;
   }
 

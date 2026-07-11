@@ -684,4 +684,31 @@ mod tests {
             )
         });
     }
+
+    #[test]
+    fn path_matrix_availability_should_match_retained_axis_rules() {
+        let cases = [
+            ((1.0, 0.0, 0.0, 1.0), true),
+            ((0.0, 1.0, 1.0, 0.0), true),
+            ((0.0, 0.0, 1.0, 1.0), false),
+            ((1.0, 1.0, 0.0, 0.0), false),
+            ((1.0, 0.0, 1.0, 1.0), true),
+            ((1.0, 1.0, 1.0, 1.0), true),
+            ((-0.0, 1.0, 1.0, -0.0), true),
+            ((f32::INFINITY, 0.0, 0.0, 1.0), true),
+            ((f32::NAN, f32::NAN, f32::NAN, f32::NAN), true),
+        ];
+        for ((a, b, c, d), expected) in cases {
+            assert_eq!(expected, path_matrix_is_available(a, b, c, d));
+        }
+    }
+
+    #[test]
+    fn path_matrix_ffi_should_reject_a_null_output() {
+        // SAFETY: A null output is explicitly supported and rejected without
+        // dereferencing it.
+        assert!(!unsafe {
+            pdfium_rust_path_matrix_is_available(1.0, 0.0, 0.0, 1.0, core::ptr::null_mut())
+        });
+    }
 }

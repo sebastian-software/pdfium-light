@@ -58,6 +58,7 @@ constexpr uint8_t kPageObjectRenderCommandTraceBase = 0x10;
 constexpr uint8_t kRenderLayerPlanTraceBase = 0x20;
 constexpr uint8_t kRenderLayerCompletionTraceBase = 0x30;
 constexpr uint8_t kPathPaintPlanTraceBase = 0x40;
+constexpr uint8_t kPathMatrixAvailabilityTraceBase = 0x50;
 
 constexpr uint8_t kPathPlanFillMask = 0x03;
 constexpr uint8_t kPathPlanStroke = 1u << 2;
@@ -302,6 +303,13 @@ void RecordRenderTraceForTesting(const PathPaintPlan& plan) {
       bits |= kPathPlanDraw;
     }
     g_render_trace_for_testing->push_back(kPathPaintPlanTraceBase + bits);
+  }
+}
+
+void RecordPathMatrixAvailabilityForTesting(bool available) {
+  if (g_render_trace_for_testing) {
+    g_render_trace_for_testing->push_back(kPathMatrixAvailabilityTraceBase +
+                                          static_cast<uint8_t>(available));
   }
 }
 
