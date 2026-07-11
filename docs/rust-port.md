@@ -55,6 +55,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `bf269cbd2` Phase 1 palette-primitives slice | 9,488 | 2,677 | 241 | 1,146 | 6,570 | 266,099 | 3.57% | 1.38% | Prior surfaces plus default palette generation, default ARGB lookup, and exact custom-palette search |
 | `c5999179d` Phase 1 buffer-conversion slice | 9,697 | 2,886 | 241 | 1,181 | 6,570 | 266,479 | 3.64% | 1.49% | Prior surfaces plus mask, indexed, grayscale, BGR, BGRx, and BGRA row conversion with default and custom palettes |
 | `66a4f3d15` Phase 1 1-bpp mask-composite slice | 9,781 | 2,970 | 241 | 1,207 | 6,570 | 266,640 | 3.67% | 1.53% | Prior surfaces plus clipped 1-bpp mask OR compositing with preserved surrounding and unset destination bits |
+| `659e766e0` Phase 1 rectangle-composite slice | 10,032 | 3,221 | 241 | 1,253 | 6,570 | 267,006 | 3.76% | 1.66% | Prior surfaces plus solid rectangle compositing across 1-/8-bpp mask/RGB, BGR, BGRx, and BGRA formats |
 
 ## Toolchain
 
@@ -125,6 +126,13 @@ Whole-bitmap clearing preserves the format-specific treatment of row padding:
 1-/8-bpp images and equal-channel BGR fill padding, while non-gray BGR and
 four-component formats write active pixels only. The focused differential
 matrix covers seven formats and transparent, gray, and colored ARGB values.
+
+Solid rectangle compositing now clips in C++ and crosses the FFI boundary once
+per bitmap. Rust owns opaque and partial-alpha updates for every retained
+1-/8-/24-/32-bpp format, including custom 1-bpp palettes, BGRx's forced opaque
+fourth byte, and BGRA alpha union. The 96-case differential matrix also locks
+down the historical 1-bpp left/right boundary-byte masks, including their
+updates outside the logical pixel interval.
 
 Color-scale conversion handles three- and four-component bitmap rows in one
 FFI call, preserves alpha/x bytes and padding, and uses the same integer

@@ -48,6 +48,7 @@ ACTIVE_SURFACES = (
     "default and custom palette primitives",
     "mask, indexed, grayscale, and RGB buffer conversion matrix",
     "1-bpp mask OR compositing",
+    "solid rectangle compositing across retained bitmap formats",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 
