@@ -14,6 +14,29 @@ class CPDF_Page;
 class CPDF_PageRenderContext;
 struct FX_RECT;
 
+// Selects the rendering implementation for same-process differential tests.
+// Production callers always use `kCandidate`; the C++ reference remains
+// reachable only through this internal testing scope while a Rust slice is
+// being proven.
+enum class RenderImplementationForTesting {
+  kCppReference,
+  kCandidate,
+};
+
+class ScopedRenderImplementationForTesting final {
+ public:
+  explicit ScopedRenderImplementationForTesting(
+      RenderImplementationForTesting implementation);
+  ScopedRenderImplementationForTesting(
+      const ScopedRenderImplementationForTesting&) = delete;
+  ScopedRenderImplementationForTesting& operator=(
+      const ScopedRenderImplementationForTesting&) = delete;
+  ~ScopedRenderImplementationForTesting();
+
+ private:
+  RenderImplementationForTesting previous_;
+};
+
 void CPDFSDK_RenderPage(CPDF_PageRenderContext* context,
                         CPDF_Page* pPage,
                         const CFX_Matrix& matrix,

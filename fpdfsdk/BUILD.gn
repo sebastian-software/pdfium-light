@@ -102,6 +102,7 @@ pdfium_embeddertest_source_set("embeddertests") {
     "fpdf_transformpage_embeddertest.cpp",
     "fpdf_view_embeddertest.cpp",
     "rust_codec_embeddertest.cpp",
+    "rust_renderer_parity_embeddertest.cpp",
   ]
   deps = [
     ":fpdfsdk",

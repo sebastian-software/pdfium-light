@@ -20,13 +20,16 @@
 
 namespace {
 
-void RenderPageImpl(CPDF_PageRenderContext* context,
-                    CPDF_Page* pPage,
-                    const CFX_Matrix& matrix,
-                    const FX_RECT& clipping_rect,
-                    int flags,
-                    const FPDF_COLORSCHEME* color_scheme,
-                    bool need_to_restore) {
+thread_local RenderImplementationForTesting g_render_implementation =
+    RenderImplementationForTesting::kCandidate;
+
+void RenderPageCppReference(CPDF_PageRenderContext* context,
+                            CPDF_Page* pPage,
+                            const CFX_Matrix& matrix,
+                            const FX_RECT& clipping_rect,
+                            int flags,
+                            const FPDF_COLORSCHEME* color_scheme,
+                            bool need_to_restore) {
   if (!context->options_) {
     context->options_ = std::make_unique<CPDF_RenderOptions>();
   }
@@ -87,7 +90,50 @@ void RenderPageImpl(CPDF_PageRenderContext* context,
   }
 }
 
+void RenderPageCandidate(CPDF_PageRenderContext* context,
+                         CPDF_Page* pPage,
+                         const CFX_Matrix& matrix,
+                         const FX_RECT& clipping_rect,
+                         int flags,
+                         const FPDF_COLORSCHEME* color_scheme,
+                         bool need_to_restore) {
+  // Phase 0 deliberately starts with the proven C++ implementation on both
+  // sides. Subsequent vertical slices replace behavior inside this candidate
+  // path while the differential test keeps this reference path unchanged.
+  RenderPageCppReference(context, pPage, matrix, clipping_rect, flags,
+                         color_scheme, need_to_restore);
+}
+
+void RenderPageSelected(CPDF_PageRenderContext* context,
+                        CPDF_Page* pPage,
+                        const CFX_Matrix& matrix,
+                        const FX_RECT& clipping_rect,
+                        int flags,
+                        const FPDF_COLORSCHEME* color_scheme,
+                        bool need_to_restore) {
+  switch (g_render_implementation) {
+    case RenderImplementationForTesting::kCppReference:
+      RenderPageCppReference(context, pPage, matrix, clipping_rect, flags,
+                             color_scheme, need_to_restore);
+      return;
+    case RenderImplementationForTesting::kCandidate:
+      RenderPageCandidate(context, pPage, matrix, clipping_rect, flags,
+                          color_scheme, need_to_restore);
+      return;
+  }
+}
+
 }  // namespace
+
+ScopedRenderImplementationForTesting::ScopedRenderImplementationForTesting(
+    RenderImplementationForTesting implementation)
+    : previous_(g_render_implementation) {
+  g_render_implementation = implementation;
+}
+
+ScopedRenderImplementationForTesting::~ScopedRenderImplementationForTesting() {
+  g_render_implementation = previous_;
+}
 
 void CPDFSDK_RenderPage(CPDF_PageRenderContext* context,
                         CPDF_Page* pPage,
@@ -95,8 +141,8 @@ void CPDFSDK_RenderPage(CPDF_PageRenderContext* context,
                         const FX_RECT& clipping_rect,
                         int flags,
                         const FPDF_COLORSCHEME* color_scheme) {
-  RenderPageImpl(context, pPage, matrix, clipping_rect, flags, color_scheme,
-                 /*need_to_restore=*/true);
+  RenderPageSelected(context, pPage, matrix, clipping_rect, flags, color_scheme,
+                     /*need_to_restore=*/true);
 }
 
 void CPDFSDK_RenderPageWithContext(CPDF_PageRenderContext* context,
@@ -110,6 +156,7 @@ void CPDFSDK_RenderPageWithContext(CPDF_PageRenderContext* context,
                                    const FPDF_COLORSCHEME* color_scheme,
                                    bool need_to_restore) {
   const FX_RECT rect(start_x, start_y, start_x + size_x, start_y + size_y);
-  RenderPageImpl(context, pPage, pPage->GetDisplayMatrixForRect(rect, rotate),
-                 rect, flags, color_scheme, need_to_restore);
+  RenderPageSelected(context, pPage,
+                     pPage->GetDisplayMatrixForRect(rect, rotate), rect, flags,
+                     color_scheme, need_to_restore);
 }
