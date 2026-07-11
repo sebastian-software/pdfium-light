@@ -50,6 +50,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `ecaa53bbb` Phase 1 color-scale slice | 8,903 | 2,092 | 241 | 897 | 6,570 | 264,944 | 3.36% | 1.09% | Prior surfaces plus BGR/BGRx/BGRA integer grayscale conversion over complete bitmaps |
 | `bdb469824` Phase 1 bitmap-geometry slice | 8,972 | 2,161 | 241 | 923 | 6,570 | 265,085 | 3.38% | 1.12% | Prior surfaces plus checked pitch and allocation-size calculation for every retained bitmap format |
 | `88d1de27d` Phase 1 bitmap-population slice | 9,070 | 2,259 | 241 | 975 | 6,570 | 265,288 | 3.42% | 1.17% | Prior surfaces plus 1-bpp-to-8-bpp mask expansion and pitch-aware external-span population |
+| `95b339296` Phase 1 equal-format transfer slice | 9,214 | 2,403 | 241 | 1,029 | 6,570 | 265,536 | 3.47% | 1.24% | Prior surfaces plus equal-format 1-bpp bit-range and 8/24/32-bpp row transfers |
 
 ## Toolchain
 
@@ -136,6 +137,13 @@ row pitches into zeroed destination storage through one FFI call per bitmap.
 The differential cases cover non-byte-aligned widths, preserved destination
 padding for bit expansion, and source pitches both below and above destination
 pitch for generic population.
+
+Equal-format transfer keeps source objects and row access in C++ while Rust
+owns each copied row. Multi-byte rows preserve the reference `memcpy`
+non-overlap contract; 1-bpp rows retain arbitrary source/destination bit
+offsets, surrounding bits, and left-to-right alias order. Fourteen focused
+cases cover seven formats and both positive and clipped negative source
+offsets.
 
 `ScopedRustDibImplementationForTesting` is test-only. It selects the retained
 C++ row compositor or the production Rust candidate in the same process. The
