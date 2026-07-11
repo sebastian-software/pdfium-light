@@ -66,6 +66,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `408f15262` Phase 1 alpha-transform slice | 11,645 | 4,834 | 241 | 1,529 | 6,570 | 269,383 | 4.32% | 2.46% | Prior surfaces plus fixed-matrix coordinate mapping and bilinear sampling for transformed alpha masks |
 | `1eebb71c9` Phase 1 indexed-transform slice | 11,816 | 5,005 | 241 | 1,574 | 6,570 | 269,661 | 4.38% | 2.55% | Prior surfaces plus fixed-matrix bilinear indexed/grayscale sampling and exact ARGB palette resolution |
 | `4cd581a61` Phase 1 color-transform slice | 12,012 | 5,201 | 241 | 1,621 | 6,570 | 269,959 | 4.45% | 2.64% | Prior surfaces plus channel-wise fixed-matrix sampling for opaque BGR/BGRx, BGRA, and retained raw CMYK transforms |
+| `5322e1543` Phase 1 stretch-palette slice | 12,061 | 5,250 | 241 | 1,637 | 6,570 | 270,030 | 4.47% | 2.67% | Prior surfaces plus signed integer interpolation of opaque 1-bpp source colors into 256-entry stretch palettes |
 
 ## Toolchain
 
@@ -248,6 +249,12 @@ CMYK fourth bytes. Twelve public format/matrix cases compare exact result
 offsets, geometry, pitch, and complete buffers; native cases pin channel order,
 opaque-alpha insertion, and per-channel fixed-point rounding. C++ still owns
 transform classification, intermediate stretching, allocation, and objects.
+
+Stretching a custom 1-bpp RGB source now builds its 256-entry opaque gradient
+palette in Rust from the two C++-owned endpoint colors. The implementation
+preserves signed integer division toward zero for descending channels, uses no
+Rust allocation, and is covered natively plus through the existing 108-case
+public `StretchTo` differential matrix.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
