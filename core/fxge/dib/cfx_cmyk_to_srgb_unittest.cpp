@@ -6,6 +6,8 @@
 
 #include <array>
 
+#include "core/fxcrt/data_vector.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 union Float_t {
@@ -55,4 +57,29 @@ TEST(fxge, RustCmykMatchesCppReferenceAcrossInterpolationBoundaries) {
       }
     }
   }
+}
+
+TEST(fxge, RustCmykBatchPreservesPdfiumBgrOrder) {
+  static constexpr size_t kPixelCount = 256;
+  DataVector<uint8_t> source(kPixelCount * 4);
+  DataVector<uint8_t> expected(kPixelCount * 3);
+  for (size_t pixel = 0; pixel < kPixelCount; ++pixel) {
+    const uint8_t cyan = static_cast<uint8_t>(pixel);
+    const uint8_t magenta = static_cast<uint8_t>(255 - pixel);
+    const uint8_t yellow = static_cast<uint8_t>(pixel * 37);
+    const uint8_t key = static_cast<uint8_t>(pixel * 73);
+    source[pixel * 4] = cyan;
+    source[pixel * 4 + 1] = magenta;
+    source[pixel * 4 + 2] = yellow;
+    source[pixel * 4 + 3] = key;
+    const auto rgb = fxge::AdobeCmykToStandardRgbReferenceForTesting(
+        cyan, magenta, yellow, key);
+    expected[pixel * 3] = rgb.blue;
+    expected[pixel * 3 + 1] = rgb.green;
+    expected[pixel * 3 + 2] = rgb.red;
+  }
+
+  DataVector<uint8_t> actual(expected.size());
+  ASSERT_TRUE(fxge::RustBlendAdapter::ConvertCmykToBgrRow(source, actual));
+  EXPECT_EQ(expected, actual);
 }
