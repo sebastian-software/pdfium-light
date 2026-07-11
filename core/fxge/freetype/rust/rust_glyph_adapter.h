@@ -42,6 +42,20 @@ struct GlyphBoundsPlan {
   int32_t bottom;
 };
 
+struct GlyphPathCacheKeyPlan {
+  uint32_t glyph_index;
+  int32_t destination_width;
+  int32_t weight;
+  int32_t italic_angle;
+  bool vertical;
+};
+
+struct GlyphWidthCacheKeyPlan {
+  uint32_t glyph_index;
+  int32_t destination_width;
+  int32_t weight;
+};
+
 enum class GlyphBitmapLookupAction : uint8_t {
   kReject = 0,
   kLookupRequestedKey = 1,
@@ -78,6 +92,17 @@ std::optional<GlyphBitmapLookupAction> RustPlanGlyphBitmapLookup(
     bool glyph_is_valid,
     bool native_text,
     bool native_cache_hit);
+std::optional<GlyphPathCacheKeyPlan> RustPlanGlyphPathCacheKey(
+    uint32_t glyph_index,
+    int32_t destination_width,
+    bool has_substitution,
+    int32_t weight,
+    int32_t italic_angle,
+    bool font_is_vertical);
+std::optional<GlyphWidthCacheKeyPlan> RustPlanGlyphWidthCacheKey(
+    uint32_t glyph_index,
+    int32_t destination_width,
+    int32_t weight);
 
 bool UseRustGlyphCandidate();
 bool SetUseRustGlyphCandidateForTesting(bool use_candidate);

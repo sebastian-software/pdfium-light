@@ -65,6 +65,40 @@ fxge::GlyphBitmapLookupAction SelectGlyphBitmapLookupAction(
   return action;
 }
 
+std::tuple<uint32_t, int, int, int, bool> MakeGlyphPathMapKey(
+    uint32_t glyph_index,
+    int dest_width,
+    const CFX_SubstFont* substitution,
+    bool font_is_vertical) {
+  const int weight = substitution ? substitution->GetWeight() : 0;
+  const int angle = substitution ? substitution->GetItalicAngle() : 0;
+  const bool vertical = substitution && font_is_vertical;
+  if (fxge::UseRustGlyphCandidate()) {
+    const auto plan = fxge::RustPlanGlyphPathCacheKey(
+        glyph_index, dest_width, !!substitution, weight, angle,
+        font_is_vertical);
+    if (plan.has_value()) {
+      return std::make_tuple(plan->glyph_index, plan->destination_width,
+                             plan->weight, plan->italic_angle, plan->vertical);
+    }
+  }
+  return std::make_tuple(glyph_index, dest_width, weight, angle, vertical);
+}
+
+std::tuple<uint32_t, int, int> MakeGlyphWidthMapKey(uint32_t glyph_index,
+                                                     int dest_width,
+                                                     int weight) {
+  if (fxge::UseRustGlyphCandidate()) {
+    const auto plan =
+        fxge::RustPlanGlyphWidthCacheKey(glyph_index, dest_width, weight);
+    if (plan.has_value()) {
+      return std::make_tuple(plan->glyph_index, plan->destination_width,
+                             plan->weight);
+    }
+  }
+  return std::make_tuple(glyph_index, dest_width, weight);
+}
+
 class UniqueKeyGen {
  public:
   UniqueKeyGen(const CFX_Font* font,
@@ -190,12 +224,8 @@ const CFX_Path* CFX_GlyphCache::LoadGlyphPath(const CFX_Font* font,
     return nullptr;
   }
 
-  const auto* pSubstFont = font->GetSubstFont();
-  int weight = pSubstFont ? pSubstFont->GetWeight() : 0;
-  int angle = pSubstFont ? pSubstFont->GetItalicAngle() : 0;
-  bool vertical = pSubstFont && font->IsVertical();
-  const PathMapKey key =
-      std::make_tuple(glyph_index, dest_width, weight, angle, vertical);
+  const PathMapKey key = MakeGlyphPathMapKey(
+      glyph_index, dest_width, font->GetSubstFont(), font->IsVertical());
   auto it = path_map_.find(key);
   if (it != path_map_.end()) {
     return it->second.get();
@@ -272,7 +302,7 @@ int CFX_GlyphCache::GetGlyphWidth(const CFX_Font* font,
                                   uint32_t glyph_index,
                                   int dest_width,
                                   int weight) {
-  const WidthMapKey key = std::make_tuple(glyph_index, dest_width, weight);
+  const WidthMapKey key = MakeGlyphWidthMapKey(glyph_index, dest_width, weight);
   auto it = width_map_.find(key);
   if (it != width_map_.end()) {
     return it->second;

@@ -62,6 +62,22 @@ enum GlyphBitmapLookupAction {
     LookupNonNativeAndDisableNative = 3,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GlyphPathCacheKeyPlan {
+    glyph_index: u32,
+    destination_width: i32,
+    weight: i32,
+    italic_angle: i32,
+    vertical: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GlyphWidthCacheKeyPlan {
+    glyph_index: u32,
+    destination_width: i32,
+    weight: i32,
+}
+
 fn plan_glyph_bitmap_lookup(
     glyph_is_valid: bool,
     native_text: bool,
@@ -76,6 +92,31 @@ fn plan_glyph_bitmap_lookup(
     } else {
         GlyphBitmapLookupAction::LookupNonNativeAndDisableNative
     }
+}
+
+fn plan_glyph_path_cache_key(
+    glyph_index: u32,
+    destination_width: i32,
+    has_substitution: bool,
+    weight: i32,
+    italic_angle: i32,
+    font_is_vertical: bool,
+) -> GlyphPathCacheKeyPlan {
+    GlyphPathCacheKeyPlan {
+        glyph_index,
+        destination_width,
+        weight: if has_substitution { weight } else { 0 },
+        italic_angle: if has_substitution { italic_angle } else { 0 },
+        vertical: has_substitution && font_is_vertical,
+    }
+}
+
+fn plan_glyph_width_cache_key(
+    glyph_index: u32,
+    destination_width: i32,
+    weight: i32,
+) -> GlyphWidthCacheKeyPlan {
+    GlyphWidthCacheKeyPlan { glyph_index, destination_width, weight }
 }
 
 fn include_glyph_bounds(
@@ -388,6 +429,84 @@ pub unsafe extern "C" fn pdfium_rust_plan_glyph_bitmap_lookup(
     // SAFETY: The caller guarantees one live, writable action byte.
     unsafe {
         *output_action = action as u8;
+    }
+    true
+}
+
+/// Plans the exact key used to cache a glyph path.
+///
+/// # Safety
+///
+/// All five output pointers must point to one writable value of their
+/// respective types. The pointers are only written after all are validated.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_plan_glyph_path_cache_key(
+    glyph_index: u32,
+    destination_width: i32,
+    has_substitution: bool,
+    weight: i32,
+    italic_angle: i32,
+    font_is_vertical: bool,
+    output_glyph_index: *mut u32,
+    output_destination_width: *mut i32,
+    output_weight: *mut i32,
+    output_italic_angle: *mut i32,
+    output_vertical: *mut u8,
+) -> bool {
+    if output_glyph_index.is_null()
+        || output_destination_width.is_null()
+        || output_weight.is_null()
+        || output_italic_angle.is_null()
+        || output_vertical.is_null()
+    {
+        return false;
+    }
+    let plan = plan_glyph_path_cache_key(
+        glyph_index,
+        destination_width,
+        has_substitution,
+        weight,
+        italic_angle,
+        font_is_vertical,
+    );
+    // SAFETY: All output pointers were checked for null and the caller
+    // guarantees that each points to one writable value of the stated type.
+    unsafe {
+        *output_glyph_index = plan.glyph_index;
+        *output_destination_width = plan.destination_width;
+        *output_weight = plan.weight;
+        *output_italic_angle = plan.italic_angle;
+        *output_vertical = u8::from(plan.vertical);
+    }
+    true
+}
+
+/// Plans the exact key used to cache a glyph width.
+///
+/// # Safety
+///
+/// All three output pointers must point to one writable value of their
+/// respective types. The pointers are only written after all are validated.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_plan_glyph_width_cache_key(
+    glyph_index: u32,
+    destination_width: i32,
+    weight: i32,
+    output_glyph_index: *mut u32,
+    output_destination_width: *mut i32,
+    output_weight: *mut i32,
+) -> bool {
+    if output_glyph_index.is_null() || output_destination_width.is_null() || output_weight.is_null()
+    {
+        return false;
+    }
+    let plan = plan_glyph_width_cache_key(glyph_index, destination_width, weight);
+    // SAFETY: All output pointers were checked for null and the caller
+    // guarantees that each points to one writable value of the stated type.
+    unsafe {
+        *output_glyph_index = plan.glyph_index;
+        *output_destination_width = plan.destination_width;
+        *output_weight = plan.weight;
     }
     true
 }
@@ -731,5 +850,130 @@ mod tests {
         // SAFETY: The output byte is live and writable for one action.
         assert!(unsafe { pdfium_rust_plan_glyph_bitmap_lookup(true, true, false, &mut action) });
         assert_eq!(action, GlyphBitmapLookupAction::LookupNonNativeAndDisableNative as u8);
+    }
+
+    #[test]
+    fn glyph_path_cache_key_should_only_use_substitution_metadata_when_present() {
+        let without_substitution = plan_glyph_path_cache_key(17, 320, false, 700, -12, true);
+        let with_substitution = plan_glyph_path_cache_key(17, 320, true, 700, -12, true);
+
+        assert_eq!(
+            without_substitution,
+            GlyphPathCacheKeyPlan {
+                glyph_index: 17,
+                destination_width: 320,
+                weight: 0,
+                italic_angle: 0,
+                vertical: false,
+            }
+        );
+        assert_eq!(
+            with_substitution,
+            GlyphPathCacheKeyPlan {
+                glyph_index: 17,
+                destination_width: 320,
+                weight: 700,
+                italic_angle: -12,
+                vertical: true,
+            }
+        );
+    }
+
+    #[test]
+    fn glyph_path_cache_key_ffi_should_reject_null_outputs_without_mutation() {
+        let mut glyph_index = 91_u32;
+        let mut destination_width = 92;
+        let mut weight = 93;
+        let mut italic_angle = 94;
+        let mut vertical = 95_u8;
+
+        // SAFETY: The live outputs are deliberately paired with a null final
+        // output; the FFI contract rejects the call before any write.
+        assert!(!unsafe {
+            pdfium_rust_plan_glyph_path_cache_key(
+                17,
+                320,
+                true,
+                700,
+                -12,
+                true,
+                &mut glyph_index,
+                &mut destination_width,
+                &mut weight,
+                &mut italic_angle,
+                core::ptr::null_mut(),
+            )
+        });
+        assert_eq!(
+            (glyph_index, destination_width, weight, italic_angle, vertical),
+            (91, 92, 93, 94, 95)
+        );
+
+        // SAFETY: Every output points to one live writable scalar.
+        assert!(unsafe {
+            pdfium_rust_plan_glyph_path_cache_key(
+                17,
+                320,
+                true,
+                700,
+                -12,
+                true,
+                &mut glyph_index,
+                &mut destination_width,
+                &mut weight,
+                &mut italic_angle,
+                &mut vertical,
+            )
+        });
+        assert_eq!(
+            (glyph_index, destination_width, weight, italic_angle, vertical),
+            (17, 320, 700, -12, 1)
+        );
+    }
+
+    #[test]
+    fn glyph_width_cache_key_should_preserve_each_scalar() {
+        assert_eq!(
+            plan_glyph_width_cache_key(0xffff_fffe, -320, -700),
+            GlyphWidthCacheKeyPlan {
+                glyph_index: 0xffff_fffe,
+                destination_width: -320,
+                weight: -700,
+            }
+        );
+    }
+
+    #[test]
+    fn glyph_width_cache_key_ffi_should_reject_null_outputs_without_mutation() {
+        let mut glyph_index = 91_u32;
+        let mut destination_width = 92;
+        let mut weight = 93;
+
+        // SAFETY: The live outputs are deliberately paired with a null final
+        // output; the FFI contract rejects the call before any write.
+        assert!(!unsafe {
+            pdfium_rust_plan_glyph_width_cache_key(
+                17,
+                320,
+                700,
+                &mut glyph_index,
+                &mut destination_width,
+                core::ptr::null_mut(),
+            )
+        });
+        assert_eq!((glyph_index, destination_width, weight), (91, 92, 93));
+
+        // SAFETY: Every output points to one live writable scalar.
+        assert!(unsafe {
+            pdfium_rust_plan_glyph_width_cache_key(
+                17,
+                320,
+                700,
+                &mut glyph_index,
+                &mut destination_width,
+                &mut weight,
+            )
+        });
+        assert_eq!((glyph_index, destination_width, weight), (17, 320, 700));
     }
 }

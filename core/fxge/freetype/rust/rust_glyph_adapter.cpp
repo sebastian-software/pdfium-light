@@ -49,6 +49,25 @@ extern "C" bool pdfium_rust_plan_glyph_bitmap_lookup(bool glyph_is_valid,
                                                      bool native_text,
                                                      bool native_cache_hit,
                                                      uint8_t* output_action);
+extern "C" bool pdfium_rust_plan_glyph_path_cache_key(
+    uint32_t glyph_index,
+    int32_t destination_width,
+    bool has_substitution,
+    int32_t weight,
+    int32_t italic_angle,
+    bool font_is_vertical,
+    uint32_t* output_glyph_index,
+    int32_t* output_destination_width,
+    int32_t* output_weight,
+    int32_t* output_italic_angle,
+    uint8_t* output_vertical);
+extern "C" bool pdfium_rust_plan_glyph_width_cache_key(
+    uint32_t glyph_index,
+    int32_t destination_width,
+    int32_t weight,
+    uint32_t* output_glyph_index,
+    int32_t* output_destination_width,
+    int32_t* output_weight);
 
 thread_local bool g_use_rust_glyph_candidate = true;
 thread_local std::vector<uint8_t>* g_glyph_trace_for_testing = nullptr;
@@ -162,6 +181,40 @@ std::optional<GlyphBitmapLookupAction> RustPlanGlyphBitmapLookup(
     return std::nullopt;
   }
   return static_cast<GlyphBitmapLookupAction>(action);
+}
+
+std::optional<GlyphPathCacheKeyPlan> RustPlanGlyphPathCacheKey(
+    uint32_t glyph_index,
+    int32_t destination_width,
+    bool has_substitution,
+    int32_t weight,
+    int32_t italic_angle,
+    bool font_is_vertical) {
+  GlyphPathCacheKeyPlan plan = {};
+  uint8_t vertical = 0;
+  if (!pdfium_rust_plan_glyph_path_cache_key(
+          glyph_index, destination_width, has_substitution, weight,
+          italic_angle, font_is_vertical, &plan.glyph_index,
+          &plan.destination_width, &plan.weight, &plan.italic_angle,
+          &vertical) ||
+      vertical > 1) {
+    return std::nullopt;
+  }
+  plan.vertical = !!vertical;
+  return plan;
+}
+
+std::optional<GlyphWidthCacheKeyPlan> RustPlanGlyphWidthCacheKey(
+    uint32_t glyph_index,
+    int32_t destination_width,
+    int32_t weight) {
+  GlyphWidthCacheKeyPlan plan = {};
+  if (!pdfium_rust_plan_glyph_width_cache_key(
+          glyph_index, destination_width, weight, &plan.glyph_index,
+          &plan.destination_width, &plan.weight)) {
+    return std::nullopt;
+  }
+  return plan;
 }
 
 bool UseRustGlyphCandidate() {
