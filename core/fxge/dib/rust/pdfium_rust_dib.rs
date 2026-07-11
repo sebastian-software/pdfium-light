@@ -1030,6 +1030,9 @@ fn convert_buffer_row(
         0x020 | 0x220 => 4,
         _ => return false,
     };
+    if destination_components == 4 && source_bits == 1 {
+        return false;
+    }
     let Some(required_output) = width.checked_mul(destination_components) else {
         return false;
     };
@@ -1883,5 +1886,6 @@ mod tests {
 
         assert!(convert_buffer_row(0x220, 0x018, &source, 0, &[], &mut output, 1,));
         assert_eq!([0x13, 0x27, 0x42, 0xad], output);
+        assert!(!convert_buffer_row(0x220, 0x001, &[0xff], 0, &[], &mut output, 1,));
     }
 }
