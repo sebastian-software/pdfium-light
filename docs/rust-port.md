@@ -53,6 +53,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `95b339296` Phase 1 equal-format transfer slice | 9,214 | 2,403 | 241 | 1,029 | 6,570 | 265,536 | 3.47% | 1.24% | Prior surfaces plus equal-format 1-bpp bit-range and 8/24/32-bpp row transfers |
 | `32153fe46` Phase 1 overlap-geometry slice | 9,378 | 2,567 | 241 | 1,090 | 6,570 | 265,843 | 3.53% | 1.33% | Prior surfaces plus checked source/destination overlap and optional clip normalization |
 | `bf269cbd2` Phase 1 palette-primitives slice | 9,488 | 2,677 | 241 | 1,146 | 6,570 | 266,099 | 3.57% | 1.38% | Prior surfaces plus default palette generation, default ARGB lookup, and exact custom-palette search |
+| `c5999179d` Phase 1 buffer-conversion slice | 9,697 | 2,886 | 241 | 1,181 | 6,570 | 266,479 | 3.64% | 1.49% | Prior surfaces plus mask, indexed, grayscale, BGR, BGRx, and BGRA row conversion with default and custom palettes |
 
 ## Toolchain
 
@@ -157,6 +158,13 @@ Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
 Focused tests cover every default entry, full generated palettes, mutation of
 custom entries, and successful custom lookup through bitmap clearing.
+
+Buffer conversion now keeps bitmap allocation and palette ownership in C++
+while Rust converts complete rows between the retained 1-/8-/24-/32-bpp mask,
+indexed, grayscale, BGR, BGRx, and BGRA representations. The boundary preserves
+palette propagation, destination alpha/x bytes, and the reference's unsupported
+1-bpp-to-ARGB contract. Differential cases cover default and custom palettes,
+all supported source widths, and 8-bpp, BGR, and BGRA destinations.
 
 `ScopedRustDibImplementationForTesting` is test-only. It selects the retained
 C++ row compositor or the production Rust candidate in the same process. The
