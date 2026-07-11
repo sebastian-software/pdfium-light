@@ -147,6 +147,13 @@ std::optional<bool> RustPathMatrixIsAvailable(float a,
                                               float b,
                                               float c,
                                               float d);
+std::optional<CFX_FillRenderOptions> BuildRustPathFillOptions(
+    CFX_FillRenderOptions::FillType fill_type,
+    bool rect_aa,
+    bool no_path_smooth,
+    bool stroke_adjust,
+    bool stroke,
+    bool type3_char);
 
 class ScopedRenderTraceForTesting final {
  public:

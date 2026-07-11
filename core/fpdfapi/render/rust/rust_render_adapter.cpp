@@ -50,6 +50,13 @@ extern "C" bool pdfium_rust_path_matrix_is_available(float a,
                                                      float c,
                                                      float d,
                                                      bool* output);
+extern "C" bool pdfium_rust_build_path_fill_options(uint8_t fill_type,
+                                                    bool rect_aa,
+                                                    bool no_path_smooth,
+                                                    bool stroke_adjust,
+                                                    bool stroke,
+                                                    bool type3_char,
+                                                    uint8_t* output);
 
 thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
@@ -63,6 +70,12 @@ constexpr uint8_t kPathMatrixAvailabilityTraceBase = 0x50;
 constexpr uint8_t kPathPlanFillMask = 0x03;
 constexpr uint8_t kPathPlanStroke = 1u << 2;
 constexpr uint8_t kPathPlanDraw = 1u << 3;
+constexpr uint8_t kPathOptionsFillMask = 0x03;
+constexpr uint8_t kPathOptionsRectAa = 1u << 2;
+constexpr uint8_t kPathOptionsAliased = 1u << 3;
+constexpr uint8_t kPathOptionsAdjustStroke = 1u << 4;
+constexpr uint8_t kPathOptionsStroke = 1u << 5;
+constexpr uint8_t kPathOptionsTextMode = 1u << 6;
 
 static_assert(static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kNoFill) ==
               0);
@@ -241,6 +254,40 @@ std::optional<bool> RustPathMatrixIsAvailable(float a,
     return std::nullopt;
   }
   return available;
+}
+
+std::optional<CFX_FillRenderOptions> BuildRustPathFillOptions(
+    CFX_FillRenderOptions::FillType fill_type,
+    bool rect_aa,
+    bool no_path_smooth,
+    bool stroke_adjust,
+    bool stroke,
+    bool type3_char) {
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_path_fill_options(
+          static_cast<uint8_t>(fill_type), rect_aa, no_path_smooth,
+          stroke_adjust, stroke, type3_char, &bits)) {
+    return std::nullopt;
+  }
+  constexpr uint8_t kAllowedBits =
+      kPathOptionsFillMask | kPathOptionsRectAa | kPathOptionsAliased |
+      kPathOptionsAdjustStroke | kPathOptionsStroke | kPathOptionsTextMode;
+  if ((bits & ~kAllowedBits) != 0) {
+    return std::nullopt;
+  }
+  const uint8_t planned_fill = bits & kPathOptionsFillMask;
+  if (planned_fill >
+      static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kWinding)) {
+    return std::nullopt;
+  }
+  CFX_FillRenderOptions options(
+      static_cast<CFX_FillRenderOptions::FillType>(planned_fill));
+  options.rect_aa = (bits & kPathOptionsRectAa) != 0;
+  options.aliased_path = (bits & kPathOptionsAliased) != 0;
+  options.adjust_stroke = (bits & kPathOptionsAdjustStroke) != 0;
+  options.stroke = (bits & kPathOptionsStroke) != 0;
+  options.text_mode = (bits & kPathOptionsTextMode) != 0;
+  return options;
 }
 
 ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(

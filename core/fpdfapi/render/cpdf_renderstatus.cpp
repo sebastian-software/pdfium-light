@@ -543,11 +543,19 @@ bool CPDF_RenderStatus::ProcessPath(CPDF_PathObject* path_obj,
     return true;
   }
 
-  return device_->DrawPath(
-      *path_obj->path().GetObject(), &path_matrix,
-      path_obj->graph_state().GetObject(), fill_argb, stroke_argb,
-      GetFillOptionsForDrawPathWithBlend(options, path_obj, fill_type, stroke,
-                                         type3_char_));
+  const bool stroke_adjust = path_obj->general_state().GetStrokeAdjust();
+  const auto rust_fill_options =
+      pdfium::rust::UseRustRenderCandidate()
+          ? pdfium::rust::BuildRustPathFillOptions(
+                fill_type, options.bRectAA, options.bNoPathSmooth,
+                stroke_adjust, stroke, type3_char_)
+          : std::nullopt;
+  const CFX_FillRenderOptions fill_options =
+      rust_fill_options.value_or(GetFillOptionsForDrawPathWithBlend(
+          options, path_obj, fill_type, stroke, type3_char_));
+  return device_->DrawPath(*path_obj->path().GetObject(), &path_matrix,
+                           path_obj->graph_state().GetObject(), fill_argb,
+                           stroke_argb, fill_options);
 }
 
 RetainPtr<CPDF_TransferFunc> CPDF_RenderStatus::GetTransferFunc(

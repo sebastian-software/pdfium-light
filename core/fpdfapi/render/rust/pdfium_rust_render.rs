@@ -56,6 +56,13 @@ const PATH_PLAN_FILL_MASK: u8 = 0x03;
 const PATH_PLAN_STROKE: u8 = 1 << 2;
 const PATH_PLAN_DRAW: u8 = 1 << 3;
 
+const PATH_OPTIONS_FILL_MASK: u8 = 0x03;
+const PATH_OPTIONS_RECT_AA: u8 = 1 << 2;
+const PATH_OPTIONS_ALIASED: u8 = 1 << 3;
+const PATH_OPTIONS_ADJUST_STROKE: u8 = 1 << 4;
+const PATH_OPTIONS_STROKE: u8 = 1 << 5;
+const PATH_OPTIONS_TEXT_MODE: u8 = 1 << 6;
+
 type RenderLayerCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
 
 fn build_render_request_plan(flags: u32, has_color_scheme: bool, restore_device: bool) -> u32 {
@@ -189,6 +196,37 @@ fn path_matrix_is_available(a: f32, b: f32, c: f32, d: f32) -> bool {
         return a != 0.0 && d != 0.0;
     }
     true
+}
+
+fn build_path_fill_options(
+    fill_type: u8,
+    rect_aa: bool,
+    no_path_smooth: bool,
+    stroke_adjust: bool,
+    stroke: bool,
+    type3_char: bool,
+) -> Option<u8> {
+    match fill_type {
+        PATH_FILL_NONE | PATH_FILL_EVEN_ODD | PATH_FILL_WINDING => {}
+        _ => return None,
+    }
+    let mut options = fill_type & PATH_OPTIONS_FILL_MASK;
+    if fill_type != PATH_FILL_NONE && rect_aa {
+        options |= PATH_OPTIONS_RECT_AA;
+    }
+    if no_path_smooth {
+        options |= PATH_OPTIONS_ALIASED;
+    }
+    if stroke_adjust {
+        options |= PATH_OPTIONS_ADJUST_STROKE;
+    }
+    if stroke {
+        options |= PATH_OPTIONS_STROKE;
+    }
+    if type3_char {
+        options |= PATH_OPTIONS_TEXT_MODE;
+    }
+    Some(options)
 }
 
 /// Builds a compact render request plan from the supported public flags.
@@ -395,6 +433,41 @@ pub unsafe extern "C" fn pdfium_rust_path_matrix_is_available(
     // SAFETY: The caller contract guarantees one writable output value.
     unsafe {
         *output = path_matrix_is_available(a, b, c, d);
+    }
+    true
+}
+
+/// Builds the retained backend's path fill and graph-state options.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u8` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_path_fill_options(
+    fill_type: u8,
+    rect_aa: bool,
+    no_path_smooth: bool,
+    stroke_adjust: bool,
+    stroke: bool,
+    type3_char: bool,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let Some(options) = build_path_fill_options(
+        fill_type,
+        rect_aa,
+        no_path_smooth,
+        stroke_adjust,
+        stroke,
+        type3_char,
+    ) else {
+        return false;
+    };
+    // SAFETY: The caller contract guarantees one writable output value.
+    unsafe {
+        *output = options;
     }
     true
 }
