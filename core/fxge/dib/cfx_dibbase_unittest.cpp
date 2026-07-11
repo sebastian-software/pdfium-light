@@ -227,3 +227,69 @@ TEST(CFXDIBBaseTest, RustOverlapRectMatchesCppReferenceCorpus) {
     }
   }
 }
+
+TEST(CFXDIBBaseTest, RustDefaultPaletteMatchesCppReference) {
+  for (const FXDIB_Format format :
+       {FXDIB_Format::k1bppRgb, FXDIB_Format::k8bppRgb}) {
+    auto bitmap = pdfium::MakeRetain<CFX_DIBitmap>();
+    ASSERT_TRUE(bitmap->Create(4, 3, format));
+    const int palette_size = format == FXDIB_Format::k1bppRgb ? 2 : 256;
+    for (int index = 0; index < palette_size; ++index) {
+      uint32_t reference;
+      {
+        fxge::ScopedRustDibImplementationForTesting implementation(false);
+        reference = bitmap->GetPaletteArgb(index);
+      }
+      EXPECT_EQ(reference, bitmap->GetPaletteArgb(index))
+          << "format=" << static_cast<int>(format) << " index=" << index;
+    }
+  }
+}
+
+TEST(CFXDIBBaseTest, RustPaletteBuildMatchesCppReference) {
+  for (const FXDIB_Format format :
+       {FXDIB_Format::k1bppRgb, FXDIB_Format::k8bppRgb}) {
+    auto reference = pdfium::MakeRetain<CFX_DIBitmap>();
+    auto candidate = pdfium::MakeRetain<CFX_DIBitmap>();
+    ASSERT_TRUE(reference->Create(4, 3, format));
+    ASSERT_TRUE(candidate->Create(4, 3, format));
+    const int index = format == FXDIB_Format::k1bppRgb ? 1 : 173;
+    {
+      fxge::ScopedRustDibImplementationForTesting implementation(false);
+      reference->SetPaletteArgb(index, 0x8042a7e1);
+    }
+    candidate->SetPaletteArgb(index, 0x8042a7e1);
+    ASSERT_EQ(reference->GetPaletteSpan().size(),
+              candidate->GetPaletteSpan().size());
+    for (size_t entry = 0; entry < reference->GetPaletteSpan().size();
+         ++entry) {
+      EXPECT_EQ(reference->GetPaletteSpan()[entry],
+                candidate->GetPaletteSpan()[entry])
+          << "format=" << static_cast<int>(format) << " entry=" << entry;
+    }
+  }
+}
+
+TEST(CFXDIBBaseTest, RustCustomPaletteLookupMatchesCppReference) {
+  for (const FXDIB_Format format :
+       {FXDIB_Format::k1bppRgb, FXDIB_Format::k8bppRgb}) {
+    auto reference = pdfium::MakeRetain<CFX_DIBitmap>();
+    auto candidate = pdfium::MakeRetain<CFX_DIBitmap>();
+    ASSERT_TRUE(reference->Create(7, 3, format));
+    ASSERT_TRUE(candidate->Create(7, 3, format));
+    const int index = format == FXDIB_Format::k1bppRgb ? 1 : 173;
+    static constexpr uint32_t kColor = 0x8042a7e1;
+    {
+      fxge::ScopedRustDibImplementationForTesting implementation(false);
+      reference->SetPaletteArgb(index, kColor);
+      reference->Clear(kColor);
+    }
+    candidate->SetPaletteArgb(index, kColor);
+    candidate->Clear(kColor);
+    ASSERT_EQ(reference->GetBuffer().size(), candidate->GetBuffer().size());
+    for (size_t byte = 0; byte < reference->GetBuffer().size(); ++byte) {
+      EXPECT_EQ(reference->GetBuffer()[byte], candidate->GetBuffer()[byte])
+          << "format=" << static_cast<int>(format) << " byte=" << byte;
+    }
+  }
+}
