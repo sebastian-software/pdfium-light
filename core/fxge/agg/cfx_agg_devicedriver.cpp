@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <optional>
 #include <utility>
 
 #include "build/build_config.h"
@@ -23,6 +24,7 @@
 #include "core/fxcrt/zip.h"
 #include "core/fxge/agg/cfx_agg_cliprgn.h"
 #include "core/fxge/agg/cfx_agg_imagerenderer.h"
+#include "core/fxge/agg/rust/rust_agg_adapter.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_path.h"
 #include "core/fxge/cfx_renderdevice.h"
@@ -335,35 +337,27 @@ void RasterizeStroke(agg::rasterizer_scanline_aa* rasterizer,
   width = std::max(width, unit);
   const std::vector<float>& dash_array = pGraphState->dash_array();
 
-  // If the dash pattern cycle is too small (< 0.1 device pixels), render as
-  // a solid line instead. This prevents performance issues in AGG while
-  // maintaining visual fidelity (such small dashes are invisible anyway).
-  bool should_apply_dash_pattern = !dash_array.empty();
-  if (should_apply_dash_pattern) {
+  auto should_apply_dash_pattern_cpp = [&dash_array, scale]() {
+    if (dash_array.empty()) {
+      return false;
+    }
     float dash_cycle_len = 0.0f;
-    for (float val : dash_array) {
-      // Reject non-finite values (NaN, Infinity) per PDF spec
-      if (!std::isfinite(val)) {
-        should_apply_dash_pattern = false;
-        break;
+    for (float value : dash_array) {
+      if (!std::isfinite(value)) {
+        return false;
       }
-      // Clamp negatives per PDF spec (non-negative expected)
-      dash_cycle_len += std::max(0.0f, val);
+      dash_cycle_len += std::max(0.0f, value);
     }
-
-    // Minimum dash cycle length in device pixels.
-    // Based on empirical testing:
-    // - At 96 DPI: 0.1px ≈ 0.001 inches (imperceptible to human eye)
-    // - At 300 DPI: 0.1px ≈ 0.0003 inches (still imperceptible)
     constexpr float kMinDashCycleThreshold = 0.1f;
-
-    // If the dash cycle length is less than this value, the gaps would
-    // be nearly invisible, but rendering them would cause significant
-    // performance overhead.
-    if (dash_cycle_len * scale < kMinDashCycleThreshold) {
-      should_apply_dash_pattern = false;
-    }
-  }
+    return !(dash_cycle_len * scale < kMinDashCycleThreshold);
+  };
+  const auto rust_should_apply =
+      fxge::UseRustAggCandidate()
+          ? fxge::RustShouldApplyAggDashPattern(dash_array, scale)
+          : std::nullopt;
+  const bool should_apply_dash_pattern = rust_should_apply.has_value()
+                                             ? *rust_should_apply
+                                             : should_apply_dash_pattern_cpp();
 
   if (should_apply_dash_pattern) {
     using DashConverter = agg::conv_dash<agg::path_storage>;

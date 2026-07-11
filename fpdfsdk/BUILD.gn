@@ -57,6 +57,7 @@ source_set("fpdfsdk") {
     "../core/fxcodec",
     "../core/fxcrt",
     "../core/fxge",
+    "../core/fxge/agg/rust:rust_agg_adapter",
   ]
   visibility = [ "../*" ]
 }

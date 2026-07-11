@@ -16,6 +16,7 @@
 #include "core/fpdfapi/render/cpdf_renderoptions.h"
 #include "core/fpdfapi/render/rust/rust_render_adapter.h"
 #include "core/fpdfdoc/cpdf_annotlist.h"
+#include "core/fxge/agg/rust/rust_agg_adapter.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 
@@ -193,12 +194,15 @@ ScopedRenderImplementationForTesting::ScopedRenderImplementationForTesting(
     : previous_(g_render_implementation),
       previous_core_candidate_(
           pdfium::rust::SetUseRustRenderCandidateForTesting(
-              implementation == RenderImplementationForTesting::kCandidate)) {
+              implementation == RenderImplementationForTesting::kCandidate)),
+      previous_agg_candidate_(fxge::SetUseRustAggCandidateForTesting(
+          implementation == RenderImplementationForTesting::kCandidate)) {
   g_render_implementation = implementation;
 }
 
 ScopedRenderImplementationForTesting::~ScopedRenderImplementationForTesting() {
   pdfium::rust::SetUseRustRenderCandidateForTesting(previous_core_candidate_);
+  fxge::SetUseRustAggCandidateForTesting(previous_agg_candidate_);
   g_render_implementation = previous_;
 }
 

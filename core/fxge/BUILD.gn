@@ -128,7 +128,10 @@ source_set("fxge") {
       "agg/cfx_agg_imagerenderer.cpp",
       "agg/cfx_agg_imagerenderer.h",
     ]
-    deps += [ "../../third_party:fx_agg" ]
+    deps += [
+      "../../third_party:fx_agg",
+      "agg/rust:rust_agg_adapter",
+    ]
   }
 
   if (is_android) {
