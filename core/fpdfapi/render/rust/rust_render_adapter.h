@@ -173,6 +173,7 @@ void RecordRenderTraceForTesting(const RenderLayerPlan& plan);
 void RecordRenderTraceForTesting(const RenderLayerCompletion& completion);
 void RecordRenderTraceForTesting(const PathPaintPlan& plan);
 void RecordPathMatrixAvailabilityForTesting(bool available);
+void RecordPathFillOptionsForTesting(const CFX_FillRenderOptions& options);
 
 // Production defaults to the Rust candidate. The setter exists only so the
 // same-process differential harness can keep the retained C++ oracle isolated.

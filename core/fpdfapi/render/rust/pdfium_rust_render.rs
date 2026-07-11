@@ -784,4 +784,63 @@ mod tests {
             pdfium_rust_path_matrix_is_available(1.0, 0.0, 0.0, 1.0, core::ptr::null_mut())
         });
     }
+
+    #[test]
+    fn path_fill_options_should_map_all_graph_state_flags() {
+        assert_eq!(
+            Some(PATH_FILL_NONE),
+            build_path_fill_options(PATH_FILL_NONE, true, false, false, false, false)
+        );
+        assert_eq!(
+            Some(PATH_FILL_EVEN_ODD | PATH_OPTIONS_RECT_AA),
+            build_path_fill_options(PATH_FILL_EVEN_ODD, true, false, false, false, false)
+        );
+        assert_eq!(
+            Some(
+                PATH_FILL_WINDING
+                    | PATH_OPTIONS_RECT_AA
+                    | PATH_OPTIONS_ALIASED
+                    | PATH_OPTIONS_ADJUST_STROKE
+                    | PATH_OPTIONS_STROKE
+                    | PATH_OPTIONS_TEXT_MODE
+            ),
+            build_path_fill_options(PATH_FILL_WINDING, true, true, true, true, true)
+        );
+    }
+
+    #[test]
+    fn path_fill_options_should_keep_rect_aa_fill_only() {
+        assert_eq!(
+            Some(PATH_OPTIONS_STROKE),
+            build_path_fill_options(PATH_FILL_NONE, true, false, false, true, false)
+        );
+        assert_eq!(
+            Some(PATH_FILL_WINDING),
+            build_path_fill_options(PATH_FILL_WINDING, false, false, false, false, false)
+        );
+    }
+
+    #[test]
+    fn path_fill_options_should_reject_invalid_boundaries() {
+        assert_eq!(None, build_path_fill_options(3, true, true, true, true, true));
+        let mut output = 0xa5;
+        // SAFETY: `output` is one writable byte for the duration of the call.
+        assert!(!unsafe {
+            pdfium_rust_build_path_fill_options(3, true, true, true, true, true, &mut output)
+        });
+        assert_eq!(0xa5, output);
+        // SAFETY: A null output is explicitly supported and rejected without
+        // dereferencing it.
+        assert!(!unsafe {
+            pdfium_rust_build_path_fill_options(
+                PATH_FILL_WINDING,
+                true,
+                true,
+                true,
+                true,
+                true,
+                core::ptr::null_mut(),
+            )
+        });
+    }
 }

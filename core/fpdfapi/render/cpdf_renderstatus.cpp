@@ -553,6 +553,7 @@ bool CPDF_RenderStatus::ProcessPath(CPDF_PathObject* path_obj,
   const CFX_FillRenderOptions fill_options =
       rust_fill_options.value_or(GetFillOptionsForDrawPathWithBlend(
           options, path_obj, fill_type, stroke, type3_char_));
+  pdfium::rust::RecordPathFillOptionsForTesting(fill_options);
   return device_->DrawPath(*path_obj->path().GetObject(), &path_matrix,
                            path_obj->graph_state().GetObject(), fill_argb,
                            stroke_argb, fill_options);
