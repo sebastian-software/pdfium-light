@@ -84,19 +84,24 @@ out/light/pdfium_embeddertests \
 The comparison includes bitmap dimensions, format, stride, and all allocated
 bytes. Platform expectation tolerances do not apply to this same-process gate.
 
-For Rust render-plan and AGG path changes, build and run both native Rust test
-targets before the renderer corpus:
+For Rust render-plan, AGG path, and glyph-planning changes, build and run the
+native Rust test targets before the renderer corpus:
 
 ```bash
-ninja -C out/light pdfium_rust_render_unittests pdfium_rust_agg_unittests
+ninja -C out/light \
+  pdfium_rust_render_unittests \
+  pdfium_rust_agg_unittests \
+  pdfium_rust_glyph_unittests
 out/light/pdfium_rust_render_unittests
 out/light/pdfium_rust_agg_unittests
+out/light/pdfium_rust_glyph_unittests
 ```
 
 The renderer corpus additionally compares the exact render-command trace and
 the AGG path, draw-plan, stroke-matrix, dash-decision, dash-value, and phase
-traces. AGG remains the retained raster backend; these tests validate the
-Rust-owned planning and adapter boundary around it.
+traces plus every glyph bitmap cache-key word. AGG and FreeType remain the
+retained raster and font backends; these tests validate the Rust-owned planning
+and adapter boundaries around them.
 
 For Rust DIB changes, build and run the native Rust target and the exhaustive
 C++/Rust blend and row parity cases:

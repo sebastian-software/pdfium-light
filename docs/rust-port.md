@@ -81,6 +81,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `44b0aa456` Phase 3 AGG path-emission slice | 13,749 | 6,938 | 241 | 2,595 | 6,570 | 273,129 | 5.03% | 3.49% | Prior surfaces plus Rust-owned path iteration, matrix transformation, hard clipping, degenerate-line repair, Bezier grouping, and Move/Line/Bezier/Close emission |
 | `9f7257f29` Phase 3 AGG path-draw-plan slice | 13,848 | 7,037 | 241 | 2,663 | 6,570 | 273,341 | 5.07% | 3.53% | Prior surfaces plus Rust-owned fill activation, even-odd/non-zero rule selection, stroke suppression, and zero-area/normal stroke-mode orchestration |
 | `4e881dc78` Phase 3 AGG stroke-matrix slice | 14,005 | 7,194 | 241 | 2,740 | 6,570 | 273,619 | 5.12% | 3.61% | Prior surfaces plus Rust-owned identity, scale extraction, normalized stroke matrix, inverse, and path-matrix decomposition |
+| `17c6e369b` Phase 4 glyph cache-key slice | 14,211 | 7,400 | 241 | 2,872 | 6,570 | 274,001 | 5.19% | 3.71% | Prior surfaces plus Rust-owned 6-, 7-, 9-, and 10-word glyph bitmap cache-key shape planning for base, substitution, and native-text variants |
 
 ## Toolchain
 
@@ -513,6 +514,29 @@ branch embedder run passes 505 of 556 tests; `origin/main` passes 486 of 537.
 Both fail the exact same 51 named static macOS golden tests, while all 19 added
 differential cases pass. Phase 4 therefore starts at glyph planning, cache
 behavior, and the narrow FreeType adapter boundary.
+
+## Phase 4 glyph planning, caches, and FreeType adapter boundary
+
+The first Phase 4 slice moves glyph bitmap cache-key shape planning into Rust.
+C++ retains the existing matrix quantization, font and substitution metadata,
+cache containers, glyph loading, bitmap ownership, and FreeType calls. Rust
+receives only scalar words, selects the exact 6-, 7-, 9-, or 10-word layout,
+and writes it into a caller-owned fixed-capacity buffer without allocation.
+Signed weight and italic-angle values preserve their two's-complement word
+representation, and native-text keys retain the terminal discriminator.
+
+The production route uses the Rust candidate. A test-only selector keeps the
+complete C++ key builder available as the same-process oracle and records every
+cache-key word in the renderer trace. The `HelloWorldNoNativeText` fixture
+forces the bitmap-glyph route, proving that the trace is non-empty; all 19
+renderer corpus cases remain byte- and trace-exact. Three native Rust tests
+cover every key shape, signed inputs, insufficient capacity, null output, and
+the invariant that rejected calls do not mutate caller outputs. Rustfmt,
+Clippy with warnings denied, native GN tests, and Rust unit/doc tests pass.
+
+The next Phase 4 boundary is glyph placement and cache lookup/action planning.
+Concrete cache storage, font faces, glyph bitmaps, paths, and the FreeType
+backend remain intentionally C++-owned until their own differential slices.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

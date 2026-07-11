@@ -74,8 +74,11 @@ ACTIVE_SURFACES = (
     "AGG path transform, clipping, and command emission",
     "AGG path fill-rule and stroke-mode orchestration",
     "AGG stroke matrix decomposition",
+    "glyph bitmap cache-key shape planning",
 )
-CANDIDATE_SURFACES = ("glyph planning, caches, and the FreeType adapter boundary",)
+CANDIDATE_SURFACES = (
+    "glyph placement, cache lookup, and the FreeType adapter boundary",
+)
 
 
 def tracked_paths(root: Path) -> tuple[Path, ...]:
