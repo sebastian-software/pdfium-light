@@ -77,6 +77,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `336749474` Phase 3 fill-options slice | 13,016 | 6,205 | 241 | 2,244 | 6,570 | 271,876 | 4.79% | 3.13% | Prior surfaces plus Rust-owned fill rule, rectangle AA, path aliasing, stroke adjustment, stroke, and Type3 path-option planning |
 | `b2613c9f5` Phase 3 AGG dash slice | 13,111 | 6,300 | 241 | 2,339 | 6,570 | 272,075 | 4.82% | 3.18% | Prior surfaces plus Rust-owned dash-pattern applicability at the AGG stroke boundary, including exact threshold and non-finite semantics |
 | `3b1aa7950` Phase 3 AGG stroke-plan slice | 13,301 | 6,490 | 241 | 2,423 | 6,570 | 272,378 | 4.88% | 3.27% | Prior surfaces plus Rust-owned line-cap, line-join, effective-width, and miter-limit planning at the AGG stroke boundary |
+| `2220a8c1b` Phase 3 AGG dash-normalization slice | 13,425 | 6,614 | 241 | 2,499 | 6,570 | 272,601 | 4.92% | 3.33% | Prior surfaces plus Rust-owned dash replacement, absolute scaling, and dash-phase normalization through an allocation-free callback boundary |
 
 ## Toolchain
 
@@ -439,6 +440,18 @@ AGG converter objects, and the complete oracle/fallback. The exact scalar plan
 is included in the independent AGG trace. All 6 native AGG tests, all 21 native
 render/path tests, and all 18 zero-tolerance bitmap-plus-core-and-AGG-trace
 corpus cases pass.
+
+Applied dash patterns are now normalized in one Rust call. Rust replaces dash
+lengths at or below `0.000001` with `0.1`, applies the retained signed scale
+and absolute-value order, and scales the dash phase without allocating. Each
+normalized value is borrowed back into the existing C++ AGG converter through
+a callback, so the production path adds neither a Rust allocation nor a new
+C++ temporary vector. Boundary rejection occurs before any callback, allowing
+the untouched converter to use the complete C++ fallback. A dedicated dashed-
+line fixture exercises the active route, and the exact AGG trace includes each
+normalized value and phase. All 9 native AGG tests, all 21 native render/path
+tests, and all 19 zero-tolerance bitmap-plus-core-and-AGG-trace corpus cases
+pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

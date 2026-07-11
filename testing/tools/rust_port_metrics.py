@@ -70,6 +70,7 @@ ACTIVE_SURFACES = (
     "path fill and graph-state option planning",
     "AGG dash-pattern applicability planning",
     "AGG stroke cap, join, width, and miter planning",
+    "AGG dash-value and phase normalization",
 )
 CANDIDATE_SURFACES = ("remaining path processing and the AGG adapter boundary",)
 
