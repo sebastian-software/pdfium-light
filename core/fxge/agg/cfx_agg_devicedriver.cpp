@@ -437,11 +437,51 @@ void RasterizeStroke(agg::rasterizer_scanline_aa* rasterizer,
   rasterizer->add_path_transformed(stroke, pObject2Device);
 }
 
-agg::filling_rule_e GetAlternateOrWindingFillType(
-    const CFX_FillRenderOptions& fill_options) {
-  return fill_options.fill_type == CFX_FillRenderOptions::FillType::kWinding
-             ? agg::fill_non_zero
-             : agg::fill_even_odd;
+fxge::AggPathDrawPlan PlanAggPathDrawCpp(
+    const CFX_FillRenderOptions& fill_options,
+    uint32_t fill_color,
+    bool has_graph_state,
+    uint32_t stroke_color) {
+  return fxge::AggPathDrawPlan{
+      .draw_fill =
+          fill_options.fill_type != CFX_FillRenderOptions::FillType::kNoFill &&
+          fill_color,
+      .stroke_mode = !has_graph_state || !FXARGB_A(stroke_color)
+                         ? fxge::AggStrokeMode::kNone
+                     : fill_options.zero_area ? fxge::AggStrokeMode::kZeroArea
+                                              : fxge::AggStrokeMode::kNormal,
+      .fill_rule =
+          fill_options.fill_type == CFX_FillRenderOptions::FillType::kWinding
+              ? fxge::AggFillRule::kNonZero
+              : fxge::AggFillRule::kEvenOdd,
+  };
+}
+
+fxge::AggPathDrawPlan PlanAggPathDraw(const CFX_FillRenderOptions& fill_options,
+                                      uint32_t fill_color,
+                                      bool has_graph_state,
+                                      uint32_t stroke_color) {
+  static_assert(
+      static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kNoFill) == 0);
+  static_assert(
+      static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kEvenOdd) == 1);
+  static_assert(
+      static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kWinding) == 2);
+  const auto rust_plan =
+      fxge::UseRustAggCandidate()
+          ? fxge::RustPlanAggPathDraw(
+                static_cast<uint8_t>(fill_options.fill_type), fill_color,
+                has_graph_state, stroke_color, fill_options.zero_area)
+          : std::nullopt;
+  return rust_plan.has_value()
+             ? *rust_plan
+             : PlanAggPathDrawCpp(fill_options, fill_color, has_graph_state,
+                                  stroke_color);
+}
+
+agg::filling_rule_e ToAggFillRule(fxge::AggFillRule fill_rule) {
+  return fill_rule == fxge::AggFillRule::kNonZero ? agg::fill_non_zero
+                                                  : agg::fill_even_odd;
 }
 
 RetainPtr<CFX_DIBitmap> GetClipMaskFromRegion(const CFX_AggClipRgn* r) {
@@ -1283,7 +1323,9 @@ bool CFX_AggDeviceDriver::SetClip_PathFill(
   rasterizer.clip_box(0.0f, 0.0f, static_cast<float>(GetPixelWidth()),
                       static_cast<float>(GetPixelHeight()));
   rasterizer.add_path(path_data);
-  rasterizer.filling_rule(GetAlternateOrWindingFillType(fill_options));
+  const fxge::AggPathDrawPlan draw_plan =
+      PlanAggPathDraw(fill_options, 1, false, 0);
+  rasterizer.filling_rule(ToAggFillRule(draw_plan.fill_rule));
   SetClipMask(rasterizer);
   return true;
 }
@@ -1348,23 +1390,23 @@ bool CFX_AggDeviceDriver::DrawPath(const CFX_Path& path,
   }
 
   fill_options_ = fill_options;
-  if (fill_options.fill_type != CFX_FillRenderOptions::FillType::kNoFill &&
-      fill_color) {
+  const fxge::AggPathDrawPlan draw_plan =
+      PlanAggPathDraw(fill_options, fill_color, !!pGraphState, stroke_color);
+  if (draw_plan.draw_fill) {
     agg::path_storage path_data = BuildAggPath(path, pObject2Device);
     agg::rasterizer_scanline_aa rasterizer;
     rasterizer.clip_box(0.0f, 0.0f, static_cast<float>(GetPixelWidth()),
                         static_cast<float>(GetPixelHeight()));
     rasterizer.add_path(path_data);
-    rasterizer.filling_rule(GetAlternateOrWindingFillType(fill_options));
+    rasterizer.filling_rule(ToAggFillRule(draw_plan.fill_rule));
     RenderRasterizer(rasterizer, fill_color, fill_options.full_cover,
                      /*bGroupKnockout=*/false);
   }
-  int stroke_alpha = FXARGB_A(stroke_color);
-  if (!pGraphState || !stroke_alpha) {
+  if (draw_plan.stroke_mode == fxge::AggStrokeMode::kNone) {
     return true;
   }
 
-  if (fill_options.zero_area) {
+  if (draw_plan.stroke_mode == fxge::AggStrokeMode::kZeroArea) {
     agg::path_storage path_data = BuildAggPath(path, pObject2Device);
     agg::rasterizer_scanline_aa rasterizer;
     rasterizer.clip_box(0.0f, 0.0f, static_cast<float>(GetPixelWidth()),

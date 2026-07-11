@@ -17,6 +17,8 @@ namespace fxge {
 
 enum class AggLineCap : uint8_t { kButt = 0, kRound = 1, kSquare = 2 };
 enum class AggLineJoin : uint8_t { kMiter = 0, kRound = 1, kBevel = 2 };
+enum class AggFillRule : uint8_t { kEvenOdd = 0, kNonZero = 1 };
+enum class AggStrokeMode : uint8_t { kNone = 0, kZeroArea = 1, kNormal = 2 };
 
 struct AggStrokePlan {
   AggLineCap line_cap;
@@ -31,6 +33,12 @@ struct AggPathPoint {
   uint8_t point_type;
   uint8_t close_figure;
   uint8_t reserved[2];
+};
+
+struct AggPathDrawPlan {
+  bool draw_fill;
+  AggStrokeMode stroke_mode;
+  AggFillRule fill_rule;
 };
 
 using AggDashValueCallback = void (*)(void* context, float value);
@@ -54,6 +62,12 @@ std::optional<AggStrokePlan> RustPlanAggStroke(uint8_t line_cap,
                                                float object_x_unit,
                                                float object_y_unit,
                                                float miter_limit);
+
+std::optional<AggPathDrawPlan> RustPlanAggPathDraw(uint8_t fill_type,
+                                                   uint32_t fill_color,
+                                                   bool has_graph_state,
+                                                   uint32_t stroke_color,
+                                                   bool zero_area);
 
 std::optional<float> RustEmitAggDashPattern(
     pdfium::span<const float> dash_array,

@@ -16,7 +16,15 @@ struct RustAggStrokePlan {
   float miter_limit;
 };
 
+struct RustAggPathDrawPlan {
+  uint8_t draw_fill;
+  uint8_t stroke_mode;
+  uint8_t fill_rule;
+  uint8_t reserved;
+};
+
 static_assert(sizeof(RustAggStrokePlan) == 12);
+static_assert(sizeof(RustAggPathDrawPlan) == 4);
 static_assert(sizeof(fxge::AggPathPoint) == 12);
 
 extern "C" bool pdfium_rust_should_apply_agg_dash_pattern(
@@ -34,6 +42,13 @@ extern "C" bool pdfium_rust_plan_agg_stroke(uint8_t line_cap,
                                             float object_y_unit,
                                             float miter_limit,
                                             RustAggStrokePlan* output);
+
+extern "C" bool pdfium_rust_plan_agg_path_draw(uint8_t fill_type,
+                                               uint32_t fill_color,
+                                               bool has_graph_state,
+                                               uint32_t stroke_color,
+                                               bool zero_area,
+                                               RustAggPathDrawPlan* output);
 
 extern "C" bool pdfium_rust_emit_agg_dash_pattern(
     const float* dash_values,
@@ -139,6 +154,26 @@ std::optional<AggStrokePlan> RustPlanAggStroke(uint8_t line_cap,
       .line_join = static_cast<AggLineJoin>(plan.line_join),
       .width = plan.width,
       .miter_limit = plan.miter_limit,
+  };
+}
+
+std::optional<AggPathDrawPlan> RustPlanAggPathDraw(uint8_t fill_type,
+                                                   uint32_t fill_color,
+                                                   bool has_graph_state,
+                                                   uint32_t stroke_color,
+                                                   bool zero_area) {
+  RustAggPathDrawPlan plan{};
+  if (!pdfium_rust_plan_agg_path_draw(fill_type, fill_color, has_graph_state,
+                                      stroke_color, zero_area, &plan) ||
+      plan.draw_fill > 1 ||
+      plan.stroke_mode > static_cast<uint8_t>(AggStrokeMode::kNormal) ||
+      plan.fill_rule > static_cast<uint8_t>(AggFillRule::kNonZero)) {
+    return std::nullopt;
+  }
+  return AggPathDrawPlan{
+      .draw_fill = !!plan.draw_fill,
+      .stroke_mode = static_cast<AggStrokeMode>(plan.stroke_mode),
+      .fill_rule = static_cast<AggFillRule>(plan.fill_rule),
   };
 }
 

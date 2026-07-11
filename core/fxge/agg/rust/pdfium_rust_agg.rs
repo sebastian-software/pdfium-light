@@ -20,6 +20,13 @@ const PATH_COMMAND_LINE: u8 = 1;
 const PATH_COMMAND_BEZIER: u8 = 2;
 const PATH_COMMAND_CLOSE: u8 = 3;
 const MAX_PATH_POSITION: f32 = 32_000.0;
+const FILL_TYPE_NO_FILL: u8 = 0;
+const FILL_TYPE_WINDING: u8 = 2;
+const AGG_FILL_EVEN_ODD: u8 = 0;
+const AGG_FILL_NON_ZERO: u8 = 1;
+const STROKE_MODE_NONE: u8 = 0;
+const STROKE_MODE_ZERO_AREA: u8 = 1;
+const STROKE_MODE_NORMAL: u8 = 2;
 
 /// Plain-data stroke settings returned to the AGG adapter.
 #[repr(C)]
@@ -40,6 +47,15 @@ pub struct RustAggPathPoint {
     point_type: u8,
     close_figure: u8,
     reserved: [u8; 2],
+}
+
+/// Plain-data fill and stroke orchestration returned to the AGG adapter.
+#[repr(C)]
+pub struct RustAggPathDrawPlan {
+    draw_fill: u8,
+    stroke_mode: u8,
+    fill_rule: u8,
+    reserved: u8,
 }
 
 #[derive(Clone, Copy)]
@@ -65,6 +81,26 @@ fn transform_and_clip(point: RustAggPathPoint, matrix: Option<Matrix>) -> [f32; 
         None => (point.x, point.y),
     };
     [hard_clip(x), hard_clip(y)]
+}
+
+fn plan_path_draw(
+    fill_type: u8,
+    fill_color: u32,
+    has_graph_state: bool,
+    stroke_color: u32,
+    zero_area: bool,
+) -> RustAggPathDrawPlan {
+    let draw_fill = u8::from(fill_type != FILL_TYPE_NO_FILL && fill_color != 0);
+    let stroke_mode = if !has_graph_state || stroke_color >> 24 == 0 {
+        STROKE_MODE_NONE
+    } else if zero_area {
+        STROKE_MODE_ZERO_AREA
+    } else {
+        STROKE_MODE_NORMAL
+    };
+    let fill_rule =
+        if fill_type == FILL_TYPE_WINDING { AGG_FILL_NON_ZERO } else { AGG_FILL_EVEN_ODD };
+    RustAggPathDrawPlan { draw_fill, stroke_mode, fill_rule, reserved: 0 }
 }
 
 struct StrokeInputs {
@@ -189,6 +225,30 @@ pub unsafe extern "C" fn pdfium_rust_plan_agg_stroke(
             object_y_unit,
             miter_limit,
         });
+    }
+    true
+}
+
+/// Plans AGG path fill and stroke orchestration.
+///
+/// # Safety
+///
+/// `output` must point to one writable `RustAggPathDrawPlan` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_plan_agg_path_draw(
+    fill_type: u8,
+    fill_color: u32,
+    has_graph_state: bool,
+    stroke_color: u32,
+    zero_area: bool,
+    output: *mut RustAggPathDrawPlan,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller guarantees one writable output value.
+    unsafe {
+        *output = plan_path_draw(fill_type, fill_color, has_graph_state, stroke_color, zero_area);
     }
     true
 }
