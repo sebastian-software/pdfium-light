@@ -62,7 +62,7 @@ ACTIVE_SURFACES = (
     "1-bpp stretch palette interpolation",
     "bitmap row flipping across retained pixel widths",
 )
-CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
+CANDIDATE_SURFACES = ("render command planning and page rendering orchestration",)
 
 
 def tracked_paths(root: Path) -> tuple[Path, ...]:

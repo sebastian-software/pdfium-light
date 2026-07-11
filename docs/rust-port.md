@@ -264,6 +264,38 @@ test covers packed 1-bpp and 8-/24-/32-bpp reversal plus the no-X-flip padding
 copy contract. The Windows public entry remains guarded by its existing build
 flag and retained C++ fallback.
 
+## Phase 1 retained C++ inventory
+
+Phase 1 leaves no platform-independent candidate pixel, color, blend,
+compositing, stretch, or bilinear-sampling loop in `core/fxge/dib` without an
+active Rust boundary. The following C++ remains intentionally:
+
+- `CFX_DIBBase`, `CFX_DIBitmap`, `CFX_BitmapStorer`, and
+  `CFX_ImageStretcher` retain object lifetime, allocation, palette and scanline
+  storage, pitch-bearing spans, composer callbacks, and pause/progressive
+  state.
+- `CFX_ImageTransformer` retains transform classification, matrix inversion,
+  result/clip object construction, and selection of the stretch, rotate, or
+  arbitrary-transform route. Rust owns the arbitrary route's fixed-matrix
+  coordinate mapping and every sampling loop.
+- AGG, FreeType, public C/C++ declarations, native pixel structs, and the
+  Windows `FlipImage` entry remain native system/backend boundaries. The
+  Windows entry delegates row behavior to the same platform-neutral Rust core.
+- The former C++ algorithms in `cfx_scanlinecompositor.cpp`,
+  `cfx_cmyk_to_srgb.cpp`, `cfx_dibbase.cpp`, `cfx_dibitmap.cpp`,
+  `cstretchengine.cpp`, and `cfx_imagetransformer.cpp` remain as differential
+  oracles and validation-failure fallbacks. The test-only selector reaches
+  them in the same process; production selects Rust first.
+
+The phase gate builds `pdfium_light_validation` and `pdfium_all`, including
+`pdfium_diff` and every retained fuzzer source. It runs 1,056 unit tests, all
+of which pass. The full embedder suite adds five Rust renderer corpus cases;
+491 of 542 tests pass and the remaining 51 static macOS golden mismatches are
+the exact same named baseline set reproduced on `origin/main` (486 of 537).
+All five zero-tolerance same-process Rust/C++ renderer comparisons pass.
+Phase 2 therefore starts at render-command planning and page-rendering
+orchestration rather than reopening DIB pixel behavior.
+
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
 Focused tests cover every default entry, full generated palettes, mutation of
