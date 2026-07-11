@@ -3343,6 +3343,98 @@ mod tests {
     }
 
     #[test]
+    fn stretch_vertical_row_should_cover_scalar_color_and_alpha_methods() {
+        let (weight_count, item_size, table_size) =
+            stretch_weight_layout(1, 0, 1, 2).expect("test layout should be valid");
+        let mut table = vec![0; table_size];
+        assert!(calculate_stretch_weights(
+            1,
+            0,
+            1,
+            2,
+            0,
+            2,
+            false,
+            false,
+            &mut table,
+            weight_count,
+            item_size,
+        ));
+
+        for transform_method in 0..=2 {
+            let mut output = [9];
+            assert!(stretch_vertical_row(
+                transform_method,
+                1,
+                &[10, 30],
+                1,
+                0,
+                0,
+                1,
+                &table,
+                item_size,
+                0,
+                0,
+                &mut output,
+            ));
+            assert_eq!([20], output);
+        }
+
+        for transform_method in 3..=4 {
+            let mut output = [9; 3];
+            assert!(stretch_vertical_row(
+                transform_method,
+                3,
+                &[10, 20, 30, 30, 40, 50],
+                3,
+                0,
+                0,
+                1,
+                &table,
+                item_size,
+                0,
+                0,
+                &mut output,
+            ));
+            assert_eq!([20, 30, 40], output);
+        }
+
+        let mut output = [9; 4];
+        assert!(stretch_vertical_row(
+            5,
+            4,
+            &[10, 20, 30, 128, 20, 40, 60, 128],
+            4,
+            0,
+            0,
+            1,
+            &table,
+            item_size,
+            0,
+            0,
+            &mut output,
+        ));
+        assert_eq!([29, 59, 89, 128], output);
+
+        output = [9; 4];
+        assert!(stretch_vertical_row(
+            5,
+            4,
+            &[10, 20, 30, 0, 20, 40, 60, 0],
+            4,
+            0,
+            0,
+            1,
+            &table,
+            item_size,
+            0,
+            0,
+            &mut output,
+        ));
+        assert_eq!([9, 9, 9, 0], output);
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(
