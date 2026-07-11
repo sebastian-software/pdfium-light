@@ -49,10 +49,16 @@ std::optional<CFX_Point> TextGlyphPos::GetOrigin(
                                   glyph_->top(), offset.x, offset.y);
     if (plan.has_value()) {
       if (!plan->valid) {
+        fxge::RecordGlyphOriginForTesting(false, 0, 0);
         return std::nullopt;
       }
+      fxge::RecordGlyphOriginForTesting(true, plan->x, plan->y);
       return CFX_Point(plan->x, plan->y);
     }
   }
-  return GetGlyphOriginCppReference(origin_, *glyph_, offset);
+  const auto result = GetGlyphOriginCppReference(origin_, *glyph_, offset);
+  fxge::RecordGlyphOriginForTesting(result.has_value(),
+                                    result.has_value() ? result->x : 0,
+                                    result.has_value() ? result->y : 0);
+  return result;
 }

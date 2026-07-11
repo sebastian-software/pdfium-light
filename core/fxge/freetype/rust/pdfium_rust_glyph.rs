@@ -258,4 +258,45 @@ mod tests {
             )
         });
     }
+
+    #[test]
+    fn glyph_origin_should_apply_signed_glyph_and_bitmap_offsets() {
+        let Some(plan) = plan_glyph_origin(100, -50, -7, 11, 3, -5) else {
+            panic!("bounded glyph placement must produce an origin");
+        };
+        assert_eq!((plan.x, plan.y), (90, -56));
+    }
+
+    #[test]
+    fn glyph_origin_should_reject_overflow_at_every_checked_operation() {
+        let plans = [
+            plan_glyph_origin(i32::MAX, 0, 1, 0, 0, 0),
+            plan_glyph_origin(i32::MIN, 0, 0, 0, 1, 0),
+            plan_glyph_origin(0, i32::MIN, 0, 1, 0, 0),
+            plan_glyph_origin(0, i32::MAX, 0, 0, 0, -1),
+        ];
+        assert!(plans.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn glyph_origin_ffi_should_encode_overflow_and_reject_null_outputs() {
+        let mut valid = 9_u8;
+        let mut x = 17;
+        let mut y = 23;
+        // SAFETY: All outputs are live and writable for one value.
+        assert!(unsafe {
+            pdfium_rust_plan_glyph_origin(i32::MAX, 0, 1, 0, 0, 0, &mut valid, &mut x, &mut y)
+        });
+        assert_eq!((valid, x, y), (0, 0, 0));
+
+        valid = 9;
+        x = 17;
+        y = 23;
+        // SAFETY: The null validity output is explicitly rejected before the
+        // other live outputs are mutated.
+        assert!(!unsafe {
+            pdfium_rust_plan_glyph_origin(1, 2, 3, 4, 5, 6, core::ptr::null_mut(), &mut x, &mut y)
+        });
+        assert_eq!((valid, x, y), (9, 17, 23));
+    }
 }

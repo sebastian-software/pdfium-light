@@ -101,4 +101,35 @@ void RecordGlyphCacheKeyForTesting(pdfium::span<const uint32_t> key) {
   }
 }
 
+void RecordGlyphOriginForTesting(bool valid, int32_t x, int32_t y) {
+  if (!g_glyph_trace_for_testing) {
+    return;
+  }
+  g_glyph_trace_for_testing->push_back(0x4f);
+  g_glyph_trace_for_testing->push_back(valid);
+  for (int32_t coordinate : {x, y}) {
+    const uint32_t bits = static_cast<uint32_t>(coordinate);
+    for (int shift = 0; shift < 32; shift += 8) {
+      g_glyph_trace_for_testing->push_back(static_cast<uint8_t>(bits >> shift));
+    }
+  }
+}
+
+bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace) {
+  while (!trace.empty()) {
+    if (trace.front() == 0x4f) {
+      return trace.size() >= 10 && trace[1] <= 1;
+    }
+    if (trace.front() != 0x4b || trace.size() < 2) {
+      return false;
+    }
+    const size_t event_size = 2 + static_cast<size_t>(trace[1]) * 4;
+    if (trace.size() < event_size) {
+      return false;
+    }
+    trace = trace.subspan(event_size);
+  }
+  return false;
+}
+
 }  // namespace fxge

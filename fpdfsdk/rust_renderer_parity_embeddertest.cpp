@@ -109,6 +109,8 @@ TEST_P(RustRendererParityEmbedderTest, CandidateMatchesCppReferenceExactly) {
   }
   if (test_case.name == "HelloWorldNoNativeText") {
     EXPECT_FALSE(reference_glyph_trace.empty());
+    EXPECT_TRUE(
+        fxge::GlyphTraceHasOriginPlansForTesting(reference_glyph_trace));
   }
 }
 
