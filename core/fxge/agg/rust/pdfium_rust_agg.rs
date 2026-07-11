@@ -593,4 +593,141 @@ mod tests {
         });
         assert_eq!(dash_start, 9.0);
     }
+
+    #[derive(Debug, PartialEq)]
+    struct CollectedPathCommand {
+        command: u8,
+        coordinates: Vec<f32>,
+    }
+
+    struct PathCallbackContext {
+        points: Vec<RustAggPathPoint>,
+        commands: Vec<CollectedPathCommand>,
+    }
+
+    fn path_point(x: f32, y: f32, point_type: u8, close_figure: bool) -> RustAggPathPoint {
+        RustAggPathPoint {
+            x,
+            y,
+            point_type,
+            close_figure: u8::from(close_figure),
+            reserved: [0; 2],
+        }
+    }
+
+    unsafe extern "C" fn read_test_path_point(
+        context: *mut core::ffi::c_void,
+        index: usize,
+        output: *mut RustAggPathPoint,
+    ) {
+        // SAFETY: The tests pass a live context, a valid in-range index, and
+        // one writable output point.
+        let context = unsafe { &mut *context.cast::<PathCallbackContext>() };
+        // SAFETY: The FFI iterator requests only indices below `point_count`.
+        unsafe {
+            *output = context.points[index];
+        }
+    }
+
+    unsafe extern "C" fn collect_test_path_command(
+        context: *mut core::ffi::c_void,
+        command: u8,
+        coordinates: *const f32,
+        coordinate_count: usize,
+    ) {
+        // SAFETY: The tests pass a live, exclusively borrowed context.
+        let context = unsafe { &mut *context.cast::<PathCallbackContext>() };
+        let coordinates = if coordinate_count == 0 {
+            &[]
+        } else {
+            // SAFETY: The emitter guarantees a readable borrowed coordinate
+            // span for the duration of this callback.
+            unsafe { core::slice::from_raw_parts(coordinates, coordinate_count) }
+        };
+        context.commands.push(CollectedPathCommand { command, coordinates: coordinates.to_vec() });
+    }
+
+    fn collect_path_commands(
+        points: Vec<RustAggPathPoint>,
+        matrix: Option<Matrix>,
+    ) -> Vec<CollectedPathCommand> {
+        let mut context = PathCallbackContext { points, commands: Vec::new() };
+        let has_matrix = matrix.is_some();
+        let matrix = matrix.unwrap_or(Matrix { a: 0.0, b: 0.0, c: 0.0, d: 0.0, e: 0.0, f: 0.0 });
+        let point_count = context.points.len();
+        // SAFETY: Both callbacks use the live exclusive context and consume
+        // every borrowed value before returning.
+        assert!(unsafe {
+            pdfium_rust_emit_agg_path(
+                point_count,
+                has_matrix,
+                matrix.a,
+                matrix.b,
+                matrix.c,
+                matrix.d,
+                matrix.e,
+                matrix.f,
+                (&mut context as *mut PathCallbackContext).cast(),
+                Some(read_test_path_point),
+                Some(collect_test_path_command),
+            )
+        });
+        context.commands
+    }
+
+    #[test]
+    fn path_emission_should_preserve_moves_lines_single_points_and_close() {
+        let commands = collect_path_commands(
+            vec![
+                path_point(4.0, 5.0, PATH_POINT_MOVE, false),
+                path_point(4.0, 5.0, PATH_POINT_LINE, true),
+            ],
+            None,
+        );
+        assert_eq!(
+            commands,
+            [
+                CollectedPathCommand { command: PATH_COMMAND_MOVE, coordinates: vec![4.0, 5.0] },
+                CollectedPathCommand { command: PATH_COMMAND_LINE, coordinates: vec![5.0, 5.0] },
+                CollectedPathCommand { command: PATH_COMMAND_CLOSE, coordinates: vec![] },
+            ]
+        );
+    }
+
+    #[test]
+    fn path_emission_should_transform_clip_and_group_bezier_points() {
+        let commands = collect_path_commands(
+            vec![
+                path_point(1.0, 2.0, PATH_POINT_MOVE, false),
+                path_point(3.0, 4.0, PATH_POINT_BEZIER, false),
+                path_point(5.0, 6.0, PATH_POINT_BEZIER, false),
+                path_point(40_000.0, 8.0, PATH_POINT_BEZIER, true),
+            ],
+            Some(Matrix { a: 2.0, b: 0.0, c: 0.0, d: 3.0, e: 10.0, f: -5.0 }),
+        );
+        assert_eq!(commands[0].coordinates, [12.0, 1.0]);
+        assert_eq!(commands[1].coordinates, [12.0, 1.0, 16.0, 7.0, 20.0, 13.0, 32_000.0, 19.0]);
+        assert_eq!(commands[2].command, PATH_COMMAND_CLOSE);
+    }
+
+    #[test]
+    fn path_emission_ffi_should_reject_missing_callbacks() {
+        // SAFETY: Missing callbacks are explicitly rejected before any point
+        // is read or command emitted.
+        assert!(!unsafe {
+            pdfium_rust_emit_agg_path(
+                0,
+                false,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                core::ptr::null_mut(),
+                None,
+                None,
+            )
+        });
+    }
 }

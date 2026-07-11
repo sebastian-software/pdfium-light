@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <utility>
 
@@ -991,6 +992,8 @@ agg::path_storage BuildAggPathCpp(const CFX_Path& path,
     CFX_Path::Point::Type point_type = points[i].type_;
     if (point_type == CFX_Path::Point::Type::kMove) {
       agg_path.move_to(pos.x, pos.y);
+      const std::array<float, 2> coordinates = {pos.x, pos.y};
+      fxge::RecordAggPathCommandForTesting(0, coordinates);
     } else if (point_type == CFX_Path::Point::Type::kLine) {
       if (i > 0 && points[i - 1].IsTypeAndOpen(CFX_Path::Point::Type::kMove) &&
           (i + 1 == points.size() ||
@@ -999,6 +1002,8 @@ agg::path_storage BuildAggPathCpp(const CFX_Path& path,
         pos.x += 1;
       }
       agg_path.line_to(pos.x, pos.y);
+      const std::array<float, 2> coordinates = {pos.x, pos.y};
+      fxge::RecordAggPathCommandForTesting(1, coordinates);
     } else if (point_type == CFX_Path::Point::Type::kBezier) {
       if (i > 0 && i + 2 < points.size()) {
         CFX_PointF pos0 = points[i - 1].point_;
@@ -1014,12 +1019,16 @@ agg::path_storage BuildAggPathCpp(const CFX_Path& path,
         pos3 = HardClip(pos3);
         agg::curve4 curve(pos0.x, pos0.y, pos.x, pos.y, pos2.x, pos2.y, pos3.x,
                           pos3.y);
+        const std::array<float, 8> coordinates = {
+            pos0.x, pos0.y, pos.x, pos.y, pos2.x, pos2.y, pos3.x, pos3.y};
+        fxge::RecordAggPathCommandForTesting(2, coordinates);
         i += 2;
         agg_path.add_path(curve);
       }
     }
     if (points[i].close_figure_) {
       agg_path.end_poly();
+      fxge::RecordAggPathCommandForTesting(3, {});
     }
   }
   return agg_path;
@@ -1063,12 +1072,14 @@ void EmitAggPathCommand(void* raw_context,
     case 0:
       if (values.size() == 2) {
         context->path.move_to(values[0], values[1]);
+        fxge::RecordAggPathCommandForTesting(command, values);
         return;
       }
       break;
     case 1:
       if (values.size() == 2) {
         context->path.line_to(values[0], values[1]);
+        fxge::RecordAggPathCommandForTesting(command, values);
         return;
       }
       break;
@@ -1077,12 +1088,14 @@ void EmitAggPathCommand(void* raw_context,
         agg::curve4 curve(values[0], values[1], values[2], values[3], values[4],
                           values[5], values[6], values[7]);
         context->path.add_path(curve);
+        fxge::RecordAggPathCommandForTesting(command, values);
         return;
       }
       break;
     case 3:
       if (values.empty()) {
         context->path.end_poly();
+        fxge::RecordAggPathCommandForTesting(command, values);
         return;
       }
       break;

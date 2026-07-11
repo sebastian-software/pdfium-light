@@ -67,6 +67,42 @@ void AppendFloatToAggTrace(float value) {
   }
 }
 
+bool AggTraceHasRecord(pdfium::span<const uint8_t> trace, uint8_t wanted_tag) {
+  size_t offset = 0;
+  while (offset < trace.size()) {
+    const uint8_t tag = trace[offset];
+    if (tag == wanted_tag) {
+      return true;
+    }
+    size_t record_size = 0;
+    switch (tag) {
+      case 0x44:
+        record_size = 2;
+        break;
+      case 0x53:
+        record_size = 11;
+        break;
+      case 0x56:
+      case 0x50:
+        record_size = 5;
+        break;
+      case 0x41:
+        if (offset + 3 > trace.size()) {
+          return false;
+        }
+        record_size = 3 + static_cast<size_t>(trace[offset + 2]) * 4;
+        break;
+      default:
+        return false;
+    }
+    if (record_size > trace.size() - offset) {
+      return false;
+    }
+    offset += record_size;
+  }
+  return false;
+}
+
 }  // namespace
 
 namespace fxge {
@@ -189,26 +225,25 @@ void RecordAggDashStartForTesting(float value) {
   }
 }
 
-bool AggTraceHasDashValuesForTesting(pdfium::span<const uint8_t> trace) {
-  size_t offset = 0;
-  while (offset < trace.size()) {
-    switch (trace[offset]) {
-      case 0x44:
-        offset += 2;
-        break;
-      case 0x53:
-        offset += 11;
-        break;
-      case 0x56:
-        return true;
-      case 0x50:
-        offset += 5;
-        break;
-      default:
-        return false;
-    }
+void RecordAggPathCommandForTesting(uint8_t command,
+                                    pdfium::span<const float> coordinates) {
+  if (!g_agg_trace_for_testing || coordinates.size() > UINT8_MAX) {
+    return;
   }
-  return false;
+  g_agg_trace_for_testing->push_back(0x41);
+  g_agg_trace_for_testing->push_back(command);
+  g_agg_trace_for_testing->push_back(static_cast<uint8_t>(coordinates.size()));
+  for (float value : coordinates) {
+    AppendFloatToAggTrace(value);
+  }
+}
+
+bool AggTraceHasDashValuesForTesting(pdfium::span<const uint8_t> trace) {
+  return AggTraceHasRecord(trace, 0x56);
+}
+
+bool AggTraceHasPathCommandsForTesting(pdfium::span<const uint8_t> trace) {
+  return AggTraceHasRecord(trace, 0x41);
 }
 
 }  // namespace fxge

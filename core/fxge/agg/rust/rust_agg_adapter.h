@@ -92,7 +92,10 @@ void RecordAggDashDecisionForTesting(bool should_apply);
 void RecordAggStrokePlanForTesting(const AggStrokePlan& plan);
 void RecordAggDashValueForTesting(float value);
 void RecordAggDashStartForTesting(float value);
+void RecordAggPathCommandForTesting(uint8_t command,
+                                    pdfium::span<const float> coordinates);
 bool AggTraceHasDashValuesForTesting(pdfium::span<const uint8_t> trace);
+bool AggTraceHasPathCommandsForTesting(pdfium::span<const uint8_t> trace);
 
 }  // namespace fxge
 
