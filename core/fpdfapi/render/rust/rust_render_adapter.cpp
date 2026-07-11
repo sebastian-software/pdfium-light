@@ -52,6 +52,7 @@ thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
 constexpr uint8_t kPageObjectRenderCommandTraceBase = 0x10;
 constexpr uint8_t kRenderLayerPlanTraceBase = 0x20;
 constexpr uint8_t kRenderLayerCompletionTraceBase = 0x30;
+constexpr uint8_t kPathPaintPlanTraceBase = 0x40;
 
 constexpr uint8_t kPathPlanFillMask = 0x03;
 constexpr uint8_t kPathPlanStroke = 1u << 2;
@@ -272,6 +273,19 @@ void RecordRenderTraceForTesting(const RenderLayerCompletion& completion) {
     }
     g_render_trace_for_testing->push_back(kRenderLayerCompletionTraceBase +
                                           bits);
+  }
+}
+
+void RecordRenderTraceForTesting(const PathPaintPlan& plan) {
+  if (g_render_trace_for_testing) {
+    uint8_t bits = static_cast<uint8_t>(plan.fill_type());
+    if (plan.stroke()) {
+      bits |= kPathPlanStroke;
+    }
+    if (plan.should_draw()) {
+      bits |= kPathPlanDraw;
+    }
+    g_render_trace_for_testing->push_back(kPathPaintPlanTraceBase + bits);
   }
 }
 

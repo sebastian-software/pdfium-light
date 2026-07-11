@@ -519,6 +519,7 @@ bool CPDF_RenderStatus::ProcessPath(CPDF_PathObject* path_obj,
   const pdfium::rust::PathPaintPlan plan =
       rust_plan.value_or(BuildCppPathPaintPlan(fill_type, stroke, forced_color,
                                                options.bConvertFillToStroke));
+  pdfium::rust::RecordRenderTraceForTesting(plan);
   if (!plan.should_draw()) {
     return true;
   }

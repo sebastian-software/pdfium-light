@@ -596,4 +596,59 @@ mod tests {
         });
         assert_eq!(0, state.visited_count);
     }
+
+    #[test]
+    fn path_paint_plan_should_preserve_fill_and_stroke_modes() {
+        assert_eq!(Some(0), build_path_paint_plan(PATH_FILL_NONE, false, false, false));
+        assert_eq!(
+            Some(PATH_PLAN_STROKE | PATH_PLAN_DRAW),
+            build_path_paint_plan(PATH_FILL_NONE, true, false, false)
+        );
+        assert_eq!(
+            Some(PATH_FILL_EVEN_ODD | PATH_PLAN_DRAW),
+            build_path_paint_plan(PATH_FILL_EVEN_ODD, false, false, false)
+        );
+        assert_eq!(
+            Some(PATH_FILL_WINDING | PATH_PLAN_STROKE | PATH_PLAN_DRAW),
+            build_path_paint_plan(PATH_FILL_WINDING, true, false, false)
+        );
+    }
+
+    #[test]
+    fn path_paint_plan_should_convert_forced_fills_to_strokes() {
+        for fill_type in [PATH_FILL_EVEN_ODD, PATH_FILL_WINDING] {
+            assert_eq!(
+                Some(PATH_PLAN_STROKE | PATH_PLAN_DRAW),
+                build_path_paint_plan(fill_type, false, true, true)
+            );
+            assert_eq!(
+                Some(fill_type | PATH_PLAN_DRAW),
+                build_path_paint_plan(fill_type, false, true, false)
+            );
+            assert_eq!(
+                Some(fill_type | PATH_PLAN_DRAW),
+                build_path_paint_plan(fill_type, false, false, true)
+            );
+        }
+    }
+
+    #[test]
+    fn path_paint_plan_should_reject_invalid_boundaries() {
+        assert_eq!(None, build_path_paint_plan(3, true, false, false));
+        let mut output = 0xa5;
+        // SAFETY: `output` is one writable byte for the duration of the call.
+        assert!(!unsafe { pdfium_rust_build_path_paint_plan(3, true, false, false, &mut output) });
+        assert_eq!(0xa5, output);
+        // SAFETY: A null output is explicitly supported and rejected without
+        // dereferencing it.
+        assert!(!unsafe {
+            pdfium_rust_build_path_paint_plan(
+                PATH_FILL_WINDING,
+                true,
+                false,
+                false,
+                core::ptr::null_mut(),
+            )
+        });
+    }
 }
