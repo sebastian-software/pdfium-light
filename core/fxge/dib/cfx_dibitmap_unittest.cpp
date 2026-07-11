@@ -133,6 +133,45 @@ TEST(CFXDIBitmapTest, CalculatePitchAndSizeBoundary) {
                                                    FXDIB_Format::k8bppRgb, 0));
 }
 
+TEST(CFXDIBitmapTest, RustPitchAndSizeMatchesCppReference) {
+  static constexpr std::array<FXDIB_Format, 8> kFormats = {
+      FXDIB_Format::kInvalid,   FXDIB_Format::k1bppRgb,
+      FXDIB_Format::k8bppRgb,  FXDIB_Format::kBgr,
+      FXDIB_Format::kBgrx,     FXDIB_Format::k1bppMask,
+      FXDIB_Format::k8bppMask, FXDIB_Format::kBgra,
+  };
+  static constexpr std::array<int, 9> kWidths = {
+      -1, 0, 1, 7, 31, 32, 33, 536870908, 1073747000};
+  static constexpr std::array<int, 7> kHeights = {
+      -1, 0, 1, 4, 63, 1024, 1048576};
+  static constexpr std::array<uint32_t, 8> kPitches = {
+      0, 1, 4, 32, 400, 455, 2147484000u, UINT32_MAX};
+
+  for (const FXDIB_Format format : kFormats) {
+    for (const int width : kWidths) {
+      for (const int height : kHeights) {
+        for (const uint32_t pitch : kPitches) {
+          std::optional<CFX_DIBitmap::PitchAndSize> reference;
+          {
+            fxge::ScopedRustDibImplementationForTesting implementation(false);
+            reference = CFX_DIBitmap::CalculatePitchAndSize(width, height,
+                                                            format, pitch);
+          }
+          const auto candidate = fxge::RustBlendAdapter::CalculatePitchAndSize(
+              width, height, format, pitch);
+          ASSERT_EQ(reference.has_value(), candidate.has_value())
+              << "format=" << static_cast<int>(format) << " width=" << width
+              << " height=" << height << " pitch=" << pitch;
+          if (reference.has_value()) {
+            EXPECT_EQ(reference->pitch, (*candidate)[0]);
+            EXPECT_EQ(reference->size, (*candidate)[1]);
+          }
+        }
+      }
+    }
+  }
+}
+
 TEST(CFXDIBitmapTest, GetScanlineAsWith24Bpp) {
   auto bitmap = pdfium::MakeRetain<CFX_DIBitmap>();
   ASSERT_TRUE(bitmap->Create(3, 3, FXDIB_Format::kBgr));
