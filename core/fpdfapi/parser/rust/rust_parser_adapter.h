@@ -18,6 +18,12 @@ std::optional<uint8_t> RustCrossRefEntryAction(uint8_t type_code,
                                                bool normal_offset_fits,
                                                uint32_t generation,
                                                bool archive_object_valid);
+struct CrossRefIndexPair {
+  uint32_t start;
+  uint32_t count;
+};
+std::optional<CrossRefIndexPair> RustCrossRefIndexPair(int32_t start,
+                                                        int32_t count);
 
 bool UseRustParserCandidate();
 bool SetUseRustParserCandidateForTesting(bool use_candidate);

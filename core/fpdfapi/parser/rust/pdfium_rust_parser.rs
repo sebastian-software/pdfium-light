@@ -37,6 +37,13 @@ fn cross_ref_entry_action(
     }
 }
 
+fn cross_ref_index_pair(start: i32, count: i32) -> Option<(u32, u32)> {
+    if start < 0 || count <= 0 {
+        return None;
+    }
+    Some((start as u32, count as u32))
+}
+
 /// Reads a variable-width big-endian cross-reference field.
 ///
 /// # Safety
@@ -141,6 +148,33 @@ pub unsafe extern "C" fn pdfium_rust_cross_ref_entry_action(
     true
 }
 
+/// Validates and normalizes one `/Index` start/count pair.
+///
+/// # Safety
+///
+/// Both outputs must point to writable `u32` values. Invalid pairs leave both
+/// values unchanged and return `false`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_index_pair(
+    start: i32,
+    count: i32,
+    output_start: *mut u32,
+    output_count: *mut u32,
+) -> bool {
+    if output_start.is_null() || output_count.is_null() {
+        return false;
+    }
+    let Some((planned_start, planned_count)) = cross_ref_index_pair(start, count) else {
+        return false;
+    };
+    // SAFETY: Both checked output pointers refer to one writable scalar.
+    unsafe {
+        *output_start = planned_start;
+        *output_count = planned_count;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,5 +231,16 @@ mod tests {
         assert_eq!(Some(3), cross_ref_entry_action(2, false, 0, true));
         assert_eq!(Some(0), cross_ref_entry_action(2, false, 0, false));
         assert_eq!(None, cross_ref_entry_action(3, true, 0, true));
+    }
+
+    #[test]
+    fn cross_ref_index_pair_should_reject_negative_and_empty_pairs() {
+        assert_eq!(Some((0, 1)), cross_ref_index_pair(0, 1));
+        assert_eq!(
+            Some((i32::MAX as u32, i32::MAX as u32)),
+            cross_ref_index_pair(i32::MAX, i32::MAX)
+        );
+        assert_eq!(None, cross_ref_index_pair(-1, 1));
+        assert_eq!(None, cross_ref_index_pair(0, 0));
     }
 }

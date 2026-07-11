@@ -150,12 +150,17 @@ std::vector<CrossRefStreamIndexEntry> GetCrossRefStreamIndices(
 
       int nStartNum = pStartNumObj->GetInteger();
       int nCount = pCountObj->GetInteger();
-      if (nStartNum < 0 || nCount <= 0) {
-        continue;
+      if (pdfium::rust::UseRustParserCandidate()) {
+        const auto pair = pdfium::rust::RustCrossRefIndexPair(nStartNum, nCount);
+        if (pair.has_value()) {
+          indices.push_back({pair->start, pair->count});
+          continue;
+        }
       }
-
-      indices.push_back(
-          {static_cast<uint32_t>(nStartNum), static_cast<uint32_t>(nCount)});
+      if (nStartNum >= 0 && nCount > 0) {
+        indices.push_back(
+            {static_cast<uint32_t>(nStartNum), static_cast<uint32_t>(nCount)});
+      }
     }
   }
 

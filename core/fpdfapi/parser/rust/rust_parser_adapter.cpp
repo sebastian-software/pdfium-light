@@ -16,6 +16,10 @@ extern "C" bool pdfium_rust_cross_ref_entry_action(
     uint32_t generation,
     bool archive_object_valid,
     uint8_t* output);
+extern "C" bool pdfium_rust_cross_ref_index_pair(int32_t start,
+                                                  int32_t count,
+                                                  uint32_t* output_start,
+                                                  uint32_t* output_count);
 
 thread_local bool g_use_rust_parser_candidate = true;
 
@@ -64,6 +68,16 @@ std::optional<uint8_t> RustCrossRefEntryAction(
     return std::nullopt;
   }
   return output;
+}
+
+std::optional<CrossRefIndexPair> RustCrossRefIndexPair(int32_t start,
+                                                        int32_t count) {
+  CrossRefIndexPair result = {};
+  if (!pdfium_rust_cross_ref_index_pair(start, count, &result.start,
+                                        &result.count)) {
+    return std::nullopt;
+  }
+  return result;
 }
 
 bool UseRustParserCandidate() {
