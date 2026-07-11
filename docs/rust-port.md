@@ -49,6 +49,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `5e7dc096b` Phase 1 bitmap-clear slice | 8,864 | 2,053 | 241 | 875 | 6,570 | 264,856 | 3.35% | 1.07% | Prior surfaces plus whole-bitmap clearing across 1-/8-bpp mask/RGB, BGR, BGRx, and BGRA formats |
 | `ecaa53bbb` Phase 1 color-scale slice | 8,903 | 2,092 | 241 | 897 | 6,570 | 264,944 | 3.36% | 1.09% | Prior surfaces plus BGR/BGRx/BGRA integer grayscale conversion over complete bitmaps |
 | `bdb469824` Phase 1 bitmap-geometry slice | 8,972 | 2,161 | 241 | 923 | 6,570 | 265,085 | 3.38% | 1.12% | Prior surfaces plus checked pitch and allocation-size calculation for every retained bitmap format |
+| `88d1de27d` Phase 1 bitmap-population slice | 9,070 | 2,259 | 241 | 975 | 6,570 | 265,288 | 3.42% | 1.17% | Prior surfaces plus 1-bpp-to-8-bpp mask expansion and pitch-aware external-span population |
 
 ## Toolchain
 
@@ -129,6 +130,12 @@ Bitmap pitch and allocation-size calculation uses checked `u32` arithmetic in
 Rust before any allocation. The differential matrix covers all eight format
 values, invalid and boundary dimensions, caller-supplied pitches, alignment,
 short-pitch rejection, and multiplication overflow in 4,032 combinations.
+
+Bitmap population expands packed 1-bpp mask rows and copies arbitrary external
+row pitches into zeroed destination storage through one FFI call per bitmap.
+The differential cases cover non-byte-aligned widths, preserved destination
+padding for bit expansion, and source pitches both below and above destination
+pitch for generic population.
 
 `ScopedRustDibImplementationForTesting` is test-only. It selects the retained
 C++ row compositor or the production Rust candidate in the same process. The
