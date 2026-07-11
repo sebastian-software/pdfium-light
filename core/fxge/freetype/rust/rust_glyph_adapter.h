@@ -90,9 +90,14 @@ void RecordGlyphDeviceOriginForTesting(float device_x,
                                        bool anti_alias_is_lcd,
                                        int32_t x,
                                        int32_t y);
+void RecordGlyphBoundsForTesting(int32_t left,
+                                 int32_t top,
+                                 int32_t right,
+                                 int32_t bottom);
 bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace);
 bool GlyphTraceHasDeviceOriginPlansForTesting(
     pdfium::span<const uint8_t> trace);
+bool GlyphTraceHasBoundsPlansForTesting(pdfium::span<const uint8_t> trace);
 
 }  // namespace fxge
 

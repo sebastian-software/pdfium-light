@@ -149,10 +149,16 @@ FX_RECT GetGlyphsBBox(const std::vector<TextGlyphPos>& glyphs,
     const auto plan = fxge::RustPlanGlyphBounds(
         glyphs.size(), anti_alias_is_lcd, &context, ReadGlyphBounds);
     if (plan.has_value()) {
-      return FX_RECT(plan->left, plan->top, plan->right, plan->bottom);
+      const FX_RECT result(plan->left, plan->top, plan->right, plan->bottom);
+      fxge::RecordGlyphBoundsForTesting(result.left, result.top, result.right,
+                                        result.bottom);
+      return result;
     }
   }
-  return GetGlyphsBBoxCppReference(glyphs, anti_alias_is_lcd);
+  const FX_RECT result = GetGlyphsBBoxCppReference(glyphs, anti_alias_is_lcd);
+  fxge::RecordGlyphBoundsForTesting(result.left, result.top, result.right,
+                                    result.bottom);
+  return result;
 }
 
 ByteString GetNameFromTT(pdfium::span<const uint8_t> name_table,

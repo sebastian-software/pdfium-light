@@ -347,6 +347,41 @@ pub unsafe extern "C" fn pdfium_rust_plan_glyph_bounds(
 mod tests {
     use super::*;
 
+    unsafe extern "C" fn read_test_bounds(
+        context: *mut core::ffi::c_void,
+        index: usize,
+        output_valid: *mut u8,
+        output_left: *mut i32,
+        output_top: *mut i32,
+        output_width: *mut i32,
+        output_height: *mut i32,
+    ) -> bool {
+        if context.is_null()
+            || output_valid.is_null()
+            || output_left.is_null()
+            || output_top.is_null()
+            || output_width.is_null()
+            || output_height.is_null()
+        {
+            return false;
+        }
+        // SAFETY: This test callback is invoked with a live two-element array
+        // as its context.
+        let inputs = unsafe { &*context.cast::<[GlyphBoundsInput; 2]>() };
+        let Some(input) = inputs.get(index).copied() else {
+            return false;
+        };
+        // SAFETY: The boundary supplies live scalar outputs for this callback.
+        unsafe {
+            *output_valid = u8::from(input.valid);
+            *output_left = input.left;
+            *output_top = input.top;
+            *output_width = input.width;
+            *output_height = input.height;
+        }
+        true
+    }
+
     fn inputs() -> GlyphCacheKeyInputs {
         GlyphCacheKeyInputs {
             matrix: [10, -20, 30, -40],
@@ -519,5 +554,99 @@ mod tests {
             pdfium_rust_plan_glyph_device_origin(1.0, 2.0, false, core::ptr::null_mut(), &mut y)
         });
         assert_eq!(y, 23);
+    }
+
+    #[test]
+    fn glyph_bounds_should_skip_missing_entries_and_aggregate_extents() {
+        let empty = GlyphBoundsPlan { started: false, left: 0, top: 0, right: 0, bottom: 0 };
+        let skipped = include_glyph_bounds(
+            empty,
+            GlyphBoundsInput { valid: false, left: -99, top: -99, width: 1, height: 1 },
+            false,
+        );
+        let first = include_glyph_bounds(
+            skipped,
+            GlyphBoundsInput { valid: true, left: 10, top: 20, width: 4, height: 5 },
+            false,
+        );
+        let result = include_glyph_bounds(
+            first,
+            GlyphBoundsInput { valid: true, left: -3, top: 25, width: 20, height: 2 },
+            false,
+        );
+        assert_eq!((result.left, result.top, result.right, result.bottom), (-3, 20, 17, 27));
+    }
+
+    #[test]
+    fn glyph_bounds_should_divide_lcd_bitmap_width_by_three() {
+        let result = include_glyph_bounds(
+            GlyphBoundsPlan { started: false, left: 0, top: 0, right: 0, bottom: 0 },
+            GlyphBoundsInput { valid: true, left: 7, top: 8, width: 11, height: 5 },
+            true,
+        );
+        assert_eq!((result.left, result.top, result.right, result.bottom), (7, 8, 10, 13));
+    }
+
+    #[test]
+    fn glyph_bounds_should_skip_overflowing_right_or_bottom_edges() {
+        let empty = GlyphBoundsPlan { started: false, left: 0, top: 0, right: 0, bottom: 0 };
+        let right_overflow = include_glyph_bounds(
+            empty,
+            GlyphBoundsInput { valid: true, left: i32::MAX, top: 0, width: 1, height: 1 },
+            false,
+        );
+        let bottom_overflow = include_glyph_bounds(
+            right_overflow,
+            GlyphBoundsInput { valid: true, left: 0, top: i32::MAX, width: 1, height: 1 },
+            false,
+        );
+        assert!(!bottom_overflow.started);
+    }
+
+    #[test]
+    fn glyph_bounds_ffi_should_iterate_borrowed_inputs_and_reject_missing_callback() {
+        let mut inputs = [
+            GlyphBoundsInput { valid: true, left: 5, top: 7, width: 4, height: 6 },
+            GlyphBoundsInput { valid: true, left: -2, top: 9, width: 3, height: 2 },
+        ];
+        let mut left = 91;
+        let mut top = 92;
+        let mut right = 93;
+        let mut bottom = 94;
+        // SAFETY: The callback context and all rectangle outputs are live for
+        // the duration of the synchronous call.
+        assert!(unsafe {
+            pdfium_rust_plan_glyph_bounds(
+                inputs.len(),
+                false,
+                inputs.as_mut_ptr().cast(),
+                Some(read_test_bounds),
+                &mut left,
+                &mut top,
+                &mut right,
+                &mut bottom,
+            )
+        });
+        assert_eq!((left, top, right, bottom), (-2, 7, 9, 13));
+
+        left = 91;
+        top = 92;
+        right = 93;
+        bottom = 94;
+        // SAFETY: A missing callback is explicitly rejected before the live
+        // rectangle outputs are mutated.
+        assert!(!unsafe {
+            pdfium_rust_plan_glyph_bounds(
+                1,
+                false,
+                inputs.as_mut_ptr().cast(),
+                None,
+                &mut left,
+                &mut top,
+                &mut right,
+                &mut bottom,
+            )
+        });
+        assert_eq!((left, top, right, bottom), (91, 92, 93, 94));
     }
 }

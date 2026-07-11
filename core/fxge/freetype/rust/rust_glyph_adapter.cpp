@@ -66,6 +66,8 @@ bool GlyphTraceHasEvent(pdfium::span<const uint8_t> trace,
       event_size = 10;
     } else if (marker == 0x44) {
       event_size = 18;
+    } else if (marker == 0x42) {
+      event_size = 17;
     } else {
       return false;
     }
@@ -200,6 +202,19 @@ void RecordGlyphDeviceOriginForTesting(float device_x,
   AppendTraceWord(static_cast<uint32_t>(y));
 }
 
+void RecordGlyphBoundsForTesting(int32_t left,
+                                 int32_t top,
+                                 int32_t right,
+                                 int32_t bottom) {
+  if (!g_glyph_trace_for_testing) {
+    return;
+  }
+  g_glyph_trace_for_testing->push_back(0x42);
+  for (int32_t coordinate : {left, top, right, bottom}) {
+    AppendTraceWord(static_cast<uint32_t>(coordinate));
+  }
+}
+
 bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace) {
   return GlyphTraceHasEvent(trace, 0x4f);
 }
@@ -207,6 +222,10 @@ bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace) {
 bool GlyphTraceHasDeviceOriginPlansForTesting(
     pdfium::span<const uint8_t> trace) {
   return GlyphTraceHasEvent(trace, 0x44);
+}
+
+bool GlyphTraceHasBoundsPlansForTesting(pdfium::span<const uint8_t> trace) {
+  return GlyphTraceHasEvent(trace, 0x42);
 }
 
 }  // namespace fxge
