@@ -82,6 +82,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `9f7257f29` Phase 3 AGG path-draw-plan slice | 13,848 | 7,037 | 241 | 2,663 | 6,570 | 273,341 | 5.07% | 3.53% | Prior surfaces plus Rust-owned fill activation, even-odd/non-zero rule selection, stroke suppression, and zero-area/normal stroke-mode orchestration |
 | `4e881dc78` Phase 3 AGG stroke-matrix slice | 14,005 | 7,194 | 241 | 2,740 | 6,570 | 273,619 | 5.12% | 3.61% | Prior surfaces plus Rust-owned identity, scale extraction, normalized stroke matrix, inverse, and path-matrix decomposition |
 | `17c6e369b` Phase 4 glyph cache-key slice | 14,211 | 7,400 | 241 | 2,872 | 6,570 | 274,001 | 5.19% | 3.71% | Prior surfaces plus Rust-owned 6-, 7-, 9-, and 10-word glyph bitmap cache-key shape planning for base, substitution, and native-text variants |
+| `d9705f514` Phase 4 glyph-origin slice | 14,307 | 7,496 | 241 | 2,943 | 6,570 | 274,199 | 5.22% | 3.75% | Prior surfaces plus checked Rust-owned glyph bitmap origin placement for bounding-box and draw composition offsets |
 
 ## Toolchain
 
@@ -537,6 +538,21 @@ Clippy with warnings denied, native GN tests, and Rust unit/doc tests pass.
 The next Phase 4 boundary is glyph placement and cache lookup/action planning.
 Concrete cache storage, font faces, glyph bitmaps, paths, and the FreeType
 backend remain intentionally C++-owned until their own differential slices.
+
+The second slice moves `TextGlyphPos::GetOrigin()` into Rust. Its checked
+left/top arithmetic combines the planned glyph origin, bitmap bearings, and
+caller offset and rejects every signed 32-bit overflow before composition.
+The same function feeds both glyph bounding boxes and mono/color draw loops.
+C++ retains the glyph object and bitmap lifetime; an invalid Rust boundary
+falls back to the complete checked C++ oracle.
+
+Six native glyph tests now cover cache keys plus signed placement, overflow at
+all four checked operations, null outputs, and no-mutation rejection. The exact
+same-process glyph trace records validity and both origin coordinates for every
+placement, and `HelloWorldNoNativeText` explicitly proves that origin events
+are reached. All 19 bitmap-plus-trace renderer cases pass. Device-origin
+rounding, glyph bounding-box aggregation, cache lookup/action planning, and the
+FreeType adapter remain the next Phase 4 boundaries.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
