@@ -373,3 +373,26 @@ TEST(CFXDIBBaseTest, RustConvertBufferMatchesCppReference) {
     }
   }
 }
+
+TEST(CFXDIBBaseTest, OneBppClipHandlesMissingTrailingWord) {
+  auto source = CreateConversionBitmap(FXDIB_Format::k1bppRgb, false);
+  ASSERT_TRUE(source);
+  fxge::ScopedRustDibImplementationForTesting implementation(false);
+  auto clipped = source->ClipTo(FX_RECT(1, 0, 6, source->GetHeight()));
+  ASSERT_TRUE(clipped);
+  ASSERT_EQ(5, clipped->GetWidth());
+  ASSERT_EQ(source->GetHeight(), clipped->GetHeight());
+  for (int row = 0; row < clipped->GetHeight(); ++row) {
+    for (int column = 0; column < clipped->GetWidth(); ++column) {
+      const int source_column = column + 1;
+      const bool source_bit =
+          (source->GetScanline(row)[source_column / 8] &
+           (1 << (7 - source_column % 8))) != 0;
+      const bool clipped_bit =
+          (clipped->GetScanline(row)[column / 8] &
+           (1 << (7 - column % 8))) != 0;
+      EXPECT_EQ(source_bit, clipped_bit)
+          << "row=" << row << " column=" << column;
+    }
+  }
+}

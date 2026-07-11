@@ -502,23 +502,19 @@ RetainPtr<CFX_DIBitmap> CFX_DIBBase::ClipToInternal(
     int right_shift = 32 - left_shift;
     int dword_count = pNewBitmap->GetPitch() / 4;
     for (int row = rect.top; row < rect.bottom; ++row) {
-      auto src_span = GetScanlineAs<uint32_t>(row);
-      auto dst_span =
-          pNewBitmap->GetWritableScanlineAs<uint32_t>(row - rect.top);
-      // Bounds check for free with first/subspan.
-      const uint32_t* src_scan =
-          src_span
-              .subspan(static_cast<size_t>(rect.left / 32),
-                       static_cast<size_t>(dword_count + 1))
-              .data();
-      uint32_t* dst_scan =
-          dst_span.first(static_cast<size_t>(dword_count)).data();
-      UNSAFE_TODO({
-        for (int i = 0; i < dword_count; ++i) {
-          dst_scan[i] =
-              (src_scan[i] << left_shift) | (src_scan[i + 1] >> right_shift);
-        }
-      });
+      auto src_words =
+          fxcrt::reinterpret_span<const uint32_t>(GetScanline(row))
+              .subspan(static_cast<size_t>(rect.left / 32));
+      auto dst_words = fxcrt::reinterpret_span<uint32_t>(
+                           pNewBitmap->GetWritableScanline(row - rect.top))
+                           .first(static_cast<size_t>(dword_count));
+      for (int i = 0; i < dword_count; ++i) {
+        const size_t index = static_cast<size_t>(i);
+        const uint32_t next =
+            index + 1 < src_words.size() ? src_words[index + 1] : 0;
+        dst_words[index] =
+            (src_words[index] << left_shift) | (next >> right_shift);
+      }
     }
   } else {
     std::optional<uint32_t> copy_len = fxge::CalculatePitch8(
