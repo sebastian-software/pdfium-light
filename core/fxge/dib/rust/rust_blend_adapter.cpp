@@ -130,6 +130,19 @@ extern "C" bool pdfium_rust_swap_xy_row(const uint8_t* source,
                                          uint8_t* destination,
                                          size_t destination_len,
                                          size_t destination_pitch);
+extern "C" bool pdfium_rust_transform_bilinear_alpha(
+    const int32_t* matrix,
+    size_t matrix_len,
+    const uint8_t* source,
+    size_t source_len,
+    size_t source_pitch,
+    int32_t source_width,
+    int32_t source_height,
+    uint8_t* destination,
+    size_t destination_len,
+    size_t destination_pitch,
+    int32_t destination_width,
+    int32_t destination_height);
 extern "C" bool pdfium_rust_calculate_stretch_weights(
     int32_t destination_length,
     int32_t destination_minimum,
@@ -672,6 +685,23 @@ bool RustBlendAdapter::SwapXYRow(pdfium::span<const uint8_t> source,
       source.data(), source.size(), source_width, source_height, source_row,
       components, flip_x, flip_y, destination.data(), destination.size(),
       destination_pitch);
+}
+
+// static
+bool RustBlendAdapter::TransformBilinearAlpha(
+    const std::array<int32_t, 6>& matrix,
+    pdfium::span<const uint8_t> source,
+    size_t source_pitch,
+    int source_width,
+    int source_height,
+    pdfium::span<uint8_t> destination,
+    size_t destination_pitch,
+    int destination_width,
+    int destination_height) {
+  return pdfium_rust_transform_bilinear_alpha(
+      matrix.data(), matrix.size(), source.data(), source.size(), source_pitch,
+      source_width, source_height, destination.data(), destination.size(),
+      destination_pitch, destination_width, destination_height);
 }
 
 // static

@@ -1351,6 +1351,182 @@ pub unsafe extern "C" fn pdfium_rust_swap_xy_row(
     )
 }
 
+fn bilinear_coordinate(matrix: &[i32; 6], x: usize, y: usize) -> (i32, i32, i32, i32) {
+    const BASE: f32 = 256.0;
+    let x = x as f32;
+    let y = y as f32;
+    let transformed_x = matrix[0] as f32 * x + matrix[2] as f32 * y + matrix[4] as f32 + BASE / 2.0;
+    let transformed_y = matrix[1] as f32 * x + matrix[3] as f32 * y + matrix[5] as f32 + BASE / 2.0;
+    let source_x = (transformed_x / BASE) as i32;
+    let source_y = (transformed_y / BASE) as i32;
+    let mut residual_x = transformed_x as i32 % 256;
+    let mut residual_y = transformed_y as i32 % 256;
+    if residual_x < 0 && residual_x > -256 {
+        residual_x += 256;
+    }
+    if residual_y < 0 && residual_y > -256 {
+        residual_y += 256;
+    }
+    (source_x, source_y, residual_x, residual_y)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the sampler receives explicit source geometry and fixed-point coordinates"
+)]
+fn bilinear_sample(
+    source: &[u8],
+    source_pitch: usize,
+    source_width: usize,
+    source_height: usize,
+    source_x: i32,
+    source_y: i32,
+    residual_x: i32,
+    residual_y: i32,
+) -> Option<u8> {
+    let (Ok(mut left), Ok(mut top)) = (usize::try_from(source_x), usize::try_from(source_y)) else {
+        return None;
+    };
+    if left > source_width || top > source_height {
+        return None;
+    }
+    if left == source_width {
+        left = left.checked_sub(1)?;
+    }
+    if top == source_height {
+        top = top.checked_sub(1)?;
+    }
+    let right = (left + 1).min(source_width - 1);
+    let bottom = (top + 1).min(source_height - 1);
+    let top_offset = top.checked_mul(source_pitch)?;
+    let bottom_offset = bottom.checked_mul(source_pitch)?;
+    let p0 = u32::from(*source.get(top_offset.checked_add(left)?)?);
+    let p1 = u32::from(*source.get(top_offset.checked_add(right)?)?);
+    let p2 = u32::from(*source.get(bottom_offset.checked_add(left)?)?);
+    let p3 = u32::from(*source.get(bottom_offset.checked_add(right)?)?);
+    let residual_x = u32::try_from(residual_x).ok()?;
+    let residual_y = u32::try_from(residual_y).ok()?;
+    if residual_x > 255 || residual_y > 255 {
+        return None;
+    }
+    let upper = (p0 * (255 - residual_x) + p1 * residual_x) >> 8;
+    let lower = (p2 * (255 - residual_x) + p3 * residual_x) >> 8;
+    Some(((upper * (255 - residual_y) + lower * residual_y) >> 8) as u8)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the helper validates both borrowed bitmap geometries"
+)]
+fn transform_bilinear_alpha(
+    matrix: &[i32; 6],
+    source: &[u8],
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    destination: &mut [u8],
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    let (Ok(source_width), Ok(source_height), Ok(destination_width), Ok(destination_height)) = (
+        usize::try_from(source_width),
+        usize::try_from(source_height),
+        usize::try_from(destination_width),
+        usize::try_from(destination_height),
+    ) else {
+        return false;
+    };
+    if source_width == 0 || source_height == 0 || destination_width == 0 || destination_height == 0
+    {
+        return false;
+    }
+    let Some(source_required) = source_height.checked_mul(source_pitch) else {
+        return false;
+    };
+    let Some(destination_required) = destination_height.checked_mul(destination_pitch) else {
+        return false;
+    };
+    if source.len() < source_required
+        || destination.len() < destination_required
+        || source_pitch < source_width
+        || destination_pitch < destination_width
+    {
+        return false;
+    }
+    for row in 0..destination_height {
+        for column in 0..destination_width {
+            let (source_x, source_y, residual_x, residual_y) =
+                bilinear_coordinate(matrix, column, row);
+            let Some(value) = bilinear_sample(
+                source,
+                source_pitch,
+                source_width,
+                source_height,
+                source_x,
+                source_y,
+                residual_x,
+                residual_y,
+            ) else {
+                continue;
+            };
+            let Some(destination_offset) =
+                row.checked_mul(destination_pitch).and_then(|offset| offset.checked_add(column))
+            else {
+                return false;
+            };
+            destination[destination_offset] = value;
+        }
+    }
+    true
+}
+
+/// Applies the retained fixed-matrix bilinear transform to an alpha bitmap.
+///
+/// # Safety
+///
+/// All pointers must cover their supplied lengths. Destination must not
+/// overlap either input region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_transform_bilinear_alpha(
+    matrix: *const i32,
+    matrix_len: usize,
+    source: *const u8,
+    source_len: usize,
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    if matrix.is_null() || matrix_len != 6 || source.is_null() || destination.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees disjoint regions covering the
+    // supplied lengths, and the matrix length was checked above.
+    let (matrix, source, destination) = unsafe {
+        (
+            &*matrix.cast::<[i32; 6]>(),
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    transform_bilinear_alpha(
+        matrix,
+        source,
+        source_pitch,
+        source_width,
+        source_height,
+        destination,
+        destination_pitch,
+        destination_width,
+        destination_height,
+    )
+}
+
 /// Copies one clipped bitmap row, including PDFium's unaligned 1-bpp shift.
 ///
 /// # Safety

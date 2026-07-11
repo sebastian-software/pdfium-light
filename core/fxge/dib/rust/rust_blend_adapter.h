@@ -112,6 +112,16 @@ class RustBlendAdapter final {
                         bool flip_y,
                         pdfium::span<uint8_t> destination,
                         size_t destination_pitch);
+  static bool TransformBilinearAlpha(
+      const std::array<int32_t, 6>& matrix,
+      pdfium::span<const uint8_t> source,
+      size_t source_pitch,
+      int source_width,
+      int source_height,
+      pdfium::span<uint8_t> destination,
+      size_t destination_pitch,
+      int destination_width,
+      int destination_height);
   static std::optional<std::array<size_t, 2>> CalculateStretchWeights(
       int destination_length,
       int destination_minimum,
