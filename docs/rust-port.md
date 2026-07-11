@@ -93,6 +93,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `4ce390dcd` Phase 5 text-matrix slice | 15,260 | 8,449 | 241 | 3,351 | 6,570 | 275,799 | 5.53% | 4.20% | Prior surfaces plus Rust-owned text-matrix availability validation; C++ retains matrix composition and drawing |
 | `8dc87fd9e` Phase 5 text-backend slice | 15,292 | 8,481 | 241 | 3,364 | 6,570 | 275,848 | 5.54% | 4.22% | Prior surfaces plus Rust-owned normal/path text-backend route; C++ retains backend calls and arguments |
 | `8ff532f47` Phase 5 text-CTM slice | 15,326 | 8,515 | 241 | 3,383 | 6,570 | 275,906 | 5.55% | 4.23% | Prior surfaces plus Rust-owned stroked-text CTM-adjustment decision; C++ retains matrix work and backend calls |
+| `9286e9a6d` Phase 5 path-text options slice | 15,385 | 8,574 | 241 | 3,413 | 6,570 | 276,002 | 5.57% | 4.26% | Prior surfaces plus Rust-owned path-text fill/stroke option planning; C++ retains objects and backend calls |
 
 ## Toolchain
 
@@ -670,6 +671,12 @@ Rust. Only stroked text with a non-identity horizontal or vertical scale takes
 the existing adjustment path. C++ still constructs the CTM, computes its
 inverse, composes the device matrix, and invokes the retained backend. Native
 tests include identity, non-stroke, signed-zero, and NaN scale inputs.
+
+The sixth Phase 5 slice moves the path-text fill options into Rust. Rust
+preserves the special combined fill-and-stroke flags plus stroke adjustment
+and text smoothing. C++ keeps the text object and render options, and still
+calls `DrawTextPath()` with the planned result. The Rust unit suite covers
+stroke-only, combined, and independent adjustment/smoothing cases.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
