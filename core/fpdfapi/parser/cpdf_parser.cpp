@@ -66,6 +66,21 @@ struct CrossRefStreamIndexEntry {
 
 std::optional<ObjectType> GetObjectTypeFromCrossRefStreamType(
     uint32_t cross_ref_stream_type) {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto type =
+        pdfium::rust::RustCrossRefObjectType(cross_ref_stream_type);
+    if (type.has_value()) {
+      switch (*type) {
+        case 0:
+          return ObjectType::kFree;
+        case 1:
+          return ObjectType::kNormal;
+        case 2:
+          return ObjectType::kCompressed;
+      }
+      return std::nullopt;
+    }
+  }
   switch (cross_ref_stream_type) {
     case 0:
       return ObjectType::kFree;

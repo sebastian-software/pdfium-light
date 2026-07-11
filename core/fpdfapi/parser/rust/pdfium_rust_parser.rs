@@ -4,6 +4,13 @@ fn read_big_endian_var_int(input: &[u8]) -> u32 {
     input.iter().fold(0_u32, |value, byte| value.wrapping_mul(256).wrapping_add(u32::from(*byte)))
 }
 
+fn cross_ref_object_type(type_code: u32) -> Option<u8> {
+    match type_code {
+        0..=2 => Some(type_code as u8),
+        _ => None,
+    }
+}
+
 /// Reads a variable-width big-endian cross-reference field.
 ///
 /// # Safety
@@ -30,6 +37,30 @@ pub unsafe extern "C" fn pdfium_rust_read_big_endian_var_int(
     true
 }
 
+/// Validates a cross-reference stream object type code.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u8` value. Invalid codes leave it
+/// unchanged and return `false`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_object_type(
+    type_code: u32,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let Some(result) = cross_ref_object_type(type_code) else {
+        return false;
+    };
+    // SAFETY: The checked output pointer refers to one writable type code.
+    unsafe {
+        *output = result;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,5 +81,23 @@ mod tests {
         // rejected before the valid output is written.
         assert!(!unsafe { pdfium_rust_read_big_endian_var_int(core::ptr::null(), 1, &mut output) });
         assert_eq!(0xfeed_beef, output);
+    }
+
+    #[test]
+    fn cross_ref_object_type_should_accept_only_defined_codes() {
+        assert_eq!(Some(0), cross_ref_object_type(0));
+        assert_eq!(Some(1), cross_ref_object_type(1));
+        assert_eq!(Some(2), cross_ref_object_type(2));
+        assert_eq!(None, cross_ref_object_type(3));
+        assert_eq!(None, cross_ref_object_type(u32::MAX));
+    }
+
+    #[test]
+    fn cross_ref_object_type_ffi_should_reject_invalid_codes_without_mutation() {
+        let mut output = 0xa5_u8;
+        // SAFETY: The output is live; an invalid type code is rejected before
+        // it is written.
+        assert!(!unsafe { pdfium_rust_cross_ref_object_type(3, &mut output) });
+        assert_eq!(0xa5, output);
     }
 }
