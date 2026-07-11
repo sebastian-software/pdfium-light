@@ -74,6 +74,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `aa5d3cdba` Phase 2 render-layer slice | 12,707 | 5,896 | 241 | 2,054 | 6,570 | 271,338 | 4.68% | 2.98% | Prior surfaces plus Rust-owned layer setup/completion planning and ordered layer iteration with stop-aware C++ callbacks |
 | `08a3a00d4` Phase 3 path-paint slice | 12,824 | 6,013 | 241 | 2,135 | 6,570 | 271,558 | 4.72% | 3.04% | Prior surfaces plus Rust-owned path fill/stroke preservation, no-paint early completion, and forced-color fill-to-stroke conversion |
 | `adab6e20f` Phase 3 path-matrix slice | 12,884 | 6,073 | 241 | 2,164 | 6,570 | 271,655 | 4.74% | 3.07% | Prior surfaces plus Rust-owned path matrix availability across scale, swapped axes, shear, signed zero, infinity, and NaN semantics |
+| `336749474` Phase 3 fill-options slice | 13,016 | 6,205 | 241 | 2,244 | 6,570 | 271,876 | 4.79% | 3.13% | Prior surfaces plus Rust-owned fill rule, rectangle AA, path aliasing, stroke adjustment, stroke, and Type3 path-option planning |
 
 ## Toolchain
 
@@ -404,6 +405,15 @@ translation remains irrelevant. Native cases cover identity, swapped axes,
 degenerate rows/columns, shear, signed zero, infinity, all-NaN input, and null
 output. The availability result is part of the exact render trace. All 18
 native render/path tests and all 18 bitmap-plus-trace corpus cases pass.
+
+The complete `CFX_FillRenderOptions` subset used by PDF path drawing is now
+planned in Rust. Fill rule, fill-only rectangle AA, no-smooth aliasing,
+graph-state stroke adjustment, stroke mode, and Type3 text mode cross the
+boundary as a validated compact bitset; all unrelated option fields remain at
+their retained defaults. Native tests cover every flag, the fill-only AA rule,
+invalid fill values, unchanged output on failure, and null output. The exact
+options are recorded in the render trace. All 21 native render/path tests and
+all 18 bitmap-plus-trace cases pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
