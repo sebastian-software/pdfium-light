@@ -60,6 +60,42 @@ fn cross_ref_field_width(value: i32) -> u32 {
     value as u32
 }
 
+fn is_pdf_whitespace(byte: u8) -> bool {
+    matches!(byte, 0 | b'\t' | b'\n' | 0x0c | b'\r' | b' ')
+}
+
+fn skip_pdf_spaces_and_comments(input: &[u8], mut position: usize) -> (usize, Option<u8>) {
+    loop {
+        let Some(&first) = input.get(position) else {
+            return (position, None);
+        };
+        let mut current = first;
+        position += 1;
+
+        while is_pdf_whitespace(current) {
+            let Some(&next) = input.get(position) else {
+                return (position, None);
+            };
+            current = next;
+            position += 1;
+        }
+
+        if current != b'%' {
+            return (position, Some(current));
+        }
+
+        loop {
+            let Some(&comment_byte) = input.get(position) else {
+                return (position, None);
+            };
+            position += 1;
+            if matches!(comment_byte, b'\r' | b'\n') {
+                break;
+            }
+        }
+    }
+}
+
 type CrossRefSegmentCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
 
 /// Reads a variable-width big-endian cross-reference field.
@@ -269,6 +305,53 @@ pub unsafe extern "C" fn pdfium_rust_cross_ref_field_width(value: i32, output: *
     true
 }
 
+/// Skips PDF whitespace and complete comment lines from a borrowed input.
+///
+/// The returned position always reflects bytes consumed, including when no
+/// parseable byte remains. A successful return additionally writes that byte.
+///
+/// # Safety
+///
+/// When `len` is non-zero, `data` must point to `len` readable bytes.
+/// `output_position` must point to one writable `u32`; `output_byte` must
+/// point to one writable `u8` when a parseable byte is available.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_skip_pdf_spaces_and_comments(
+    data: *const u8,
+    len: usize,
+    position: u32,
+    output_position: *mut u32,
+    output_byte: *mut u8,
+) -> bool {
+    if output_position.is_null() || (len != 0 && data.is_null()) {
+        return false;
+    }
+    let data = if len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { data };
+    // SAFETY: The caller guarantees a readable input span whenever non-empty;
+    // empty spans use a non-null dangling pointer and are never dereferenced.
+    let input = unsafe { core::slice::from_raw_parts(data, len) };
+    let (next_position, byte) =
+        skip_pdf_spaces_and_comments(input, usize::try_from(position).unwrap_or(usize::MAX));
+    let Ok(next_position) = u32::try_from(next_position) else {
+        return false;
+    };
+    // SAFETY: The checked output pointer refers to one writable position.
+    unsafe {
+        *output_position = next_position;
+    }
+    let Some(byte) = byte else {
+        return false;
+    };
+    if output_byte.is_null() {
+        return false;
+    }
+    // SAFETY: A successful call requires one writable byte output.
+    unsafe {
+        *output_byte = byte;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,5 +468,33 @@ mod tests {
         assert_eq!(17, cross_ref_field_width(17));
         assert_eq!(u32::MAX, cross_ref_field_width(-1));
         assert_eq!(0x8000_0000, cross_ref_field_width(i32::MIN));
+    }
+
+    #[test]
+    fn skip_spaces_and_comments_should_match_pdfium_whitespace_and_comment_rules() {
+        assert_eq!((4, Some(b'a')), skip_pdf_spaces_and_comments(b" \t\0a", 0));
+        assert_eq!((8, Some(b'b')), skip_pdf_spaces_and_comments(b"%skip\r\nb", 0));
+        assert_eq!((13, Some(b'c')), skip_pdf_spaces_and_comments(b" \n%one\n%two\nc", 0));
+        assert_eq!((4, None), skip_pdf_spaces_and_comments(b" \t\0\n", 0));
+        assert_eq!((8, None), skip_pdf_spaces_and_comments(b"%comment", 0));
+    }
+
+    #[test]
+    fn skip_spaces_and_comments_ffi_should_record_consumed_position_on_eof() {
+        let input = b"%comment";
+        let mut output_position = 0_u32;
+        let mut output_byte = 0xa5_u8;
+        // SAFETY: The test supplies readable input and writable scalar outputs.
+        assert!(!unsafe {
+            pdfium_rust_skip_pdf_spaces_and_comments(
+                input.as_ptr(),
+                input.len(),
+                0,
+                &mut output_position,
+                &mut output_byte,
+            )
+        });
+        assert_eq!(input.len() as u32, output_position);
+        assert_eq!(0xa5, output_byte);
     }
 }

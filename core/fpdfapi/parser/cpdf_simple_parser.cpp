@@ -11,6 +11,7 @@
 #include <optional>
 
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/check_op.h"
 
 CPDF_SimpleParser::CPDF_SimpleParser(pdfium::span<const uint8_t> input)
@@ -53,6 +54,10 @@ ByteStringView CPDF_SimpleParser::GetDataToCurrentPosition(
 }
 
 std::optional<uint8_t> CPDF_SimpleParser::SkipSpacesAndComments() {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    return pdfium::rust::RustSkipPdfSpacesAndComments(data_, &cur_position_);
+  }
+
   while (true) {
     if (cur_position_ >= data_.size()) {
       return std::nullopt;
