@@ -92,10 +92,11 @@ ACTIVE_SURFACES = (
     "cross-reference stream effective entry-type planning",
     "cross-reference stream entry action planning",
     "cross-reference stream index-pair validation",
+    "cross-reference stream segment byte-range planning",
 )
 CANDIDATE_SURFACES = (
     "PDF text draw backend execution",
-    "cross-reference stream segment processing and object graph mutation",
+    "cross-reference stream segment iteration and object graph mutation",
 )
 
 
