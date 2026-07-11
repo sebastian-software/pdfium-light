@@ -4221,6 +4221,16 @@ mod tests {
     }
 
     #[test]
+    fn stretch_palette_should_preserve_signed_integer_interpolation() {
+        let mut palette = [0; 256];
+        assert!(build_1bpp_stretch_palette(0xffe0_1020, 0xff20_40e0, &mut palette));
+        assert_eq!(0xffe0_1020, palette[0]);
+        assert_eq!(0xffe0_1020, palette[1]);
+        assert_eq!(0xff80_2880, palette[128]);
+        assert_eq!(0xff20_40e0, palette[255]);
+    }
+
+    #[test]
     fn buffer_conversion_should_map_custom_palette_to_bgr() {
         let source = [0, 1, 2];
         let mut palette = [0; 256];
