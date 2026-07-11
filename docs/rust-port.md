@@ -70,6 +70,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `a799e7b4b` Phase 1 bitmap-flip slice | 12,170 | 5,359 | 241 | 1,661 | 6,570 | 270,174 | 4.50% | 2.72% | Prior surfaces plus copy/horizontal flip rows for packed 1-bpp and 8-/24-/32-bpp Windows `FlipImage` behavior |
 | `dc837a462` Phase 2 render-request slice | 12,279 | 5,468 | 241 | 1,755 | 6,570 | 270,440 | 4.54% | 2.77% | Prior surfaces plus Rust planning for public render flags, color mode, print/view usage, annotations, and device restoration |
 | `da914a73c` Phase 2 object-dispatch slice | 12,355 | 5,544 | 241 | 1,808 | 6,570 | 270,607 | 4.57% | 2.81% | Prior surfaces plus Rust-owned dispatch planning for text, path, image, shading, and form page objects |
+| `c78f121a5` Phase 2 object-list slice | 12,506 | 5,695 | 241 | 1,910 | 6,570 | 270,904 | 4.62% | 2.88% | Prior surfaces plus stop-object precedence, active-state filtering, exact float clip rejection, and same-process render-command traces |
 
 ## Toolchain
 
@@ -324,6 +325,22 @@ this inner core dispatch so the candidate and oracle remain genuinely
 independent in the same process. Two additional native tests cover all five
 commands, invalid values, null output, and unchanged output on failure; the
 fourteen zero-tolerance renderer cases remain byte-identical.
+
+Object-list traversal now asks Rust whether each entry must stop traversal,
+skip, or enter rendering. The planner preserves the original evaluation order:
+stop-object identity wins before null/activity checks, inactive entries do not
+read bounds, and clipping uses the same strict float comparisons (including
+touching and NaN behavior). It performs one constant-size, allocation-free FFI
+call per visited entry; object ownership, iteration, matrices, visibility,
+transparency, and rendering remain C++-owned at this boundary.
+
+The differential harness records every stop/skip/render decision and every
+text/path/image/shading/form dispatch in order. Each of the fourteen corpus
+cases now requires an exact non-empty Candidate/Oracle trace in addition to
+identical bitmap dimensions, format, stride, and bytes. Four new native tests
+cover stop precedence, missing/inactive entries, all four outside directions,
+touching bounds, NaN comparison semantics, and null FFI output; 8/8 native
+render tests pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
