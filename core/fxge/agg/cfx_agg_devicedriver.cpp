@@ -392,13 +392,27 @@ void RasterizeStroke(agg::rasterizer_scanline_aa* rasterizer,
   if (should_apply_dash_pattern) {
     using DashConverter = agg::conv_dash<agg::path_storage>;
     DashConverter dash(*path_data);
-    for (float dash_len : dash_array) {
-      if (dash_len <= 0.000001f) {
-        dash_len = 0.1f;
+    bool used_rust_dash_pattern = false;
+    if (fxge::UseRustAggCandidate()) {
+      const auto dash_start = fxge::RustEmitAggDashPattern(
+          dash_array, pGraphState->dash_phase(), scale, &dash,
+          [](void* context, float value) {
+            static_cast<DashConverter*>(context)->add_dash(value);
+          });
+      if (dash_start.has_value()) {
+        dash.dash_start(*dash_start);
+        used_rust_dash_pattern = true;
       }
-      dash.add_dash(fabs(dash_len * scale));
     }
-    dash.dash_start(pGraphState->dash_phase() * scale);
+    if (!used_rust_dash_pattern) {
+      for (float dash_len : dash_array) {
+        if (dash_len <= 0.000001f) {
+          dash_len = 0.1f;
+        }
+        dash.add_dash(fabs(dash_len * scale));
+      }
+      dash.dash_start(pGraphState->dash_phase() * scale);
+    }
     using DashStroke = agg::conv_stroke<DashConverter>;
     DashStroke stroke(dash);
     stroke.line_join(join);

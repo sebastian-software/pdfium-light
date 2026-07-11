@@ -24,6 +24,8 @@ struct AggStrokePlan {
   float miter_limit;
 };
 
+using AggDashValueCallback = void (*)(void* context, float value);
+
 std::optional<bool> RustShouldApplyAggDashPattern(
     pdfium::span<const float> dash_array,
     float scale);
@@ -36,6 +38,13 @@ std::optional<AggStrokePlan> RustPlanAggStroke(uint8_t line_cap,
                                                float object_x_unit,
                                                float object_y_unit,
                                                float miter_limit);
+
+std::optional<float> RustEmitAggDashPattern(
+    pdfium::span<const float> dash_array,
+    float dash_phase,
+    float scale,
+    void* context,
+    AggDashValueCallback callback);
 
 bool UseRustAggCandidate();
 bool SetUseRustAggCandidateForTesting(bool use_candidate);

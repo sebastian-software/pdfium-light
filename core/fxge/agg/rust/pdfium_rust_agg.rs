@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 const MIN_DASH_CYCLE_DEVICE_PIXELS: f32 = 0.1;
+const MIN_DASH_LENGTH: f32 = 0.000_001;
+const REPLACEMENT_DASH_LENGTH: f32 = 0.1;
 
 const LINE_CAP_BUTT: u8 = 0;
 const LINE_CAP_ROUND: u8 = 1;
@@ -77,6 +79,11 @@ fn should_apply_dash_pattern(dash_array: &[f32], scale: f32) -> bool {
     }
 }
 
+fn normalized_dash_value(value: f32, scale: f32) -> f32 {
+    let value = if value <= MIN_DASH_LENGTH { REPLACEMENT_DASH_LENGTH } else { value };
+    (value * scale).abs()
+}
+
 /// Decides whether AGG should receive the PDF dash pattern.
 ///
 /// # Safety
@@ -138,6 +145,53 @@ pub unsafe extern "C" fn pdfium_rust_plan_agg_stroke(
             object_y_unit,
             miter_limit,
         });
+    }
+    true
+}
+
+type DashValueCallback = unsafe extern "C" fn(*mut core::ffi::c_void, f32);
+
+/// Normalizes and emits an AGG dash pattern without allocating in Rust.
+///
+/// # Safety
+///
+/// When `dash_count` is nonzero, `dash_values` must point to that many
+/// readable `f32` values. `callback` must be a valid function that accepts
+/// `context` for every emitted value. `dash_start` must point to one writable
+/// `f32` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_emit_agg_dash_pattern(
+    dash_values: *const f32,
+    dash_count: usize,
+    dash_phase: f32,
+    scale: f32,
+    context: *mut core::ffi::c_void,
+    callback: Option<DashValueCallback>,
+    dash_start: *mut f32,
+) -> bool {
+    if dash_start.is_null() || callback.is_none() || (dash_count != 0 && dash_values.is_null()) {
+        return false;
+    }
+    let dash_array = if dash_count == 0 {
+        &[]
+    } else {
+        // SAFETY: The caller guarantees `dash_count` readable values.
+        unsafe { core::slice::from_raw_parts(dash_values, dash_count) }
+    };
+    let emit = match callback {
+        Some(emit) => emit,
+        None => return false,
+    };
+    for &value in dash_array {
+        // SAFETY: The caller guarantees that `emit` accepts `context` for
+        // every value in the borrowed dash span.
+        unsafe {
+            emit(context, normalized_dash_value(value, scale));
+        }
+    }
+    // SAFETY: The caller guarantees one writable output value.
+    unsafe {
+        *dash_start = dash_phase * scale;
     }
     true
 }

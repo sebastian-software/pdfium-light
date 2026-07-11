@@ -34,6 +34,15 @@ extern "C" bool pdfium_rust_plan_agg_stroke(uint8_t line_cap,
                                             float miter_limit,
                                             RustAggStrokePlan* output);
 
+extern "C" bool pdfium_rust_emit_agg_dash_pattern(
+    const float* dash_values,
+    size_t dash_count,
+    float dash_phase,
+    float scale,
+    void* context,
+    fxge::AggDashValueCallback callback,
+    float* dash_start);
+
 thread_local bool g_use_rust_agg_candidate = true;
 thread_local std::vector<uint8_t>* g_agg_trace_for_testing = nullptr;
 
@@ -74,6 +83,21 @@ std::optional<AggStrokePlan> RustPlanAggStroke(uint8_t line_cap,
       .width = plan.width,
       .miter_limit = plan.miter_limit,
   };
+}
+
+std::optional<float> RustEmitAggDashPattern(
+    pdfium::span<const float> dash_array,
+    float dash_phase,
+    float scale,
+    void* context,
+    AggDashValueCallback callback) {
+  float dash_start = 0.0f;
+  if (!pdfium_rust_emit_agg_dash_pattern(dash_array.data(), dash_array.size(),
+                                         dash_phase, scale, context, callback,
+                                         &dash_start)) {
+    return std::nullopt;
+  }
+  return dash_start;
 }
 
 bool UseRustAggCandidate() {
