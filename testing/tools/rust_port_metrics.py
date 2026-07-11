@@ -76,9 +76,10 @@ ACTIVE_SURFACES = (
     "AGG stroke matrix decomposition",
     "glyph bitmap cache-key shape planning",
     "checked glyph bitmap origin placement",
+    "glyph device-origin rounding",
 )
 CANDIDATE_SURFACES = (
-    "glyph device-origin rounding, bounding boxes, cache lookup, and the FreeType adapter boundary",
+    "glyph bounding boxes, cache lookup, and the FreeType adapter boundary",
 )
 
 

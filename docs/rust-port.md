@@ -83,6 +83,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `4e881dc78` Phase 3 AGG stroke-matrix slice | 14,005 | 7,194 | 241 | 2,740 | 6,570 | 273,619 | 5.12% | 3.61% | Prior surfaces plus Rust-owned identity, scale extraction, normalized stroke matrix, inverse, and path-matrix decomposition |
 | `17c6e369b` Phase 4 glyph cache-key slice | 14,211 | 7,400 | 241 | 2,872 | 6,570 | 274,001 | 5.19% | 3.71% | Prior surfaces plus Rust-owned 6-, 7-, 9-, and 10-word glyph bitmap cache-key shape planning for base, substitution, and native-text variants |
 | `d9705f514` Phase 4 glyph-origin slice | 14,307 | 7,496 | 241 | 2,943 | 6,570 | 274,199 | 5.22% | 3.75% | Prior surfaces plus checked Rust-owned glyph bitmap origin placement for bounding-box and draw composition offsets |
+| `026b3cd97` Phase 4 device-origin slice | 14,411 | 7,600 | 241 | 3,008 | 6,570 | 274,388 | 5.25% | 3.80% | Prior surfaces plus Rust-owned LCD-floor and saturated half-away-from-zero device-origin rounding before glyph bitmap loading |
 
 ## Toolchain
 
@@ -553,6 +554,20 @@ placement, and `HelloWorldNoNativeText` explicitly proves that origin events
 are reached. All 19 bitmap-plus-trace renderer cases pass. Device-origin
 rounding, glyph bounding-box aggregation, cache lookup/action planning, and the
 FreeType adapter remain the next Phase 4 boundaries.
+
+The third slice moves device-origin rounding in `DrawNormalText()` into Rust.
+Normal text uses PDFium's NaN-to-zero, saturating, half-away-from-zero contract;
+LCD x coordinates retain floor conversion. Rust rejects non-finite or
+out-of-range LCD x values before conversion so the existing platform C++
+expression remains the fallback oracle for inputs where its cast contract is
+implementation-defined. Transform ownership and glyph loading remain C++.
+
+Nine native glyph tests cover positive and negative half values, tiny and
+extreme floats, NaN, LCD floor behavior, rejected LCD inputs, and null-output
+no-mutation. The glyph trace records both float bit patterns, LCD mode, and
+planned integer coordinates; `HelloWorldNoNativeText` proves the event is
+reached, and all 19 exact renderer cases pass. Glyph bounding-box aggregation,
+cache lookup/action planning, and the FreeType boundary remain next.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
