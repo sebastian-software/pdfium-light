@@ -96,6 +96,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `9286e9a6d` Phase 5 path-text options slice | 15,385 | 8,574 | 241 | 3,413 | 6,570 | 276,002 | 5.57% | 4.26% | Prior surfaces plus Rust-owned path-text fill/stroke option planning; C++ retains objects and backend calls |
 | `e122a59b0` Phase 6 xref-field slice | 15,439 | 8,628 | 241 | 3,468 | 6,570 | 276,122 | 5.59% | 4.29% | Prior surfaces plus Rust-owned variable-width cross-reference field reading; C++ retains stream interpretation and cross-reference ownership |
 | `9dfe83b11` Phase 6 xref-type slice | 15,488 | 8,677 | 241 | 3,479 | 6,570 | 276,197 | 5.61% | 4.31% | Prior surfaces plus Rust-owned cross-reference object-type validation; C++ retains entry interpretation and table mutation |
+| `64abd58c8` Phase 6 xref-entry slice | 15,528 | 8,717 | 241 | 3,494 | 6,570 | 276,271 | 5.62% | 4.33% | Prior surfaces plus Rust-owned effective cross-reference entry-type planning; C++ retains field interpretation and table mutation |
 
 ## Toolchain
 
@@ -699,6 +700,12 @@ Rust. Only the defined free, normal, and compressed codes are accepted; an
 unknown code retains the C++ oracle. C++ continues to interpret the field
 values and mutate the cross-reference table. The native parser test target now
 also covers all defined type codes, invalid codes, and no-mutation rejection.
+
+The third Phase 6 slice moves effective entry-type planning into Rust. A
+missing first field receives the ISO default `normal` type; explicit values
+must still be one of the three defined codes. C++ continues to read offset,
+generation, and archive values and performs every table mutation. The native
+parser suite verifies both the default and invalid explicit codes.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
