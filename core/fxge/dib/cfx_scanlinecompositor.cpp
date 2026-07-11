@@ -2139,11 +2139,25 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgra(
     }
     case FXDIB_Format::k8bppRgb: {
       CHECK(!rgb_byte_order_);  // Disallowed by Init();
+      if (RustBlendAdapter::UseCandidate() &&
+          RustBlendAdapter::CompositeBgraToByteRow(
+              blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
+              clip_scan, /*is_mask=*/false,
+              dest_scan.first(static_cast<size_t>(width)))) {
+        return;
+      }
       CompositeRowBgra2Gray(src_span, clip_scan, dest_scan, blend_type_);
       return;
     }
     case FXDIB_Format::k8bppMask: {
       CHECK(!rgb_byte_order_);  // Disallowed by Init();
+      if (RustBlendAdapter::UseCandidate() &&
+          RustBlendAdapter::CompositeBgraToByteRow(
+              blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
+              clip_scan, /*is_mask=*/true,
+              dest_scan.first(static_cast<size_t>(width)))) {
+        return;
+      }
       CompositeRowBgra2Mask(src_span, clip_scan, dest_scan);
       return;
     }

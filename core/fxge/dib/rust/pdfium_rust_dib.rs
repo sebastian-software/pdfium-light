@@ -155,6 +155,44 @@ fn composite_bgra_to_bgr_pixel(
     }
 }
 
+fn gray(input: [u8; 4]) -> u8 {
+    ((u16::from(input[0]) * 11 + u16::from(input[1]) * 59 + u16::from(input[2]) * 30) / 100) as u8
+}
+
+fn composite_bgra_to_byte_pixel(
+    mode: u8,
+    input: [u8; 4],
+    clip: u8,
+    is_mask: bool,
+    output: &mut u8,
+) -> bool {
+    let source_alpha = (u16::from(input[3]) * u16::from(clip) / 255) as u8;
+    if is_mask {
+        *output = (u16::from(*output) + u16::from(source_alpha)
+            - u16::from(*output) * u16::from(source_alpha) / 255) as u8;
+        return true;
+    }
+    if source_alpha == 0 {
+        return mode <= 15;
+    }
+
+    let source_gray = gray(input);
+    let candidate = match mode {
+        0 => source_gray,
+        1..=11 => {
+            let Ok(mode) = BlendMode::try_from(mode) else {
+                return false;
+            };
+            blend(mode, *output, source_gray)
+        }
+        12..=14 => *output,
+        15 => source_gray,
+        _ => return false,
+    };
+    *output = alpha_merge(*output, candidate, source_alpha);
+    true
+}
+
 // RUST_PORT_METRICS_BEGIN abi_thunk
 /// Applies one separable blend mode to equally sized channel arrays.
 ///
@@ -260,6 +298,41 @@ pub unsafe extern "C" fn pdfium_rust_composite_bgra_to_bgr_row(
                 slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
             let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
             composite_bgra_to_bgr_pixel(mode, input, clip, rgb_byte_order, output);
+        }
+    }
+    true
+}
+
+/// Composites packed BGRA pixels into an 8-bit gray or alpha-mask row.
+///
+/// # Safety
+///
+/// `source` must be valid for `pixel_count * 4` bytes and `output` for
+/// `pixel_count` bytes. `clip` must be null or valid for `pixel_count` bytes.
+/// The source and output regions must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_bgra_to_byte_row(
+    mode: u8,
+    source: *const u8,
+    clip: *const u8,
+    output: *mut u8,
+    is_mask: bool,
+    pixel_count: usize,
+) -> bool {
+    if !is_mask && mode > 15 {
+        return false;
+    }
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees complete non-overlapping
+        // source and output rows and an optional complete clip row.
+        unsafe {
+            let input = (source.add(pixel * 4) as *const [u8; 4]).read_unaligned();
+            let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
+            let mut destination = *output.add(pixel);
+            if !composite_bgra_to_byte_pixel(mode, input, clip, is_mask, &mut destination) {
+                return false;
+            }
+            *output.add(pixel) = destination;
         }
     }
     true

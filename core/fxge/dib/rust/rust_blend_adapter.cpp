@@ -27,6 +27,12 @@ extern "C" bool pdfium_rust_composite_bgra_to_bgr_row(
     size_t output_components,
     bool rgb_byte_order,
     size_t pixel_count);
+extern "C" bool pdfium_rust_composite_bgra_to_byte_row(uint8_t mode,
+                                                        const uint8_t* source,
+                                                        const uint8_t* clip,
+                                                        uint8_t* output,
+                                                        bool is_mask,
+                                                        size_t pixel_count);
 
 namespace {
 
@@ -90,6 +96,26 @@ bool RustBlendAdapter::CompositeBgraToBgrRow(
       static_cast<uint8_t>(mode), source.data(),
       clip.empty() ? nullptr : clip.data(), output.data(), output_components,
       rgb_byte_order, source.size() / kSourceBytesPerPixel);
+}
+
+// static
+bool RustBlendAdapter::CompositeBgraToByteRow(
+    BlendMode mode,
+    pdfium::span<const uint8_t> source,
+    pdfium::span<const uint8_t> clip,
+    bool is_mask,
+    pdfium::span<uint8_t> output) {
+  constexpr size_t kSourceBytesPerPixel = 4;
+  if (source.size() % kSourceBytesPerPixel != 0 ||
+      output.size() != source.size() / kSourceBytesPerPixel ||
+      (!clip.empty() && clip.size() != output.size()) ||
+      mode > BlendMode::kLast) {
+    return false;
+  }
+  return pdfium_rust_composite_bgra_to_byte_row(
+      static_cast<uint8_t>(mode), source.data(),
+      clip.empty() ? nullptr : clip.data(), output.data(), is_mask,
+      output.size());
 }
 
 // static

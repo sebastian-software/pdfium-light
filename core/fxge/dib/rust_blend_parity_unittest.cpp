@@ -157,5 +157,51 @@ TEST(RustBlendParityTest, BgraToBgrRowsMatchCppReference) {
   }
 }
 
+TEST(RustBlendParityTest, BgraToByteRowsMatchCppReference) {
+  constexpr size_t kPixelCount = 257;
+  DataVector<uint8_t> source(kPixelCount * 4);
+  DataVector<uint8_t> initial_destination(kPixelCount);
+  DataVector<uint8_t> clip(kPixelCount);
+  for (size_t index = 0; index < source.size(); ++index) {
+    source[index] = static_cast<uint8_t>((index * 83) % 256);
+  }
+  for (size_t pixel = 0; pixel < kPixelCount; ++pixel) {
+    initial_destination[pixel] = static_cast<uint8_t>((pixel * 37) % 256);
+    clip[pixel] = static_cast<uint8_t>((pixel * 61) % 256);
+  }
+
+  for (FXDIB_Format format :
+       {FXDIB_Format::k8bppRgb, FXDIB_Format::k8bppMask}) {
+    for (int mode_value = static_cast<int>(BlendMode::kNormal);
+         mode_value <= static_cast<int>(BlendMode::kLast); ++mode_value) {
+      const auto mode = static_cast<BlendMode>(mode_value);
+      for (bool use_clip : {false, true}) {
+        CFX_ScanlineCompositor compositor;
+        ASSERT_TRUE(compositor.Init(format, FXDIB_Format::kBgra,
+                                    /*src_palette=*/{}, /*mask_color=*/0, mode,
+                                    /*bRgbByteOrder=*/false));
+        const pdfium::span<const uint8_t> clip_span =
+            use_clip ? pdfium::span<const uint8_t>(clip)
+                     : pdfium::span<const uint8_t>();
+        DataVector<uint8_t> reference = initial_destination;
+        {
+          ScopedRustDibImplementationForTesting implementation(false);
+          compositor.CompositeRgbBitmapLine(
+              reference, source, static_cast<int>(kPixelCount), clip_span);
+        }
+        DataVector<uint8_t> candidate = initial_destination;
+        {
+          ScopedRustDibImplementationForTesting implementation(true);
+          compositor.CompositeRgbBitmapLine(
+              candidate, source, static_cast<int>(kPixelCount), clip_span);
+        }
+        EXPECT_EQ(reference, candidate)
+            << "format=" << static_cast<int>(format)
+            << " mode=" << mode_value << " use_clip=" << use_clip;
+      }
+    }
+  }
+}
+
 }  // namespace
 }  // namespace fxge

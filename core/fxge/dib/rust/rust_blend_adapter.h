@@ -33,6 +33,11 @@ class RustBlendAdapter final {
                                     int output_components,
                                     bool rgb_byte_order,
                                     pdfium::span<uint8_t> output);
+  static bool CompositeBgraToByteRow(BlendMode mode,
+                                     pdfium::span<const uint8_t> source,
+                                     pdfium::span<const uint8_t> clip,
+                                     bool is_mask,
+                                     pdfium::span<uint8_t> output);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;
