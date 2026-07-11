@@ -56,6 +56,12 @@ struct GlyphWidthCacheKeyPlan {
   int32_t weight;
 };
 
+struct FreeTypeGlyphLoadPlan {
+  bool no_hinting;
+  bool pedantic;
+  bool retry_without_hinting;
+};
+
 enum class GlyphBitmapLookupAction : uint8_t {
   kReject = 0,
   kLookupRequestedKey = 1,
@@ -103,6 +109,10 @@ std::optional<GlyphWidthCacheKeyPlan> RustPlanGlyphWidthCacheKey(
     uint32_t glyph_index,
     int32_t destination_width,
     int32_t weight);
+std::optional<FreeTypeGlyphLoadPlan> RustPlanFreeTypeGlyphLoad(
+    bool is_render,
+    bool is_tt_ot,
+    bool is_tricky);
 
 bool UseRustGlyphCandidate();
 bool SetUseRustGlyphCandidateForTesting(bool use_candidate);
@@ -134,11 +144,15 @@ void RecordGlyphBitmapLookupForTesting(bool glyph_is_valid,
                                        bool native_text,
                                        bool native_cache_hit,
                                        GlyphBitmapLookupAction action);
+void RecordFreeTypeGlyphLoadPlanForTesting(bool is_render,
+                                           const FreeTypeGlyphLoadPlan& plan);
 bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace);
 bool GlyphTraceHasDeviceOriginPlansForTesting(
     pdfium::span<const uint8_t> trace);
 bool GlyphTraceHasBoundsPlansForTesting(pdfium::span<const uint8_t> trace);
 bool GlyphTraceHasBitmapLookupPlansForTesting(
+    pdfium::span<const uint8_t> trace);
+bool GlyphTraceHasFreeTypeLoadPlansForTesting(
     pdfium::span<const uint8_t> trace);
 
 }  // namespace fxge

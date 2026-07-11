@@ -78,6 +78,13 @@ struct GlyphWidthCacheKeyPlan {
     weight: i32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FreeTypeGlyphLoadPlan {
+    no_hinting: bool,
+    pedantic: bool,
+    retry_without_hinting: bool,
+}
+
 fn plan_glyph_bitmap_lookup(
     glyph_is_valid: bool,
     native_text: bool,
@@ -117,6 +124,19 @@ fn plan_glyph_width_cache_key(
     weight: i32,
 ) -> GlyphWidthCacheKeyPlan {
     GlyphWidthCacheKeyPlan { glyph_index, destination_width, weight }
+}
+
+fn plan_freetype_glyph_load(
+    is_render: bool,
+    is_tt_ot: bool,
+    is_tricky: bool,
+) -> FreeTypeGlyphLoadPlan {
+    let no_hinting = if is_render { !is_tt_ot } else { !is_tt_ot || !is_tricky };
+    FreeTypeGlyphLoadPlan {
+        no_hinting,
+        pedantic: is_render,
+        retry_without_hinting: is_render && !no_hinting,
+    }
 }
 
 fn include_glyph_bounds(
@@ -507,6 +527,41 @@ pub unsafe extern "C" fn pdfium_rust_plan_glyph_width_cache_key(
         *output_glyph_index = plan.glyph_index;
         *output_destination_width = plan.destination_width;
         *output_weight = plan.weight;
+    }
+    true
+}
+
+/// Plans the FreeType load flags for a render or path glyph operation.
+///
+/// Rust owns only the platform-independent flag decision. C++ retains the
+/// FreeType call, face state, and the backend-specific flag constants.
+///
+/// # Safety
+///
+/// All three output pointers must point to one writable `u8` value. The
+/// pointers are only written after all are validated.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_plan_freetype_glyph_load(
+    is_render: bool,
+    is_tt_ot: bool,
+    is_tricky: bool,
+    output_no_hinting: *mut u8,
+    output_pedantic: *mut u8,
+    output_retry_without_hinting: *mut u8,
+) -> bool {
+    if output_no_hinting.is_null()
+        || output_pedantic.is_null()
+        || output_retry_without_hinting.is_null()
+    {
+        return false;
+    }
+    let plan = plan_freetype_glyph_load(is_render, is_tt_ot, is_tricky);
+    // SAFETY: All output pointers were checked for null and the caller
+    // guarantees that each points to one writable byte.
+    unsafe {
+        *output_no_hinting = u8::from(plan.no_hinting);
+        *output_pedantic = u8::from(plan.pedantic);
+        *output_retry_without_hinting = u8::from(plan.retry_without_hinting);
     }
     true
 }
@@ -975,5 +1030,75 @@ mod tests {
             )
         });
         assert_eq!((glyph_index, destination_width, weight), (17, 320, 700));
+    }
+
+    #[test]
+    fn freetype_glyph_load_should_preserve_render_and_path_hinting_rules() {
+        assert_eq!(
+            plan_freetype_glyph_load(true, true, false),
+            FreeTypeGlyphLoadPlan {
+                no_hinting: false,
+                pedantic: true,
+                retry_without_hinting: true,
+            }
+        );
+        assert_eq!(
+            plan_freetype_glyph_load(true, false, true),
+            FreeTypeGlyphLoadPlan {
+                no_hinting: true,
+                pedantic: true,
+                retry_without_hinting: false,
+            }
+        );
+        assert_eq!(
+            plan_freetype_glyph_load(false, true, true),
+            FreeTypeGlyphLoadPlan {
+                no_hinting: false,
+                pedantic: false,
+                retry_without_hinting: false,
+            }
+        );
+        assert_eq!(
+            plan_freetype_glyph_load(false, true, false),
+            FreeTypeGlyphLoadPlan {
+                no_hinting: true,
+                pedantic: false,
+                retry_without_hinting: false,
+            }
+        );
+    }
+
+    #[test]
+    fn freetype_glyph_load_ffi_should_reject_null_outputs_without_mutation() {
+        let mut no_hinting = 91_u8;
+        let mut pedantic = 92_u8;
+        let mut retry_without_hinting = 93_u8;
+
+        // SAFETY: The two live outputs are paired with a null third output;
+        // the FFI contract rejects the call before any write.
+        assert!(!unsafe {
+            pdfium_rust_plan_freetype_glyph_load(
+                true,
+                true,
+                false,
+                &mut no_hinting,
+                &mut pedantic,
+                core::ptr::null_mut(),
+            )
+        });
+        assert_eq!((no_hinting, pedantic, retry_without_hinting), (91, 92, 93));
+
+        // SAFETY: Every output points to one live writable byte.
+        assert!(unsafe {
+            pdfium_rust_plan_freetype_glyph_load(
+                true,
+                true,
+                false,
+                &mut no_hinting,
+                &mut pedantic,
+                &mut retry_without_hinting,
+            )
+        });
+        assert_eq!((no_hinting, pedantic, retry_without_hinting), (0, 1, 1));
     }
 }

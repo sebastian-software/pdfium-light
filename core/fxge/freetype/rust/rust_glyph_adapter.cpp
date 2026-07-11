@@ -68,6 +68,13 @@ extern "C" bool pdfium_rust_plan_glyph_width_cache_key(
     uint32_t* output_glyph_index,
     int32_t* output_destination_width,
     int32_t* output_weight);
+extern "C" bool pdfium_rust_plan_freetype_glyph_load(
+    bool is_render,
+    bool is_tt_ot,
+    bool is_tricky,
+    uint8_t* output_no_hinting,
+    uint8_t* output_pedantic,
+    uint8_t* output_retry_without_hinting);
 
 thread_local bool g_use_rust_glyph_candidate = true;
 thread_local std::vector<uint8_t>* g_glyph_trace_for_testing = nullptr;
@@ -92,6 +99,8 @@ bool GlyphTraceHasEvent(pdfium::span<const uint8_t> trace,
     } else if (marker == 0x42) {
       event_size = 17;
     } else if (marker == 0x4c) {
+      event_size = 5;
+    } else if (marker == 0x46) {
       event_size = 5;
     } else {
       return false;
@@ -217,6 +226,25 @@ std::optional<GlyphWidthCacheKeyPlan> RustPlanGlyphWidthCacheKey(
   return plan;
 }
 
+std::optional<FreeTypeGlyphLoadPlan> RustPlanFreeTypeGlyphLoad(
+    bool is_render,
+    bool is_tt_ot,
+    bool is_tricky) {
+  uint8_t no_hinting = 0;
+  uint8_t pedantic = 0;
+  uint8_t retry_without_hinting = 0;
+  if (!pdfium_rust_plan_freetype_glyph_load(
+          is_render, is_tt_ot, is_tricky, &no_hinting, &pedantic,
+          &retry_without_hinting) ||
+      no_hinting > 1 || pedantic > 1 || retry_without_hinting > 1) {
+    return std::nullopt;
+  }
+  return FreeTypeGlyphLoadPlan{.no_hinting = !!no_hinting,
+                               .pedantic = !!pedantic,
+                               .retry_without_hinting =
+                                   !!retry_without_hinting};
+}
+
 bool UseRustGlyphCandidate() {
   return g_use_rust_glyph_candidate;
 }
@@ -302,6 +330,19 @@ void RecordGlyphBitmapLookupForTesting(bool glyph_is_valid,
   g_glyph_trace_for_testing->push_back(static_cast<uint8_t>(action));
 }
 
+void RecordFreeTypeGlyphLoadPlanForTesting(
+    bool is_render,
+    const FreeTypeGlyphLoadPlan& plan) {
+  if (!g_glyph_trace_for_testing) {
+    return;
+  }
+  g_glyph_trace_for_testing->push_back(0x46);
+  g_glyph_trace_for_testing->push_back(is_render);
+  g_glyph_trace_for_testing->push_back(plan.no_hinting);
+  g_glyph_trace_for_testing->push_back(plan.pedantic);
+  g_glyph_trace_for_testing->push_back(plan.retry_without_hinting);
+}
+
 bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace) {
   return GlyphTraceHasEvent(trace, 0x4f);
 }
@@ -318,6 +359,11 @@ bool GlyphTraceHasBoundsPlansForTesting(pdfium::span<const uint8_t> trace) {
 bool GlyphTraceHasBitmapLookupPlansForTesting(
     pdfium::span<const uint8_t> trace) {
   return GlyphTraceHasEvent(trace, 0x4c);
+}
+
+bool GlyphTraceHasFreeTypeLoadPlansForTesting(
+    pdfium::span<const uint8_t> trace) {
+  return GlyphTraceHasEvent(trace, 0x46);
 }
 
 }  // namespace fxge
