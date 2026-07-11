@@ -57,6 +57,7 @@ ACTIVE_SURFACES = (
     "vertical stretch filtering and alpha unpremultiplication",
     "bitmap transposition with independent axis mirroring",
     "fixed-matrix bilinear alpha image transforms",
+    "fixed-matrix bilinear indexed and grayscale image transforms",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 

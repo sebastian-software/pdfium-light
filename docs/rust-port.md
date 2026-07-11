@@ -64,6 +64,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `626a359b0` Phase 1 vertical-stretch slice | 11,281 | 4,470 | 241 | 1,453 | 6,570 | 268,837 | 4.20% | 2.28% | Prior surfaces plus vertical scalar/color filtering and BGRA unpremultiplication for complete destination rows |
 | `2363f01d1` Phase 1 bitmap-transpose slice | 11,452 | 4,641 | 241 | 1,489 | 6,570 | 269,103 | 4.26% | 2.37% | Prior surfaces plus packed-bit and 8-/24-/32-bpp transposition with independent axis mirroring |
 | `408f15262` Phase 1 alpha-transform slice | 11,645 | 4,834 | 241 | 1,529 | 6,570 | 269,383 | 4.32% | 2.46% | Prior surfaces plus fixed-matrix coordinate mapping and bilinear sampling for transformed alpha masks |
+| `1eebb71c9` Phase 1 indexed-transform slice | 11,816 | 5,005 | 241 | 1,574 | 6,570 | 269,661 | 4.38% | 2.55% | Prior surfaces plus fixed-matrix bilinear indexed/grayscale sampling and exact ARGB palette resolution |
 
 ## Toolchain
 
@@ -231,6 +232,13 @@ the complete mask buffer. Four public `TransformTo` matrices cover positive
 and negative shear, reflection, translation, exact result offsets, and full
 output bytes; a native 2-by-2 case locks in the retained double `/256` integer
 rounding. Color and indexed transform sampling remain C++-owned in this slice.
+
+Indexed and grayscale transforms reuse the same Rust-owned fixed-matrix
+sampler, then resolve the interpolated byte through the C++-prepared 256-entry
+ARGB palette into native-order destination pixels. Sixteen public cases cover
+1-bpp and 8-bpp sources, default and custom palettes, and the same four skewed
+and reflected matrices. Direct native coverage locks palette byte order and
+the interpolated index rounding. Color transform sampling remains C++-owned.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
