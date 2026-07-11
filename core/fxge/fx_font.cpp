@@ -18,6 +18,7 @@
 #include "core/fxge/cfx_glyphbitmap.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/freetype/fx_freetype.h"
+#include "core/fxge/freetype/rust/rust_glyph_adapter.h"
 #include "core/fxge/text_glyph_pos.h"
 
 namespace {
@@ -47,8 +48,49 @@ bool IsStrUpper(const ByteString& str) {
 
 }  // namespace
 
-FX_RECT GetGlyphsBBox(const std::vector<TextGlyphPos>& glyphs,
-                      bool anti_alias_is_lcd) {
+namespace {
+
+struct GlyphBoundsContext {
+  const std::vector<TextGlyphPos>* glyphs;
+};
+
+bool ReadGlyphBounds(void* opaque_context,
+                     size_t index,
+                     uint8_t* output_valid,
+                     int32_t* output_left,
+                     int32_t* output_top,
+                     int32_t* output_width,
+                     int32_t* output_height) {
+  if (!opaque_context || !output_valid || !output_left || !output_top ||
+      !output_width || !output_height) {
+    return false;
+  }
+  const auto& glyphs =
+      *static_cast<GlyphBoundsContext*>(opaque_context)->glyphs;
+  if (index >= glyphs.size()) {
+    return false;
+  }
+  const TextGlyphPos& glyph = glyphs[index];
+  if (!glyph.glyph_) {
+    *output_valid = 0;
+    return true;
+  }
+  const std::optional<CFX_Point> point = glyph.GetOrigin({0, 0});
+  if (!point.has_value()) {
+    *output_valid = 0;
+    return true;
+  }
+  const RetainPtr<const CFX_DIBitmap> bitmap = glyph.glyph_->GetBitmap();
+  *output_valid = 1;
+  *output_left = point->x;
+  *output_top = point->y;
+  *output_width = bitmap->GetWidth();
+  *output_height = bitmap->GetHeight();
+  return true;
+}
+
+FX_RECT GetGlyphsBBoxCppReference(const std::vector<TextGlyphPos>& glyphs,
+                                  bool anti_alias_is_lcd) {
   FX_RECT rect;
   bool bStarted = false;
   for (const TextGlyphPos& glyph : glyphs) {
@@ -96,6 +138,21 @@ FX_RECT GetGlyphsBBox(const std::vector<TextGlyphPos>& glyphs,
     bStarted = true;
   }
   return rect;
+}
+
+}  // namespace
+
+FX_RECT GetGlyphsBBox(const std::vector<TextGlyphPos>& glyphs,
+                      bool anti_alias_is_lcd) {
+  if (fxge::UseRustGlyphCandidate()) {
+    GlyphBoundsContext context{.glyphs = &glyphs};
+    const auto plan = fxge::RustPlanGlyphBounds(
+        glyphs.size(), anti_alias_is_lcd, &context, ReadGlyphBounds);
+    if (plan.has_value()) {
+      return FX_RECT(plan->left, plan->top, plan->right, plan->bottom);
+    }
+  }
+  return GetGlyphsBBoxCppReference(glyphs, anti_alias_is_lcd);
 }
 
 ByteString GetNameFromTT(pdfium::span<const uint8_t> name_table,

@@ -25,6 +25,59 @@ struct GlyphOriginPlan {
     y: i32,
 }
 
+#[derive(Clone, Copy)]
+struct GlyphBoundsInput {
+    valid: bool,
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+}
+
+#[derive(Clone, Copy)]
+struct GlyphBoundsPlan {
+    started: bool,
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+type ReadGlyphBounds = unsafe extern "C" fn(
+    context: *mut core::ffi::c_void,
+    index: usize,
+    output_valid: *mut u8,
+    output_left: *mut i32,
+    output_top: *mut i32,
+    output_width: *mut i32,
+    output_height: *mut i32,
+) -> bool;
+
+fn include_glyph_bounds(
+    mut plan: GlyphBoundsPlan,
+    input: GlyphBoundsInput,
+    anti_alias_is_lcd: bool,
+) -> GlyphBoundsPlan {
+    if !input.valid {
+        return plan;
+    }
+    let width = if anti_alias_is_lcd { input.width / 3 } else { input.width };
+    let Some(right) = input.left.checked_add(width) else {
+        return plan;
+    };
+    let Some(bottom) = input.top.checked_add(input.height) else {
+        return plan;
+    };
+    if !plan.started {
+        return GlyphBoundsPlan { started: true, left: input.left, top: input.top, right, bottom };
+    }
+    plan.left = plan.left.min(input.left);
+    plan.top = plan.top.min(input.top);
+    plan.right = plan.right.max(right);
+    plan.bottom = plan.bottom.max(bottom);
+    plan
+}
+
 fn round_like_fxsys(value: f32) -> i32 {
     if value.is_nan() {
         return 0;
@@ -222,6 +275,70 @@ pub unsafe extern "C" fn pdfium_rust_plan_glyph_device_origin(
     unsafe {
         *output_x = plan.x;
         *output_y = plan.y;
+    }
+    true
+}
+
+/// Aggregates the checked bitmap bounds for an ordered borrowed glyph list.
+///
+/// The callback supplies one transient set of scalar bounds at a time. Missing
+/// glyphs and overflowing right/bottom edges are skipped exactly like the C++
+/// oracle; an empty result is the all-zero rectangle.
+///
+/// # Safety
+///
+/// `read_bounds`, when present, must be safe to call `glyph_count` times with
+/// `context` and writable scalar outputs. All rectangle outputs must point to
+/// writable `i32` values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_plan_glyph_bounds(
+    glyph_count: usize,
+    anti_alias_is_lcd: bool,
+    context: *mut core::ffi::c_void,
+    read_bounds: Option<ReadGlyphBounds>,
+    output_left: *mut i32,
+    output_top: *mut i32,
+    output_right: *mut i32,
+    output_bottom: *mut i32,
+) -> bool {
+    if output_left.is_null()
+        || output_top.is_null()
+        || output_right.is_null()
+        || output_bottom.is_null()
+        || (glyph_count != 0 && read_bounds.is_none())
+    {
+        return false;
+    }
+    let mut plan = GlyphBoundsPlan { started: false, left: 0, top: 0, right: 0, bottom: 0 };
+    for index in 0..glyph_count {
+        let mut valid = 0_u8;
+        let mut left = 0;
+        let mut top = 0;
+        let mut width = 0;
+        let mut height = 0;
+        let Some(callback) = read_bounds else {
+            return false;
+        };
+        // SAFETY: The caller guarantees the callback/context contract, and all
+        // scalar outputs are live for this invocation.
+        if !unsafe {
+            callback(context, index, &mut valid, &mut left, &mut top, &mut width, &mut height)
+        } || valid > 1
+        {
+            return false;
+        }
+        plan = include_glyph_bounds(
+            plan,
+            GlyphBoundsInput { valid: valid != 0, left, top, width, height },
+            anti_alias_is_lcd,
+        );
+    }
+    // SAFETY: The caller guarantees four live, writable rectangle outputs.
+    unsafe {
+        *output_left = plan.left;
+        *output_top = plan.top;
+        *output_right = plan.right;
+        *output_bottom = plan.bottom;
     }
     true
 }

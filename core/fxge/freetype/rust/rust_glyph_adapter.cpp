@@ -36,6 +36,15 @@ extern "C" bool pdfium_rust_plan_glyph_device_origin(float device_x,
                                                      bool anti_alias_is_lcd,
                                                      int32_t* output_x,
                                                      int32_t* output_y);
+extern "C" bool pdfium_rust_plan_glyph_bounds(
+    size_t glyph_count,
+    bool anti_alias_is_lcd,
+    void* context,
+    fxge::ReadGlyphBoundsCallback read_bounds,
+    int32_t* output_left,
+    int32_t* output_top,
+    int32_t* output_right,
+    int32_t* output_bottom);
 
 thread_local bool g_use_rust_glyph_candidate = true;
 thread_local std::vector<uint8_t>* g_glyph_trace_for_testing = nullptr;
@@ -117,6 +126,20 @@ std::optional<GlyphOriginPlan> RustPlanGlyphDeviceOrigin(
     return std::nullopt;
   }
   return GlyphOriginPlan{.valid = true, .x = x, .y = y};
+}
+
+std::optional<GlyphBoundsPlan> RustPlanGlyphBounds(
+    size_t glyph_count,
+    bool anti_alias_is_lcd,
+    void* context,
+    ReadGlyphBoundsCallback read_bounds) {
+  GlyphBoundsPlan plan = {};
+  if (!pdfium_rust_plan_glyph_bounds(glyph_count, anti_alias_is_lcd, context,
+                                     read_bounds, &plan.left, &plan.top,
+                                     &plan.right, &plan.bottom)) {
+    return std::nullopt;
+  }
+  return plan;
 }
 
 bool UseRustGlyphCandidate() {

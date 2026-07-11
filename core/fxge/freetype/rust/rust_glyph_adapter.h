@@ -35,6 +35,21 @@ struct GlyphOriginPlan {
   int32_t y;
 };
 
+struct GlyphBoundsPlan {
+  int32_t left;
+  int32_t top;
+  int32_t right;
+  int32_t bottom;
+};
+
+using ReadGlyphBoundsCallback = bool (*)(void* context,
+                                         size_t index,
+                                         uint8_t* output_valid,
+                                         int32_t* output_left,
+                                         int32_t* output_top,
+                                         int32_t* output_width,
+                                         int32_t* output_height);
+
 std::optional<size_t> RustFillGlyphCacheKey(const GlyphCacheKeyInputs& inputs,
                                             pdfium::span<uint32_t> output);
 std::optional<GlyphOriginPlan> RustPlanGlyphOrigin(int32_t origin_x,
@@ -47,6 +62,11 @@ std::optional<GlyphOriginPlan> RustPlanGlyphDeviceOrigin(
     float device_x,
     float device_y,
     bool anti_alias_is_lcd);
+std::optional<GlyphBoundsPlan> RustPlanGlyphBounds(
+    size_t glyph_count,
+    bool anti_alias_is_lcd,
+    void* context,
+    ReadGlyphBoundsCallback read_bounds);
 
 bool UseRustGlyphCandidate();
 bool SetUseRustGlyphCandidateForTesting(bool use_candidate);
