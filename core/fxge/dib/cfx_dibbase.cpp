@@ -1090,6 +1090,27 @@ DataVector<uint32_t> CFX_DIBBase::ConvertBuffer(
     const RetainPtr<const CFX_DIBBase>& pSrcBitmap,
     int src_left,
     int src_top) {
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const int destination_components = GetCompsFromFormat(dest_format);
+    bool converted = destination_components > 0;
+    for (int row = 0; converted && row < height; ++row) {
+      converted = fxge::RustBlendAdapter::ConvertBufferRow(
+          dest_format, pSrcBitmap->GetFormat(),
+          pSrcBitmap->GetScanline(src_top + row), src_left,
+          pSrcBitmap->GetPaletteSpan(),
+          dest_buf.subspan(Fx2DSizeOrDie(row, dest_pitch)), width);
+    }
+    if (converted) {
+      if (dest_format == FXDIB_Format::k8bppRgb &&
+          pSrcBitmap->HasPalette()) {
+        const size_t palette_size = pSrcBitmap->GetRequiredPaletteSize();
+        const auto palette =
+            pSrcBitmap->GetPaletteSpan().first(palette_size);
+        return DataVector<uint32_t>(palette.begin(), palette.end());
+      }
+      return {};
+    }
+  }
   switch (dest_format) {
     case FXDIB_Format::kInvalid:
     case FXDIB_Format::k1bppRgb:

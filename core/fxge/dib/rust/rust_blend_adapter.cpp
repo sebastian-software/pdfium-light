@@ -183,6 +183,17 @@ extern "C" bool pdfium_rust_find_palette(uint8_t bits_per_pixel,
                                           size_t palette_len,
                                           uint32_t color,
                                           int32_t* output);
+extern "C" bool pdfium_rust_convert_buffer_row(
+    uint16_t destination_format,
+    uint16_t source_format,
+    const uint8_t* source,
+    size_t source_len,
+    size_t source_left,
+    const uint32_t* palette,
+    size_t palette_len,
+    uint8_t* output,
+    size_t output_len,
+    size_t width);
 
 namespace {
 
@@ -686,6 +697,23 @@ std::optional<int> RustBlendAdapter::FindPalette(
     return std::nullopt;
   }
   return output;
+}
+
+// static
+bool RustBlendAdapter::ConvertBufferRow(
+    FXDIB_Format destination_format,
+    FXDIB_Format source_format,
+    pdfium::span<const uint8_t> source,
+    int source_left,
+    pdfium::span<const uint32_t> palette,
+    pdfium::span<uint8_t> output,
+    int width) {
+  return source_left >= 0 && width > 0 &&
+         pdfium_rust_convert_buffer_row(
+             static_cast<uint16_t>(destination_format),
+             static_cast<uint16_t>(source_format), source.data(), source.size(),
+             source_left, palette.data(), palette.size(), output.data(),
+             output.size(), width);
 }
 
 // static

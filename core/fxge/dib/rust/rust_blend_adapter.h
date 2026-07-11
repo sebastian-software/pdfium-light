@@ -155,6 +155,13 @@ class RustBlendAdapter final {
   static std::optional<int> FindPalette(int bits_per_pixel,
                                         pdfium::span<const uint32_t> palette,
                                         uint32_t color);
+  static bool ConvertBufferRow(FXDIB_Format destination_format,
+                               FXDIB_Format source_format,
+                               pdfium::span<const uint8_t> source,
+                               int source_left,
+                               pdfium::span<const uint32_t> palette,
+                               pdfium::span<uint8_t> output,
+                               int width);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

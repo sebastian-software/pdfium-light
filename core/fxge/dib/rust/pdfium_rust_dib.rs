@@ -1009,6 +1009,189 @@ pub unsafe extern "C" fn pdfium_rust_find_palette(
     true
 }
 
+fn palette_bgr(palette: &[u32], index: usize) -> Option<[u8; 3]> {
+    let argb = *palette.get(index)?;
+    Some([argb as u8, (argb >> 8) as u8, (argb >> 16) as u8])
+}
+
+fn convert_buffer_row(
+    destination_format: u16,
+    source_format: u16,
+    source: &[u8],
+    source_left: usize,
+    palette: &[u32],
+    output: &mut [u8],
+    width: usize,
+) -> bool {
+    let source_bits = usize::from(source_format & 0xff);
+    let destination_components = match destination_format {
+        0x008 | 0x108 => 1,
+        0x018 => 3,
+        0x020 | 0x220 => 4,
+        _ => return false,
+    };
+    let Some(required_output) = width.checked_mul(destination_components) else {
+        return false;
+    };
+    if output.len() < required_output {
+        return false;
+    }
+    let palette_required = if palette.is_empty() {
+        0
+    } else {
+        match source_bits {
+            1 => 2,
+            8 => 256,
+            _ => return false,
+        }
+    };
+    if palette.len() < palette_required {
+        return false;
+    }
+
+    for pixel in 0..width {
+        let Some(source_pixel) = source_left.checked_add(pixel) else {
+            return false;
+        };
+        let index = match source_bits {
+            1 => {
+                let Some(byte) = source.get(source_pixel / 8) else {
+                    return false;
+                };
+                usize::from((byte >> (7 - source_pixel % 8)) & 1)
+            }
+            8 => {
+                let Some(value) = source.get(source_pixel) else {
+                    return false;
+                };
+                usize::from(*value)
+            }
+            24 | 32 => source_pixel,
+            _ => return false,
+        };
+
+        if destination_components == 1 {
+            output[pixel] = match source_bits {
+                1 if !palette.is_empty() && destination_format == 0x008 => {
+                    if index == 0 {
+                        255
+                    } else {
+                        0
+                    }
+                }
+                1 => {
+                    if index == 0 {
+                        0
+                    } else {
+                        255
+                    }
+                }
+                8 if palette.is_empty() || destination_format == 0x008 => index as u8,
+                8 => {
+                    let Some(bgr) = palette_bgr(palette, index) else {
+                        return false;
+                    };
+                    gray([bgr[0], bgr[1], bgr[2], 255])
+                }
+                24 | 32 => {
+                    let components = source_bits / 8;
+                    let Some(offset) = index.checked_mul(components) else {
+                        return false;
+                    };
+                    let Some(end) = offset.checked_add(3) else {
+                        return false;
+                    };
+                    let Some(pixel) = source.get(offset..end) else {
+                        return false;
+                    };
+                    gray([pixel[0], pixel[1], pixel[2], 255])
+                }
+                _ => return false,
+            };
+            continue;
+        }
+
+        let bgr = match source_bits {
+            1 | 8 if !palette.is_empty() => {
+                let Some(bgr) = palette_bgr(palette, index) else {
+                    return false;
+                };
+                bgr
+            }
+            1 => {
+                let value = if index == 0 { 0 } else { 255 };
+                [value, value, value]
+            }
+            8 => {
+                let value = index as u8;
+                [value, value, value]
+            }
+            24 | 32 => {
+                let components = source_bits / 8;
+                let Some(offset) = index.checked_mul(components) else {
+                    return false;
+                };
+                let Some(end) = offset.checked_add(3) else {
+                    return false;
+                };
+                let Some(pixel) = source.get(offset..end) else {
+                    return false;
+                };
+                [pixel[0], pixel[1], pixel[2]]
+            }
+            _ => return false,
+        };
+        let destination = pixel * destination_components;
+        output[destination..destination + 3].copy_from_slice(&bgr);
+    }
+    true
+}
+
+/// Converts one DIB row between the retained mask/index/RGB formats.
+///
+/// Four-component destinations intentionally leave their fourth byte
+/// untouched, matching the retained conversion loops.
+///
+/// # Safety
+///
+/// Source, palette, and output pointers must cover their supplied lengths.
+/// Source and output must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_convert_buffer_row(
+    destination_format: u16,
+    source_format: u16,
+    source: *const u8,
+    source_len: usize,
+    source_left: usize,
+    palette: *const u32,
+    palette_len: usize,
+    output: *mut u8,
+    output_len: usize,
+    width: usize,
+) -> bool {
+    if source.is_null() || output.is_null() || (palette_len != 0 && palette.is_null()) {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees all three regions for the
+    // supplied lengths and forbids source/output overlap.
+    let (source, palette, output) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            if palette_len == 0 { &[] } else { slice::from_raw_parts(palette, palette_len) },
+            slice::from_raw_parts_mut(output, output_len),
+        )
+    };
+    convert_buffer_row(
+        destination_format,
+        source_format,
+        source,
+        source_left,
+        palette,
+        output,
+        width,
+    )
+}
+
 /// Copies each packed BGRA pixel's alpha channel into its red channel.
 ///
 /// # Safety
