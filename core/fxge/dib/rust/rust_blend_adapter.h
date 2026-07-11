@@ -15,6 +15,7 @@
 namespace fxge {
 
 enum class BlendMode;
+enum class FXDIB_Format : uint16_t;
 
 // Internal batch boundary for Rust-owned separable blend primitives.
 class RustBlendAdapter final {
@@ -38,6 +39,13 @@ class RustBlendAdapter final {
                                      pdfium::span<const uint8_t> clip,
                                      bool is_mask,
                                      pdfium::span<uint8_t> output);
+  static bool CompositeOpaqueRow(BlendMode mode,
+                                 FXDIB_Format destination_format,
+                                 pdfium::span<const uint8_t> source,
+                                 int source_components,
+                                 pdfium::span<const uint8_t> clip,
+                                 bool rgb_byte_order,
+                                 pdfium::span<uint8_t> output);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

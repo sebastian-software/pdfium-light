@@ -193,6 +193,46 @@ fn composite_bgra_to_byte_pixel(
     true
 }
 
+fn composite_opaque_pixel(
+    mode: u8,
+    input: [u8; 4],
+    clip: u8,
+    target: u8,
+    rgb_byte_order: bool,
+    output: &mut [u8],
+) -> bool {
+    match target {
+        0 => composite_bgra_to_byte_pixel(mode, input, clip, false, &mut output[0]),
+        1 => composite_bgra_to_byte_pixel(mode, input, clip, true, &mut output[0]),
+        2 => {
+            let Ok(mode) = BlendMode::try_from(mode) else {
+                return false;
+            };
+            composite_bgra_to_bgr_pixel(mode, input, clip, rgb_byte_order, output);
+            true
+        }
+        3 => {
+            let Ok(mode) = BlendMode::try_from(mode) else {
+                return false;
+            };
+            let mut destination = if rgb_byte_order {
+                [output[2], output[1], output[0], output[3]]
+            } else {
+                [output[0], output[1], output[2], output[3]]
+            };
+            composite_bgra_pixel(mode, input, clip, &mut destination);
+            if rgb_byte_order {
+                output[..3].copy_from_slice(&[destination[2], destination[1], destination[0]]);
+            } else {
+                output[..3].copy_from_slice(&destination[..3]);
+            }
+            output[3] = destination[3];
+            true
+        }
+        _ => false,
+    }
+}
+
 // RUST_PORT_METRICS_BEGIN abi_thunk
 /// Applies one separable blend mode to equally sized channel arrays.
 ///
@@ -333,6 +373,49 @@ pub unsafe extern "C" fn pdfium_rust_composite_bgra_to_byte_row(
                 return false;
             }
             *output.add(pixel) = destination;
+        }
+    }
+    true
+}
+
+/// Composites an opaque BGR/BGRx source row into a supported destination row.
+///
+/// Target values are 0=gray, 1=mask, 2=BGR/BGRx, and 3=BGRA.
+///
+/// # Safety
+///
+/// Source and output must be valid for `pixel_count` packed pixels using the
+/// supplied component counts. `clip` must be null or valid for `pixel_count`
+/// bytes. Source and output must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_opaque_row(
+    mode: u8,
+    source: *const u8,
+    source_components: usize,
+    clip: *const u8,
+    output: *mut u8,
+    output_components: usize,
+    target: u8,
+    rgb_byte_order: bool,
+    pixel_count: usize,
+) -> bool {
+    if !matches!(source_components, 3 | 4)
+        || !matches!((target, output_components), (0 | 1, 1) | (2, 3 | 4) | (3, 4))
+    {
+        return false;
+    }
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees complete, non-overlapping
+        // source/output rows and an optional complete clip row.
+        unsafe {
+            let source = source.add(pixel * source_components);
+            let input = [*source, *source.add(1), *source.add(2), 255];
+            let output =
+                slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
+            let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
+            if !composite_opaque_pixel(mode, input, clip, target, rgb_byte_order, output) {
+                return false;
+            }
         }
     }
     true

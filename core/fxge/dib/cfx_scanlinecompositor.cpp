@@ -1998,6 +1998,15 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgrx(
 
   const int src_Bpp = GetCompsFromFormat(src_format_);
   CHECK_GE(src_Bpp, 0);
+  const int dest_Bpp = GetCompsFromFormat(dest_format_);
+  if (RustBlendAdapter::UseCandidate() &&
+      RustBlendAdapter::CompositeOpaqueRow(
+          blend_type_, dest_format_,
+          src_scan.first(static_cast<size_t>(width) * src_Bpp), src_Bpp,
+          clip_scan, rgb_byte_order_,
+          dest_scan.first(static_cast<size_t>(width) * dest_Bpp))) {
+    return;
+  }
   switch (dest_format_) {
     case FXDIB_Format::kInvalid:
     case FXDIB_Format::k1bppRgb:
@@ -2017,7 +2026,6 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgrx(
     }
     case FXDIB_Format::kBgr:
     case FXDIB_Format::kBgrx: {
-      const int dest_Bpp = GetCompsFromFormat(dest_format_);
       if (rgb_byte_order_) {
         if (blend_type_ == BlendMode::kNormal) {
           if (!clip_scan.empty()) {

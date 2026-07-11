@@ -33,6 +33,16 @@ extern "C" bool pdfium_rust_composite_bgra_to_byte_row(uint8_t mode,
                                                         uint8_t* output,
                                                         bool is_mask,
                                                         size_t pixel_count);
+extern "C" bool pdfium_rust_composite_opaque_row(
+    uint8_t mode,
+    const uint8_t* source,
+    size_t source_components,
+    const uint8_t* clip,
+    uint8_t* output,
+    size_t output_components,
+    uint8_t target,
+    bool rgb_byte_order,
+    size_t pixel_count);
 
 namespace {
 
@@ -116,6 +126,54 @@ bool RustBlendAdapter::CompositeBgraToByteRow(
       static_cast<uint8_t>(mode), source.data(),
       clip.empty() ? nullptr : clip.data(), output.data(), is_mask,
       output.size());
+}
+
+// static
+bool RustBlendAdapter::CompositeOpaqueRow(
+    BlendMode mode,
+    FXDIB_Format destination_format,
+    pdfium::span<const uint8_t> source,
+    int source_components,
+    pdfium::span<const uint8_t> clip,
+    bool rgb_byte_order,
+    pdfium::span<uint8_t> output) {
+  uint8_t target;
+  int output_components;
+  switch (destination_format) {
+    case FXDIB_Format::k8bppRgb:
+      target = 0;
+      output_components = 1;
+      break;
+    case FXDIB_Format::k8bppMask:
+      target = 1;
+      output_components = 1;
+      break;
+    case FXDIB_Format::kBgr:
+      target = 2;
+      output_components = 3;
+      break;
+    case FXDIB_Format::kBgrx:
+      target = 2;
+      output_components = 4;
+      break;
+    case FXDIB_Format::kBgra:
+      target = 3;
+      output_components = 4;
+      break;
+    default:
+      return false;
+  }
+  if ((source_components != 3 && source_components != 4) ||
+      source.size() % source_components != 0 ||
+      output.size() != source.size() / source_components * output_components ||
+      (!clip.empty() && clip.size() != source.size() / source_components) ||
+      mode > BlendMode::kLast) {
+    return false;
+  }
+  return pdfium_rust_composite_opaque_row(
+      static_cast<uint8_t>(mode), source.data(), source_components,
+      clip.empty() ? nullptr : clip.data(), output.data(), output_components,
+      target, rgb_byte_order, source.size() / source_components);
 }
 
 // static
