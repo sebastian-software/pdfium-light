@@ -51,6 +51,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `bdb469824` Phase 1 bitmap-geometry slice | 8,972 | 2,161 | 241 | 923 | 6,570 | 265,085 | 3.38% | 1.12% | Prior surfaces plus checked pitch and allocation-size calculation for every retained bitmap format |
 | `88d1de27d` Phase 1 bitmap-population slice | 9,070 | 2,259 | 241 | 975 | 6,570 | 265,288 | 3.42% | 1.17% | Prior surfaces plus 1-bpp-to-8-bpp mask expansion and pitch-aware external-span population |
 | `95b339296` Phase 1 equal-format transfer slice | 9,214 | 2,403 | 241 | 1,029 | 6,570 | 265,536 | 3.47% | 1.24% | Prior surfaces plus equal-format 1-bpp bit-range and 8/24/32-bpp row transfers |
+| `32153fe46` Phase 1 overlap-geometry slice | 9,378 | 2,567 | 241 | 1,090 | 6,570 | 265,843 | 3.53% | 1.33% | Prior surfaces plus checked source/destination overlap and optional clip normalization |
 
 ## Toolchain
 
@@ -144,6 +145,12 @@ non-overlap contract; 1-bpp rows retain arbitrary source/destination bit
 offsets, surrounding bits, and left-to-right alias order. Fourteen focused
 cases cover seven formats and both positive and clipped negative source
 offsets.
+
+The shared overlap helper now performs source bounds, destination bounds,
+optional clip intersection, coordinate rebasing, and checked `i32` overflow in
+Rust before transfers or compositing begin. A deterministic 1,026-case corpus
+compares normal, negative, clipped, empty, and overflow-near geometry directly
+with the retained C++ helper.
 
 `ScopedRustDibImplementationForTesting` is test-only. It selects the retained
 C++ row compositor or the production Rust candidate in the same process. The

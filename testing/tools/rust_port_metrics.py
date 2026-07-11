@@ -44,6 +44,7 @@ ACTIVE_SURFACES = (
     "bitmap pitch and allocation-size calculation",
     "1-bpp mask expansion and bitmap span population",
     "equal-format 1-bpp and multi-BPP bitmap transfers",
+    "source/destination overlap and clip geometry",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 
