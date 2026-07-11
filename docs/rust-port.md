@@ -90,6 +90,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `23789239e` Phase 4 FreeType load slice | 15,109 | 8,298 | 241 | 3,269 | 6,570 | 275,531 | 5.48% | 4.13% | Prior surfaces plus Rust-owned render/path load-flag and retry planning; C++ retains face state and FreeType calls |
 | `803cdc455` Phase 5 text-dispatch slice | 15,219 | 8,408 | 241 | 3,330 | 6,570 | 275,724 | 5.52% | 4.19% | Prior surfaces plus Rust-owned PDF text skip, Type 3, fill, stroke, and clip dispatch; C++ retains colors, matrices, fonts, and drawing |
 | `85f0e3191` Phase 5 text-pattern slice | 15,260 | 8,449 | 241 | 3,351 | 6,570 | 275,791 | 5.53% | 4.20% | Prior surfaces plus Rust-owned active fill/stroke pattern-path selection; C++ retains ARGB resolution and drawing |
+| `4ce390dcd` Phase 5 text-matrix slice | 15,260 | 8,449 | 241 | 3,351 | 6,570 | 275,799 | 5.53% | 4.20% | Prior surfaces plus Rust-owned text-matrix availability validation; C++ retains matrix composition and drawing |
 
 ## Toolchain
 
@@ -649,6 +650,12 @@ inactive pattern colors are ignored exactly as before. C++ continues to
 resolve concrete ARGB values and invokes `DrawTextPathWithPattern()`. The
 native test target now covers that active-paint invariant, while the common
 local gate remains green.
+
+The third Phase 5 slice applies the same Rust matrix-availability rule already
+used for paths before any text backend invocation. It preserves signed zero,
+infinity, and NaN behavior exactly; C++ still constructs, composes, and passes
+the text matrix to the retained backend. The same-process trace records the
+availability result in both reference and candidate paths.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

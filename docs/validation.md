@@ -102,8 +102,9 @@ the AGG path, draw-plan, stroke-matrix, dash-decision, dash-value, and phase
 traces plus every glyph bitmap cache-key word, checked bitmap-origin plan,
 device-origin rounding decision, aggregated glyph bounds, bitmap lookup action,
 FreeType glyph load plan, PDF text dispatch decision, and active text-pattern
-decision. AGG and FreeType remain the retained raster and font backends; these
-tests validate the Rust-owned planning and adapter boundaries around them.
+decision plus text-matrix availability. AGG and FreeType remain the retained
+raster and font backends; these tests validate the Rust-owned planning and
+adapter boundaries around them.
 
 For Rust DIB changes, build and run the native Rust target and the exhaustive
 C++/Rust blend and row parity cases:
