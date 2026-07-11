@@ -70,6 +70,9 @@ extern "C" bool pdfium_rust_text_uses_pattern(bool is_fill,
                                                bool fill_is_pattern,
                                                bool stroke_is_pattern,
                                                bool* output);
+extern "C" bool pdfium_rust_text_uses_path_backend(bool is_clip,
+                                                    bool is_stroke,
+                                                    bool* output);
 
 thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
@@ -334,6 +337,15 @@ std::optional<bool> RustTextUsesPattern(bool is_fill,
     return std::nullopt;
   }
   return uses_pattern;
+}
+
+std::optional<bool> RustTextUsesPathBackend(bool is_clip, bool is_stroke) {
+  bool uses_path_backend = false;
+  if (!pdfium_rust_text_uses_path_backend(is_clip, is_stroke,
+                                          &uses_path_backend)) {
+    return std::nullopt;
+  }
+  return uses_path_backend;
 }
 
 ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(

@@ -278,6 +278,10 @@ fn text_uses_pattern(
     (is_fill && fill_is_pattern) || (is_stroke && stroke_is_pattern)
 }
 
+fn text_uses_path_backend(is_clip: bool, is_stroke: bool) -> bool {
+    is_clip || is_stroke
+}
+
 /// Builds a compact render request plan from the supported public flags.
 ///
 /// # Safety
@@ -577,6 +581,27 @@ pub unsafe extern "C" fn pdfium_rust_text_uses_pattern(
     // SAFETY: The caller guarantees one writable bool output.
     unsafe {
         *output = text_uses_pattern(is_fill, is_stroke, fill_is_pattern, stroke_is_pattern);
+    }
+    true
+}
+
+/// Selects the retained text backend from clip and stroke behavior.
+///
+/// # Safety
+///
+/// `output` must point to one writable `bool` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_uses_path_backend(
+    is_clip: bool,
+    is_stroke: bool,
+    output: *mut bool,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller guarantees one writable bool output.
+    unsafe {
+        *output = text_uses_path_backend(is_clip, is_stroke);
     }
     true
 }
@@ -993,5 +1018,12 @@ mod tests {
         assert!(!text_uses_pattern(false, true, true, false));
         assert!(text_uses_pattern(true, false, true, false));
         assert!(text_uses_pattern(false, true, false, true));
+    }
+
+    #[test]
+    fn text_backend_plan_should_select_path_for_clip_or_stroke() {
+        assert!(!text_uses_path_backend(false, false));
+        assert!(text_uses_path_backend(true, false));
+        assert!(text_uses_path_backend(false, true));
     }
 }

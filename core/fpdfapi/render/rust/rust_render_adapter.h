@@ -180,6 +180,7 @@ std::optional<bool> RustTextUsesPattern(bool is_fill,
                                         bool is_stroke,
                                         bool fill_is_pattern,
                                         bool stroke_is_pattern);
+std::optional<bool> RustTextUsesPathBackend(bool is_clip, bool is_stroke);
 
 class ScopedRenderTraceForTesting final {
  public:

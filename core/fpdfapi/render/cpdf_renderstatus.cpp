@@ -1041,7 +1041,11 @@ bool CPDF_RenderStatus::ProcessText(CPDF_TextObject* textobj,
                             text_matrix, is_fill, is_stroke);
     return true;
   }
-  if (is_clip || is_stroke) {
+  const auto rust_uses_path_backend =
+      pdfium::rust::UseRustRenderCandidate()
+          ? pdfium::rust::RustTextUsesPathBackend(is_clip, is_stroke)
+          : std::nullopt;
+  if (rust_uses_path_backend.value_or(is_clip || is_stroke)) {
     const CFX_Matrix* pDeviceMatrix = &mtObj2Device;
     CFX_Matrix device_matrix;
     if (is_stroke) {
