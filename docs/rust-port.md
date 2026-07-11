@@ -52,6 +52,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `88d1de27d` Phase 1 bitmap-population slice | 9,070 | 2,259 | 241 | 975 | 6,570 | 265,288 | 3.42% | 1.17% | Prior surfaces plus 1-bpp-to-8-bpp mask expansion and pitch-aware external-span population |
 | `95b339296` Phase 1 equal-format transfer slice | 9,214 | 2,403 | 241 | 1,029 | 6,570 | 265,536 | 3.47% | 1.24% | Prior surfaces plus equal-format 1-bpp bit-range and 8/24/32-bpp row transfers |
 | `32153fe46` Phase 1 overlap-geometry slice | 9,378 | 2,567 | 241 | 1,090 | 6,570 | 265,843 | 3.53% | 1.33% | Prior surfaces plus checked source/destination overlap and optional clip normalization |
+| `bf269cbd2` Phase 1 palette-primitives slice | 9,488 | 2,677 | 241 | 1,146 | 6,570 | 266,099 | 3.57% | 1.38% | Prior surfaces plus default palette generation, default ARGB lookup, and exact custom-palette search |
 
 ## Toolchain
 
@@ -151,6 +152,11 @@ optional clip intersection, coordinate rebasing, and checked `i32` overflow in
 Rust before transfers or compositing begin. A deterministic 1,026-case corpus
 compares normal, negative, clipped, empty, and overflow-near geometry directly
 with the retained C++ helper.
+
+Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
+8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
+Focused tests cover every default entry, full generated palettes, mutation of
+custom entries, and successful custom lookup through bitmap clearing.
 
 `ScopedRustDibImplementationForTesting` is test-only. It selects the retained
 C++ row compositor or the production Rust candidate in the same process. The

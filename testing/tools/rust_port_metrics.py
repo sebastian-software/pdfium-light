@@ -45,6 +45,7 @@ ACTIVE_SURFACES = (
     "1-bpp mask expansion and bitmap span population",
     "equal-format 1-bpp and multi-BPP bitmap transfers",
     "source/destination overlap and clip geometry",
+    "default and custom palette primitives",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 
