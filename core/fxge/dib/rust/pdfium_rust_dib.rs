@@ -270,6 +270,7 @@ pub unsafe extern "C" fn pdfium_rust_blend_channels(
     }
     true
 }
+// RUST_PORT_METRICS_END abi_thunk
 
 /// Composites a packed BGRA source row into a packed BGRA destination row.
 ///
@@ -481,8 +482,6 @@ pub unsafe extern "C" fn pdfium_rust_composite_mask_row(
     }
     true
 }
-// RUST_PORT_METRICS_END abi_thunk
-
 #[cfg(test)]
 mod tests {
     use super::*;
