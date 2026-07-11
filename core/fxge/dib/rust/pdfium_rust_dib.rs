@@ -3569,6 +3569,43 @@ mod tests {
     }
 
     #[test]
+    fn swap_xy_row_should_transpose_packed_and_multibyte_pixels() {
+        let mut color_destination = [0; 24];
+        assert!(swap_xy_row(
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9],
+            3,
+            2,
+            0,
+            3,
+            false,
+            false,
+            &mut color_destination,
+            8,
+        ));
+        assert!(swap_xy_row(
+            &[10, 11, 12, 13, 14, 15, 16, 17, 18],
+            3,
+            2,
+            1,
+            3,
+            false,
+            false,
+            &mut color_destination,
+            8,
+        ));
+        assert_eq!(&[1, 2, 3, 10, 11, 12], &color_destination[..6]);
+        assert_eq!(&[4, 5, 6, 13, 14, 15], &color_destination[8..14]);
+        assert_eq!(&[7, 8, 9, 16, 17, 18], &color_destination[16..22]);
+
+        let mut bit_destination = [0xff; 12];
+        assert!(swap_xy_row(&[0b1010_0000], 3, 2, 0, 0, false, false, &mut bit_destination, 4,));
+        assert!(swap_xy_row(&[0b0100_0000], 3, 2, 1, 0, false, false, &mut bit_destination, 4,));
+        assert_eq!(0xbf, bit_destination[0]);
+        assert_eq!(0x7f, bit_destination[4]);
+        assert_eq!(0xbf, bit_destination[8]);
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(

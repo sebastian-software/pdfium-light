@@ -541,3 +541,47 @@ TEST(CFXDIBBaseTest, RustStretchMatchesCppReferenceAcrossFormats) {
     }
   }
 }
+
+TEST(CFXDIBBaseTest, RustSwapXYMatchesCppReferenceAcrossFormats) {
+  struct SourceCase {
+    FXDIB_Format format;
+    bool custom_palette;
+  };
+  static constexpr std::array<SourceCase, 9> kSources = {
+      SourceCase{FXDIB_Format::k1bppMask, false},
+      SourceCase{FXDIB_Format::k1bppRgb, false},
+      SourceCase{FXDIB_Format::k1bppRgb, true},
+      SourceCase{FXDIB_Format::k8bppMask, false},
+      SourceCase{FXDIB_Format::k8bppRgb, false},
+      SourceCase{FXDIB_Format::k8bppRgb, true},
+      SourceCase{FXDIB_Format::kBgr, false},
+      SourceCase{FXDIB_Format::kBgrx, false},
+      SourceCase{FXDIB_Format::kBgra, false},
+  };
+  for (const auto& source_case : kSources) {
+    auto source =
+        CreateConversionBitmap(source_case.format, source_case.custom_palette);
+    ASSERT_TRUE(source);
+    for (bool flip_x : {false, true}) {
+      for (bool flip_y : {false, true}) {
+        RetainPtr<CFX_DIBitmap> reference;
+        {
+          fxge::ScopedRustDibImplementationForTesting implementation(false);
+          reference = source->SwapXY(flip_x, flip_y);
+        }
+        auto candidate = source->SwapXY(flip_x, flip_y);
+        ASSERT_TRUE(reference);
+        ASSERT_TRUE(candidate);
+        EXPECT_EQ(reference->GetFormat(), candidate->GetFormat());
+        EXPECT_EQ(reference->GetWidth(), candidate->GetWidth());
+        EXPECT_EQ(reference->GetHeight(), candidate->GetHeight());
+        EXPECT_EQ(reference->GetPitch(), candidate->GetPitch());
+        EXPECT_EQ(reference->GetBuffer(), candidate->GetBuffer())
+            << "source_format=" << static_cast<int>(source_case.format)
+            << " custom_palette=" << source_case.custom_palette
+            << " flip_x=" << flip_x << " flip_y=" << flip_y;
+        EXPECT_EQ(reference->GetPaletteSpan(), candidate->GetPaletteSpan());
+      }
+    }
+  }
+}
