@@ -829,6 +829,17 @@ RetainPtr<CFX_DIBitmap> CFX_DIBBase::FlipImage(bool bXFlip, bool bYFlip) const {
 
   pFlipped->SetPalette(GetPaletteSpan());
   const int bytes_per_pixel = GetBPP() / 8;
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    bool flipped = true;
+    for (int row = 0; flipped && row < GetHeight(); ++row) {
+      flipped = fxge::RustBlendAdapter::FlipBitmapRow(
+          GetScanline(row), GetWidth(), GetBPP(), bXFlip,
+          pFlipped->GetWritableScanline(bYFlip ? GetHeight() - row - 1 : row));
+    }
+    if (flipped) {
+      return pFlipped;
+    }
+  }
   if (!bXFlip) {
     for (int row = 0; row < GetHeight(); ++row) {
       UNSAFE_TODO({

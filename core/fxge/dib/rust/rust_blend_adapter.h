@@ -103,6 +103,11 @@ class RustBlendAdapter final {
                             int destination_width);
   static bool CopyBitmapRow(pdfium::span<const uint8_t> source,
                             pdfium::span<uint8_t> destination);
+  static bool FlipBitmapRow(pdfium::span<const uint8_t> source,
+                            int width,
+                            int bits_per_pixel,
+                            bool flip_x,
+                            pdfium::span<uint8_t> destination);
   static bool SwapXYRow(pdfium::span<const uint8_t> source,
                         int source_width,
                         int source_height,

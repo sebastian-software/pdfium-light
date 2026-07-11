@@ -1928,6 +1928,92 @@ pub unsafe extern "C" fn pdfium_rust_copy_bitmap_row(
     true
 }
 
+fn flip_bitmap_row(
+    source: &[u8],
+    width: i32,
+    bits_per_pixel: i32,
+    flip_x: bool,
+    destination: &mut [u8],
+) -> bool {
+    let Ok(width) = usize::try_from(width) else {
+        return false;
+    };
+    if width == 0 || !matches!(bits_per_pixel, 1 | 8 | 24 | 32) {
+        return false;
+    }
+    if !flip_x {
+        if destination.len() < source.len() {
+            return false;
+        }
+        destination[..source.len()].copy_from_slice(source);
+        return true;
+    }
+    if bits_per_pixel == 1 {
+        let Some(required) = width.checked_add(7).map(|bits| bits / 8) else {
+            return false;
+        };
+        if source.len() < required || destination.len() < required {
+            return false;
+        }
+        destination.fill(0);
+        for source_column in 0..width {
+            if source[source_column / 8] & (1 << (7 - source_column % 8)) != 0 {
+                let destination_column = width - source_column - 1;
+                destination[destination_column / 8] |= 1 << (7 - destination_column % 8);
+            }
+        }
+        return true;
+    }
+    let components = usize::try_from(bits_per_pixel / 8).ok();
+    let Some(components) = components else {
+        return false;
+    };
+    let Some(required) = width.checked_mul(components) else {
+        return false;
+    };
+    if source.len() < required || destination.len() < required {
+        return false;
+    }
+    for source_column in 0..width {
+        let destination_column = width - source_column - 1;
+        let source_offset = source_column * components;
+        let destination_offset = destination_column * components;
+        destination[destination_offset..destination_offset + components]
+            .copy_from_slice(&source[source_offset..source_offset + components]);
+    }
+    true
+}
+
+/// Copies or horizontally flips one complete bitmap row.
+///
+/// # Safety
+///
+/// Source and destination pointers must cover their supplied lengths and must
+/// not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_flip_bitmap_row(
+    source: *const u8,
+    source_len: usize,
+    width: i32,
+    bits_per_pixel: i32,
+    flip_x: bool,
+    destination: *mut u8,
+    destination_len: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees disjoint regions covering both
+    // supplied lengths.
+    let (source, destination) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    flip_bitmap_row(source, width, bits_per_pixel, flip_x, destination)
+}
+
 /// Clears a packed bitmap with one pixel value.
 ///
 /// When `fill_padding` is set, the first pixel byte is written across the

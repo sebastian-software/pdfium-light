@@ -119,6 +119,13 @@ extern "C" bool pdfium_rust_copy_bitmap_row(const uint8_t* source,
                                              size_t source_len,
                                              uint8_t* destination,
                                              size_t destination_len);
+extern "C" bool pdfium_rust_flip_bitmap_row(const uint8_t* source,
+                                             size_t source_len,
+                                             int32_t width,
+                                             int32_t bits_per_pixel,
+                                             bool flip_x,
+                                             uint8_t* destination,
+                                             size_t destination_len);
 extern "C" bool pdfium_rust_swap_xy_row(const uint8_t* source,
                                          size_t source_len,
                                          int32_t source_width,
@@ -703,6 +710,18 @@ bool RustBlendAdapter::CopyBitmapRow(pdfium::span<const uint8_t> source,
   return source.data() != destination.data() &&
          pdfium_rust_copy_bitmap_row(source.data(), source.size(),
                                      destination.data(), destination.size());
+}
+
+// static
+bool RustBlendAdapter::FlipBitmapRow(pdfium::span<const uint8_t> source,
+                                     int width,
+                                     int bits_per_pixel,
+                                     bool flip_x,
+                                     pdfium::span<uint8_t> destination) {
+  return source.data() != destination.data() &&
+         pdfium_rust_flip_bitmap_row(
+             source.data(), source.size(), width, bits_per_pixel, flip_x,
+             destination.data(), destination.size());
 }
 
 // static
