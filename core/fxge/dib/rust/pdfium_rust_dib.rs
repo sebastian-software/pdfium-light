@@ -2323,6 +2323,42 @@ mod tests {
     }
 
     #[test]
+    fn clip_bitmap_row_should_cover_shifted_bits_and_multibyte_offsets() {
+        let source_word = 0x1234_5678_u32.to_ne_bytes();
+        let mut shifted = [0xaa; 4];
+        // SAFETY: The source and destination arrays are distinct and cover
+        // the exact lengths supplied to the FFI function.
+        assert!(unsafe {
+            pdfium_rust_clip_bitmap_row(
+                source_word.as_ptr(),
+                source_word.len(),
+                1,
+                1,
+                shifted.as_mut_ptr(),
+                shifted.len(),
+                5,
+            )
+        });
+        assert_eq!(0x2468_acf0, u32::from_ne_bytes(shifted));
+
+        let source: Vec<u8> = (0..12).collect();
+        let mut destination = [0xaa; 8];
+        // SAFETY: These arrays are also valid, distinct row regions.
+        assert!(unsafe {
+            pdfium_rust_clip_bitmap_row(
+                source.as_ptr(),
+                source.len(),
+                1,
+                24,
+                destination.as_mut_ptr(),
+                destination.len(),
+                2,
+            )
+        });
+        assert_eq!([3, 4, 5, 6, 7, 8, 0xaa, 0xaa], destination);
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(
