@@ -9,12 +9,28 @@
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/span.h"
 #include "core/fxge/dib/fx_dib.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
 
 using ::testing::ElementsAre;
+using ::testing::ElementsAreArray;
+
+RetainPtr<CFX_DIBitmap> CreatePatternedBitmap(FXDIB_Format format,
+                                              int width = 7,
+                                              int height = 3) {
+  auto bitmap = pdfium::MakeRetain<CFX_DIBitmap>();
+  if (!bitmap->Create(width, height, format)) {
+    return nullptr;
+  }
+  auto buffer = bitmap->GetWritableBuffer();
+  for (size_t index = 0; index < buffer.size(); ++index) {
+    buffer[index] = static_cast<uint8_t>((index * 73 + 19) % 256);
+  }
+  return bitmap;
+}
 
 }  // namespace
 
@@ -131,4 +147,66 @@ TEST(CFXDIBitmapTest, GetScanlineAsWith24Bpp) {
   EXPECT_EQ(12u, bitmap->GetWritableScanline(0).size());
   EXPECT_EQ(3u,
             bitmap->GetWritableScanlineAs<FX_BGR_STRUCT<uint8_t>>(0).size());
+}
+
+TEST(CFXDIBitmapTest, RustSetRedFromAlphaMatchesCppReference) {
+  auto reference = CreatePatternedBitmap(FXDIB_Format::kBgra);
+  auto candidate = CreatePatternedBitmap(FXDIB_Format::kBgra);
+  ASSERT_TRUE(reference);
+  ASSERT_TRUE(candidate);
+  {
+    fxge::ScopedRustDibImplementationForTesting implementation(false);
+    reference->SetRedFromAlpha();
+  }
+  candidate->SetRedFromAlpha();
+  EXPECT_THAT(candidate->GetBuffer(),
+              ElementsAreArray(reference->GetBuffer()));
+}
+
+TEST(CFXDIBitmapTest, RustSetOpaqueAlphaMatchesCppReference) {
+  auto reference = CreatePatternedBitmap(FXDIB_Format::kBgra);
+  auto candidate = CreatePatternedBitmap(FXDIB_Format::kBgra);
+  ASSERT_TRUE(reference);
+  ASSERT_TRUE(candidate);
+  {
+    fxge::ScopedRustDibImplementationForTesting implementation(false);
+    reference->SetUniformOpaqueAlpha();
+  }
+  candidate->SetUniformOpaqueAlpha();
+  EXPECT_THAT(candidate->GetBuffer(),
+              ElementsAreArray(reference->GetBuffer()));
+}
+
+TEST(CFXDIBitmapTest, RustMultiplyAlphaMaskMatchesCppReference) {
+  auto mask = CreatePatternedBitmap(FXDIB_Format::k8bppMask);
+  ASSERT_TRUE(mask);
+  for (const FXDIB_Format format :
+       {FXDIB_Format::kBgra, FXDIB_Format::kBgrx}) {
+    auto reference = CreatePatternedBitmap(format);
+    auto candidate = CreatePatternedBitmap(format);
+    ASSERT_TRUE(reference);
+    ASSERT_TRUE(candidate);
+    {
+      fxge::ScopedRustDibImplementationForTesting implementation(false);
+      ASSERT_TRUE(reference->MultiplyAlphaMask(mask));
+    }
+    ASSERT_TRUE(candidate->MultiplyAlphaMask(mask));
+    EXPECT_EQ(reference->GetFormat(), candidate->GetFormat());
+    EXPECT_THAT(candidate->GetBuffer(),
+                ElementsAreArray(reference->GetBuffer()));
+  }
+}
+
+TEST(CFXDIBitmapTest, RustMultiplyAlphaMatchesCppReference) {
+  auto reference = CreatePatternedBitmap(FXDIB_Format::kBgra);
+  auto candidate = CreatePatternedBitmap(FXDIB_Format::kBgra);
+  ASSERT_TRUE(reference);
+  ASSERT_TRUE(candidate);
+  {
+    fxge::ScopedRustDibImplementationForTesting implementation(false);
+    ASSERT_TRUE(reference->MultiplyAlpha(0.37f));
+  }
+  ASSERT_TRUE(candidate->MultiplyAlpha(0.37f));
+  EXPECT_THAT(candidate->GetBuffer(),
+              ElementsAreArray(reference->GetBuffer()));
 }
