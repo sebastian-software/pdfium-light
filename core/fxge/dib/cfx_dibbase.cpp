@@ -789,11 +789,15 @@ RetainPtr<CFX_DIBitmap> CFX_DIBBase::CloneAlphaMask() const {
     return nullptr;
   }
 
-  if (fxge::RustBlendAdapter::UseCandidate() &&
-      fxge::RustBlendAdapter::CloneAlphaMask(
-          GetBuffer(), GetPitch(), pMask->GetWritableBuffer(),
-          pMask->GetPitch(), GetWidth(), GetHeight())) {
-    return pMask;
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    bool cloned = true;
+    for (int row = 0; cloned && row < GetHeight(); ++row) {
+      cloned = fxge::RustBlendAdapter::CloneAlphaMaskRow(
+          GetScanline(row), pMask->GetWritableScanline(row), GetWidth());
+    }
+    if (cloned) {
+      return pMask;
+    }
   }
 
   for (int row = 0; row < GetHeight(); ++row) {

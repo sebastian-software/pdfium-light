@@ -397,7 +397,7 @@ fn packed_rows_are_valid(width: usize, height: usize, pitch: usize, components: 
         && pitch.checked_mul(height).is_some()
 }
 
-/// Copies BGRA alpha bytes into an 8-bpp mask bitmap.
+/// Copies BGRA alpha bytes into one 8-bpp mask row.
 ///
 /// Destination row padding is intentionally left untouched.
 ///
@@ -406,30 +406,20 @@ fn packed_rows_are_valid(width: usize, height: usize, pitch: usize, components: 
 /// Source and destination pointers must cover their supplied lengths and must
 /// not overlap.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfium_rust_clone_alpha_mask(
+pub unsafe extern "C" fn pdfium_rust_clone_alpha_mask_row(
     source: *const u8,
     source_len: usize,
-    source_pitch: usize,
     destination: *mut u8,
     destination_len: usize,
-    destination_pitch: usize,
     width: usize,
-    height: usize,
 ) -> bool {
     if source.is_null() || destination.is_null() {
         return false;
     }
-    let Some(required_source_len) = source_pitch.checked_mul(height) else {
+    let Some(required_source_len) = width.checked_mul(4) else {
         return false;
     };
-    let Some(required_destination_len) = destination_pitch.checked_mul(height) else {
-        return false;
-    };
-    if !packed_rows_are_valid(width, height, source_pitch, 4)
-        || !packed_rows_are_valid(width, height, destination_pitch, 1)
-        || source_len < required_source_len
-        || destination_len < required_destination_len
-    {
+    if source_len < required_source_len || destination_len < width {
         return false;
     }
     // SAFETY: The caller contract and checked lengths guarantee distinct
@@ -440,13 +430,8 @@ pub unsafe extern "C" fn pdfium_rust_clone_alpha_mask(
             slice::from_raw_parts_mut(destination, destination_len),
         )
     };
-    for row in 0..height {
-        let source_row = &source[row * source_pitch..(row + 1) * source_pitch];
-        let destination_row =
-            &mut destination[row * destination_pitch..(row + 1) * destination_pitch];
-        for (column, output) in destination_row.iter_mut().take(width).enumerate() {
-            *output = source_row[column * 4 + 3];
-        }
+    for (column, output) in destination.iter_mut().take(width).enumerate() {
+        *output = source[column * 4 + 3];
     }
     true
 }
@@ -2246,18 +2231,15 @@ mod tests {
         // SAFETY: The source and destination arrays are distinct and cover
         // the exact lengths supplied to the FFI function.
         assert!(unsafe {
-            pdfium_rust_clone_alpha_mask(
+            pdfium_rust_clone_alpha_mask_row(
                 source.as_ptr(),
                 source.len(),
-                12,
                 destination.as_mut_ptr(),
                 destination.len(),
-                4,
-                2,
                 2,
             )
         });
-        assert_eq!([3, 7, 0xaa, 0xaa, 15, 19, 0xaa, 0xaa], destination);
+        assert_eq!([3, 7, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa], destination);
     }
 
     #[test]
