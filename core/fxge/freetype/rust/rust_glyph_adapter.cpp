@@ -20,6 +20,15 @@ extern "C" bool pdfium_rust_fill_glyph_cache_key(int32_t matrix_a,
                                                  uint32_t* output,
                                                  size_t output_capacity,
                                                  size_t* output_len);
+extern "C" bool pdfium_rust_plan_glyph_origin(int32_t origin_x,
+                                              int32_t origin_y,
+                                              int32_t glyph_left,
+                                              int32_t glyph_top,
+                                              int32_t offset_x,
+                                              int32_t offset_y,
+                                              uint8_t* output_valid,
+                                              int32_t* output_x,
+                                              int32_t* output_y);
 
 thread_local bool g_use_rust_glyph_candidate = true;
 thread_local std::vector<uint8_t>* g_glyph_trace_for_testing = nullptr;
@@ -40,6 +49,23 @@ std::optional<size_t> RustFillGlyphCacheKey(const GlyphCacheKeyInputs& inputs,
     return std::nullopt;
   }
   return output_len;
+}
+
+std::optional<GlyphOriginPlan> RustPlanGlyphOrigin(int32_t origin_x,
+                                                   int32_t origin_y,
+                                                   int32_t glyph_left,
+                                                   int32_t glyph_top,
+                                                   int32_t offset_x,
+                                                   int32_t offset_y) {
+  uint8_t valid = 0;
+  int32_t x = 0;
+  int32_t y = 0;
+  if (!pdfium_rust_plan_glyph_origin(origin_x, origin_y, glyph_left, glyph_top,
+                                     offset_x, offset_y, &valid, &x, &y) ||
+      valid > 1) {
+    return std::nullopt;
+  }
+  return GlyphOriginPlan{.valid = !!valid, .x = x, .y = y};
 }
 
 bool UseRustGlyphCandidate() {

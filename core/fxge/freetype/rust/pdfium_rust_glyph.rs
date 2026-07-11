@@ -20,6 +20,25 @@ struct GlyphCacheKey {
     len: usize,
 }
 
+struct GlyphOriginPlan {
+    x: i32,
+    y: i32,
+}
+
+fn plan_glyph_origin(
+    origin_x: i32,
+    origin_y: i32,
+    glyph_left: i32,
+    glyph_top: i32,
+    offset_x: i32,
+    offset_y: i32,
+) -> Option<GlyphOriginPlan> {
+    Some(GlyphOriginPlan {
+        x: origin_x.checked_add(glyph_left)?.checked_sub(offset_x)?,
+        y: origin_y.checked_sub(glyph_top)?.checked_sub(offset_y)?,
+    })
+}
+
 fn push_word(key: &mut GlyphCacheKey, value: i32) -> bool {
     let Some(output) = key.words.get_mut(key.len) else {
         return false;
@@ -107,6 +126,42 @@ pub unsafe extern "C" fn pdfium_rust_fill_glyph_cache_key(
     // SAFETY: The caller guarantees one writable length value.
     unsafe {
         *output_len = key.len;
+    }
+    true
+}
+
+/// Plans the checked integer origin of one rendered glyph bitmap.
+///
+/// A valid boundary call succeeds even when the arithmetic overflows; in that
+/// case `output_valid` is zero and both coordinate outputs are zero.
+///
+/// # Safety
+///
+/// All three output pointers must point to writable values of their respective
+/// types.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_plan_glyph_origin(
+    origin_x: i32,
+    origin_y: i32,
+    glyph_left: i32,
+    glyph_top: i32,
+    offset_x: i32,
+    offset_y: i32,
+    output_valid: *mut u8,
+    output_x: *mut i32,
+    output_y: *mut i32,
+) -> bool {
+    if output_valid.is_null() || output_x.is_null() || output_y.is_null() {
+        return false;
+    }
+    let plan = plan_glyph_origin(origin_x, origin_y, glyph_left, glyph_top, offset_x, offset_y);
+    let (valid, x, y) = plan.map_or((0, 0, 0), |value| (1, value.x, value.y));
+    // SAFETY: The caller guarantees that all three checked output pointers are
+    // live and writable for one value.
+    unsafe {
+        *output_valid = valid;
+        *output_x = x;
+        *output_y = y;
     }
     true
 }

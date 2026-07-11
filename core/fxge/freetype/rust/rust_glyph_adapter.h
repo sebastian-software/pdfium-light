@@ -29,8 +29,20 @@ struct GlyphCacheKeyInputs {
   bool native_text;
 };
 
+struct GlyphOriginPlan {
+  bool valid;
+  int32_t x;
+  int32_t y;
+};
+
 std::optional<size_t> RustFillGlyphCacheKey(const GlyphCacheKeyInputs& inputs,
                                             pdfium::span<uint32_t> output);
+std::optional<GlyphOriginPlan> RustPlanGlyphOrigin(int32_t origin_x,
+                                                   int32_t origin_y,
+                                                   int32_t glyph_left,
+                                                   int32_t glyph_top,
+                                                   int32_t offset_x,
+                                                   int32_t offset_y);
 
 bool UseRustGlyphCandidate();
 bool SetUseRustGlyphCandidateForTesting(bool use_candidate);
