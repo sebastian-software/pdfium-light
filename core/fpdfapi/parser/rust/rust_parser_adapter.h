@@ -38,6 +38,16 @@ bool RunRustCrossRefSegmentEntries(uint32_t entry_count,
                                    void* context,
                                    CrossRefSegmentCallback callback);
 std::optional<uint32_t> RustCrossRefFieldWidth(int32_t value);
+struct CrossRefEntryFields {
+  uint32_t first;
+  uint32_t second;
+  uint32_t third;
+};
+std::optional<CrossRefEntryFields> RustReadCrossRefEntry(
+    pdfium::span<const uint8_t> input,
+    uint32_t first_width,
+    uint32_t second_width,
+    uint32_t third_width);
 std::optional<uint8_t> RustSkipPdfSpacesAndComments(
     pdfium::span<const uint8_t> input,
     uint32_t* position);

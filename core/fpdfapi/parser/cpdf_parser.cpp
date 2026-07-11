@@ -1019,8 +1019,17 @@ void CPDF_Parser::ProcessCrossRefStreamEntry(
   DCHECK_GE(field_widths.size(), kMinFieldCount);
   ObjectType type;
   const bool has_type_field = !!field_widths[0];
+  const auto rust_fields = pdfium::rust::UseRustParserCandidate()
+                               ? pdfium::rust::RustReadCrossRefEntry(
+                                     entry_span, field_widths[0],
+                                     field_widths[1], field_widths[2])
+                               : std::nullopt;
   const uint32_t cross_ref_stream_obj_type =
-      has_type_field ? GetFirstXRefStreamEntry(entry_span, field_widths) : 1;
+      has_type_field
+          ? rust_fields.has_value()
+                ? rust_fields->first
+                : GetFirstXRefStreamEntry(entry_span, field_widths)
+          : 1;
   const auto rust_type = pdfium::rust::UseRustParserCandidate()
                              ? pdfium::rust::RustCrossRefEntryType(
                                    has_type_field, cross_ref_stream_obj_type)
@@ -1053,8 +1062,14 @@ void CPDF_Parser::ProcessCrossRefStreamEntry(
     type = ObjectType::kNormal;
   }
 
-  const uint32_t second = GetSecondXRefStreamEntry(entry_span, field_widths);
-  const uint32_t third = GetThirdXRefStreamEntry(entry_span, field_widths);
+  const uint32_t second = rust_fields.has_value()
+                              ? rust_fields->second
+                              : GetSecondXRefStreamEntry(entry_span,
+                                                          field_widths);
+  const uint32_t third = rust_fields.has_value()
+                             ? rust_fields->third
+                             : GetThirdXRefStreamEntry(entry_span,
+                                                       field_widths);
   const bool normal_offset_fits =
       pdfium::IsValueInRangeForNumericType<FX_FILESIZE>(second);
   const bool archive_object_valid = IsValidObjectNumber(second);

@@ -60,6 +60,18 @@ fn cross_ref_field_width(value: i32) -> u32 {
     value as u32
 }
 
+fn read_cross_ref_entry(input: &[u8], field_widths: [u32; 3]) -> Option<[u32; 3]> {
+    let mut offset = 0_usize;
+    let mut fields = [0_u32; 3];
+    for (field, width) in fields.iter_mut().zip(field_widths) {
+        let width = usize::try_from(width).ok()?;
+        let end = offset.checked_add(width)?;
+        *field = read_big_endian_var_int(input.get(offset..end)?);
+        offset = end;
+    }
+    Some(fields)
+}
+
 fn is_pdf_whitespace(byte: u8) -> bool {
     matches!(byte, 0 | b'\t' | b'\n' | 0x0c | b'\r' | b' ')
 }
@@ -305,6 +317,49 @@ pub unsafe extern "C" fn pdfium_rust_cross_ref_field_width(value: i32, output: *
     true
 }
 
+/// Decodes the three variable-width fields of one cross-reference entry.
+///
+/// # Safety
+///
+/// When `len` is non-zero, `data` must point to `len` readable bytes. All
+/// three output pointers must point to writable `u32` values. The sum of the
+/// widths must fit within the borrowed input; otherwise no output is written.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_read_cross_ref_entry(
+    data: *const u8,
+    len: usize,
+    first_width: u32,
+    second_width: u32,
+    third_width: u32,
+    output_first: *mut u32,
+    output_second: *mut u32,
+    output_third: *mut u32,
+) -> bool {
+    if output_first.is_null()
+        || output_second.is_null()
+        || output_third.is_null()
+        || (len != 0 && data.is_null())
+    {
+        return false;
+    }
+    let data = if len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { data };
+    // SAFETY: The caller guarantees a readable input span whenever non-empty;
+    // empty spans use a non-null dangling pointer and are never dereferenced.
+    let input = unsafe { core::slice::from_raw_parts(data, len) };
+    let Some([first, second, third]) =
+        read_cross_ref_entry(input, [first_width, second_width, third_width])
+    else {
+        return false;
+    };
+    // SAFETY: All checked output pointers refer to writable scalar results.
+    unsafe {
+        *output_first = first;
+        *output_second = second;
+        *output_third = third;
+    }
+    true
+}
+
 /// Skips PDF whitespace and complete comment lines from a borrowed input.
 ///
 /// The returned position always reflects bytes consumed, including when no
@@ -468,6 +523,38 @@ mod tests {
         assert_eq!(17, cross_ref_field_width(17));
         assert_eq!(u32::MAX, cross_ref_field_width(-1));
         assert_eq!(0x8000_0000, cross_ref_field_width(i32::MIN));
+    }
+
+    #[test]
+    fn cross_ref_entry_should_decode_zero_width_and_wrapping_fields() {
+        assert_eq!(
+            Some([0, 0x1234, 0x3456_789a]),
+            read_cross_ref_entry(&[0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x9a], [0, 2, 5])
+        );
+        assert_eq!(None, read_cross_ref_entry(&[0x12], [1, 1, 0]));
+    }
+
+    #[test]
+    fn cross_ref_entry_ffi_should_reject_short_input_without_mutation() {
+        let mut first = 0xa1a1_a1a1_u32;
+        let mut second = 0xb2b2_b2b2_u32;
+        let mut third = 0xc3c3_c3c3_u32;
+        // SAFETY: The test supplies readable input and live writable outputs.
+        assert!(!unsafe {
+            pdfium_rust_read_cross_ref_entry(
+                [0x12].as_ptr(),
+                1,
+                1,
+                1,
+                0,
+                &mut first,
+                &mut second,
+                &mut third,
+            )
+        });
+        assert_eq!(0xa1a1_a1a1, first);
+        assert_eq!(0xb2b2_b2b2, second);
+        assert_eq!(0xc3c3_c3c3, third);
     }
 
     #[test]
