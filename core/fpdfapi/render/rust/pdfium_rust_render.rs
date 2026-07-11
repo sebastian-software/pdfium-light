@@ -49,6 +49,8 @@ const LAYER_PLAN_APPLY_LAST_MATRIX: u8 = 1 << 1;
 const LAYER_COMPLETION_OPTIMIZE_CACHE: u8 = 1 << 0;
 const LAYER_COMPLETION_STOP: u8 = 1 << 1;
 
+type RenderLayerCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
+
 fn build_render_request_plan(flags: u32, has_color_scheme: bool, restore_device: bool) -> u32 {
     let mappings = [
         (FPDF_ANNOT, PLAN_ANNOTATIONS),
@@ -269,6 +271,35 @@ pub unsafe extern "C" fn pdfium_rust_build_render_layer_completion(
     // SAFETY: The caller contract guarantees one writable output value.
     unsafe {
         *output = build_render_layer_completion(limited_image_cache, stopped);
+    }
+    true
+}
+
+/// Runs render layers in order until the callback reports a stopped status.
+///
+/// # Safety
+///
+/// `context` must remain valid for every callback invocation. `callback` must
+/// obey its own C ABI contract for that context and each index below
+/// `layer_count`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_run_render_layers(
+    layer_count: u32,
+    context: *mut core::ffi::c_void,
+    callback: Option<RenderLayerCallback>,
+) -> bool {
+    if context.is_null() {
+        return false;
+    }
+    let Some(callback) = callback else {
+        return false;
+    };
+    for index in 0..layer_count {
+        // SAFETY: The caller guarantees that the context and callback remain
+        // valid for every index in this bounded loop.
+        if unsafe { callback(context, index) } {
+            break;
+        }
     }
     true
 }

@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <cstddef>
 #include <optional>
 #include <vector>
 
@@ -113,6 +114,11 @@ std::optional<RenderLayerPlan> BuildRustRenderLayerPlan(bool has_options,
 std::optional<RenderLayerCompletion> BuildRustRenderLayerCompletion(
     bool limited_image_cache,
     bool stopped);
+
+using RenderLayerCallback = bool (*)(void* context, uint32_t layer_index);
+bool RunRustRenderLayers(size_t layer_count,
+                         void* context,
+                         RenderLayerCallback callback);
 
 class ScopedRenderTraceForTesting final {
  public:

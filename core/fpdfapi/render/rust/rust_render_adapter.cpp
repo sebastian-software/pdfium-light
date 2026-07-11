@@ -4,6 +4,8 @@
 
 #include "core/fpdfapi/render/rust/rust_render_adapter.h"
 
+#include <limits>
+
 #include "public/fpdfview.h"
 
 namespace {
@@ -34,6 +36,10 @@ extern "C" bool pdfium_rust_build_render_layer_completion(
     bool limited_image_cache,
     bool stopped,
     uint8_t* output);
+extern "C" bool pdfium_rust_run_render_layers(
+    uint32_t layer_count,
+    void* context,
+    pdfium::rust::RenderLayerCallback callback);
 
 thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
@@ -164,6 +170,17 @@ std::optional<RenderLayerCompletion> BuildRustRenderLayerCompletion(
     return std::nullopt;
   }
   return RenderLayerCompletion(bits);
+}
+
+bool RunRustRenderLayers(size_t layer_count,
+                         void* context,
+                         RenderLayerCallback callback) {
+  if (layer_count > std::numeric_limits<uint32_t>::max() || !context ||
+      !callback) {
+    return false;
+  }
+  return pdfium_rust_run_render_layers(static_cast<uint32_t>(layer_count),
+                                       context, callback);
 }
 
 ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(
