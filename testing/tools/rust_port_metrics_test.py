@@ -13,6 +13,19 @@ import rust_port_metrics
 
 
 class RustPortMetricsTest(unittest.TestCase):
+    def test_cxx_adapter_is_discovered_below_any_rust_boundary(self) -> None:
+        root = Path("/repo")
+        self.assertTrue(
+            rust_port_metrics.is_cxx_rust_adapter(
+                root / "core/fxge/dib/rust/adapter.cpp", root
+            )
+        )
+        self.assertFalse(
+            rust_port_metrics.is_cxx_rust_adapter(
+                root / "core/fxge/dib/blend.cpp", root
+            )
+        )
+
     def test_count_abi_thunk_lines_includes_region_markers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "lib.rs"

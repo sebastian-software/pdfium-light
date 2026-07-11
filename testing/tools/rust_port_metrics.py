@@ -22,7 +22,6 @@ PRODUCT_DIRS = ("core", "fpdfsdk", "public")
 NATIVE_SUFFIXES = (".c", ".cc", ".cpp", ".h", ".rs")
 IMPLEMENTATION_SUFFIXES = (".c", ".cc", ".cpp")
 RUST_SUFFIX = ".rs"
-ADAPTER_DIR = "core/fxcodec/rust"
 ADAPTER_SUFFIXES = (".cpp", ".h")
 MAPPING_DATA_DIR = "core/fpdfapi/cmaps"
 ABI_BEGIN = "// RUST_PORT_METRICS_BEGIN abi_thunk"
@@ -36,6 +35,7 @@ ACTIVE_SURFACES = (
     "PNG/TIFF predictor transforms",
     "RunLength encode/decode",
 )
+CANDIDATE_SURFACES = ("separable blend primitives (batch parity only)",)
 
 
 def tracked_paths(root: Path) -> tuple[Path, ...]:
@@ -58,6 +58,11 @@ def is_product_source(path: Path, root: Path) -> bool:
         relative_path.parts[0] in PRODUCT_DIRS
         and relative_path.suffix in NATIVE_SUFFIXES
     )
+
+
+def is_cxx_rust_adapter(path: Path, root: Path) -> bool:
+    relative_path = path.relative_to(root)
+    return "rust" in relative_path.parent.parts and path.suffix in ADAPTER_SUFFIXES
 
 
 def count_physical_lines(paths: tuple[Path, ...]) -> int:
@@ -113,9 +118,8 @@ def collect_metrics(root: Path) -> dict[str, int | tuple[str, ...]]:
     rust_authored_behavior_loc = rust_loc - generated_rust_loc - rust_abi_thunk_loc
     adapter_sources = tuple(
         path
-        for path in paths
-        if path.relative_to(root).parent.as_posix() == ADAPTER_DIR
-        and path.suffix in ADAPTER_SUFFIXES
+        for path in product_sources
+        if is_cxx_rust_adapter(path, root)
     )
     cxx_behavior_sources = tuple(
         path
@@ -146,6 +150,7 @@ def collect_metrics(root: Path) -> dict[str, int | tuple[str, ...]]:
         "behavior_implementation_loc": behavior_implementation_loc,
         "cxx_behavior_loc": cxx_behavior_loc,
         "active_surfaces": ACTIVE_SURFACES,
+        "candidate_surfaces": CANDIDATE_SURFACES,
     }
 
 
@@ -165,6 +170,7 @@ def format_report(metrics: dict[str, int | tuple[str, ...]]) -> str:
         100 * rust_authored_behavior_loc / behavior_implementation_loc
     )
     active_surfaces = ", ".join(metrics["active_surfaces"])
+    candidate_surfaces = ", ".join(metrics["candidate_surfaces"])
     return "\n".join(
         (
             f"product_native_loc: {product_native_loc}",
@@ -181,6 +187,7 @@ def format_report(metrics: dict[str, int | tuple[str, ...]]) -> str:
             f"physical_rust_percentage: {rust_percentage:.2f}%",
             f"behavior_rust_percentage: {behavior_rust_percentage:.2f}%",
             f"active_surfaces: {active_surfaces}",
+            f"candidate_surfaces: {candidate_surfaces}",
         )
     )
 
