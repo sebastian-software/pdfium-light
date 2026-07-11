@@ -1002,18 +1002,23 @@ bool CPDF_RenderStatus::ProcessText(CPDF_TextObject* textobj,
   }
   FX_ARGB stroke_argb = 0;
   FX_ARGB fill_argb = 0;
-  bool bPattern = false;
+  const bool stroke_is_pattern =
+      is_stroke && textobj->color_state().GetStrokeColor()->IsPattern();
+  const bool fill_is_pattern =
+      is_fill && textobj->color_state().GetFillColor()->IsPattern();
+  const auto rust_pattern = pdfium::rust::UseRustRenderCandidate()
+                                ? pdfium::rust::RustTextUsesPattern(
+                                      is_fill, is_stroke, fill_is_pattern,
+                                      stroke_is_pattern)
+                                : std::nullopt;
+  const bool bPattern = rust_pattern.value_or(stroke_is_pattern || fill_is_pattern);
   if (is_stroke) {
-    if (textobj->color_state().GetStrokeColor()->IsPattern()) {
-      bPattern = true;
-    } else {
+    if (!stroke_is_pattern) {
       stroke_argb = GetStrokeArgb(textobj);
     }
   }
   if (is_fill) {
-    if (textobj->color_state().GetFillColor()->IsPattern()) {
-      bPattern = true;
-    } else {
+    if (!fill_is_pattern) {
       fill_argb = GetFillArgb(textobj);
     }
   }

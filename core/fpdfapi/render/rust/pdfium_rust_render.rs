@@ -269,6 +269,15 @@ fn build_text_render_plan(
     Some((TEXT_PLAN_NORMAL, bits))
 }
 
+fn text_uses_pattern(
+    is_fill: bool,
+    is_stroke: bool,
+    fill_is_pattern: bool,
+    stroke_is_pattern: bool,
+) -> bool {
+    (is_fill && fill_is_pattern) || (is_stroke && stroke_is_pattern)
+}
+
 /// Builds a compact render request plan from the supported public flags.
 ///
 /// # Safety
@@ -545,6 +554,29 @@ pub unsafe extern "C" fn pdfium_rust_build_text_render_plan(
     unsafe {
         *output_action = action;
         *output_bits = bits;
+    }
+    true
+}
+
+/// Decides whether the text renderer must take its retained pattern path.
+///
+/// # Safety
+///
+/// `output` must point to one writable `bool` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_uses_pattern(
+    is_fill: bool,
+    is_stroke: bool,
+    fill_is_pattern: bool,
+    stroke_is_pattern: bool,
+    output: *mut bool,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller guarantees one writable bool output.
+    unsafe {
+        *output = text_uses_pattern(is_fill, is_stroke, fill_is_pattern, stroke_is_pattern);
     }
     true
 }
@@ -952,5 +984,14 @@ mod tests {
             pdfium_rust_build_text_render_plan(true, -1, false, false, true, &mut action, &mut bits)
         });
         assert_eq!((action, bits), (91, 92));
+    }
+
+    #[test]
+    fn text_pattern_plan_should_consider_only_active_paints() {
+        assert!(!text_uses_pattern(false, false, true, true));
+        assert!(!text_uses_pattern(true, false, false, true));
+        assert!(!text_uses_pattern(false, true, true, false));
+        assert!(text_uses_pattern(true, false, true, false));
+        assert!(text_uses_pattern(false, true, false, true));
     }
 }

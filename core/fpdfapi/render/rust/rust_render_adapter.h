@@ -176,6 +176,10 @@ std::optional<TextRenderPlan> BuildRustTextRenderPlan(
     bool is_type3,
     bool has_clipping_path,
     bool font_has_face);
+std::optional<bool> RustTextUsesPattern(bool is_fill,
+                                        bool is_stroke,
+                                        bool fill_is_pattern,
+                                        bool stroke_is_pattern);
 
 class ScopedRenderTraceForTesting final {
  public:

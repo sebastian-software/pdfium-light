@@ -65,6 +65,11 @@ extern "C" bool pdfium_rust_build_text_render_plan(
     bool font_has_face,
     uint8_t* output_action,
     uint8_t* output_bits);
+extern "C" bool pdfium_rust_text_uses_pattern(bool is_fill,
+                                               bool is_stroke,
+                                               bool fill_is_pattern,
+                                               bool stroke_is_pattern,
+                                               bool* output);
 
 thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
@@ -317,6 +322,18 @@ std::optional<TextRenderPlan> BuildRustTextRenderPlan(
     return std::nullopt;
   }
   return TextRenderPlan(static_cast<TextRenderAction>(action), bits);
+}
+
+std::optional<bool> RustTextUsesPattern(bool is_fill,
+                                        bool is_stroke,
+                                        bool fill_is_pattern,
+                                        bool stroke_is_pattern) {
+  bool uses_pattern = false;
+  if (!pdfium_rust_text_uses_pattern(is_fill, is_stroke, fill_is_pattern,
+                                     stroke_is_pattern, &uses_pattern)) {
+    return std::nullopt;
+  }
+  return uses_pattern;
 }
 
 ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(
