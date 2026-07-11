@@ -54,6 +54,7 @@ ACTIVE_SURFACES = (
     "complete bitmap scanline copies",
     "stretch-engine weight-table layout and fixed-point weights",
     "horizontal stretch pixel transforms across retained formats",
+    "vertical stretch filtering and alpha unpremultiplication",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 

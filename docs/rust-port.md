@@ -61,6 +61,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `3708a4ab5` Phase 1 bitmap-copy slice | 10,245 | 3,434 | 241 | 1,310 | 6,570 | 267,457 | 3.83% | 1.76% | Prior surfaces plus complete scanline copies, including source padding, for every retained format |
 | `64b671193` Phase 1 stretch-weight slice | 10,594 | 3,783 | 241 | 1,355 | 6,570 | 267,944 | 3.95% | 1.94% | Prior surfaces plus bounded stretch-table layout and exact nearest, bilinear, area, clipped, and mirrored fixed-point weights |
 | `f1ec24da9` Phase 1 horizontal-stretch slice | 10,980 | 4,169 | 241 | 1,403 | 6,570 | 268,477 | 4.09% | 2.13% | Prior surfaces plus all six horizontal pixel transforms for mask, indexed, BGR, BGRx, and BGRA scanlines |
+| `626a359b0` Phase 1 vertical-stretch slice | 11,281 | 4,470 | 241 | 1,453 | 6,570 | 268,837 | 4.20% | 2.28% | Prior surfaces plus vertical scalar/color filtering and BGRA unpremultiplication for complete destination rows |
 
 ## Toolchain
 
@@ -205,7 +206,14 @@ opaque BGR/BGRx filtering, and alpha-weighted BGRA filtering. A same-process
 `StretchTo` corpus compares 108 combinations of all retained source formats,
 default and custom palettes, enlargement, reduction, horizontal and vertical
 mirroring, nearest, no-smoothing, and bilinear options byte for byte against
-the C++ reference. The vertical stretch pass remains C++-owned in this slice.
+the C++ reference.
+
+The second pass now also runs once per destination row in Rust. It filters the
+intermediate scalar and BGR/BGRx values, preserves untouched X bytes, and
+unpremultiplies filtered BGRA colors with the reference's integer rounding.
+Zero-alpha rows retain their existing RGB bytes while setting alpha to zero.
+C++ continues to own the intermediate/output buffers, scanline composition,
+pause protocol, and retained fallback implementation.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
