@@ -65,6 +65,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `2363f01d1` Phase 1 bitmap-transpose slice | 11,452 | 4,641 | 241 | 1,489 | 6,570 | 269,103 | 4.26% | 2.37% | Prior surfaces plus packed-bit and 8-/24-/32-bpp transposition with independent axis mirroring |
 | `408f15262` Phase 1 alpha-transform slice | 11,645 | 4,834 | 241 | 1,529 | 6,570 | 269,383 | 4.32% | 2.46% | Prior surfaces plus fixed-matrix coordinate mapping and bilinear sampling for transformed alpha masks |
 | `1eebb71c9` Phase 1 indexed-transform slice | 11,816 | 5,005 | 241 | 1,574 | 6,570 | 269,661 | 4.38% | 2.55% | Prior surfaces plus fixed-matrix bilinear indexed/grayscale sampling and exact ARGB palette resolution |
+| `4cd581a61` Phase 1 color-transform slice | 12,012 | 5,201 | 241 | 1,621 | 6,570 | 269,959 | 4.45% | 2.64% | Prior surfaces plus channel-wise fixed-matrix sampling for opaque BGR/BGRx, BGRA, and retained raw CMYK transforms |
 
 ## Toolchain
 
@@ -239,6 +240,14 @@ ARGB palette into native-order destination pixels. Sixteen public cases cover
 1-bpp and 8-bpp sources, default and custom palettes, and the same four skewed
 and reflected matrices. Direct native coverage locks palette byte order and
 the interpolated index rounding. Color transform sampling remains C++-owned.
+
+Color transforms complete the same sampling boundary for BGR, BGRx, BGRA, and
+the retained raw four-channel CMYK branch. Rust interpolates each channel,
+forces opaque alpha for non-alpha sources, and preserves interpolated BGRA or
+CMYK fourth bytes. Twelve public format/matrix cases compare exact result
+offsets, geometry, pitch, and complete buffers; native cases pin channel order,
+opaque-alpha insertion, and per-channel fixed-point rounding. C++ still owns
+transform classification, intermediate stretching, allocation, and objects.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
