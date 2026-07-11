@@ -109,6 +109,7 @@ void CPDF_RenderContext::Render(CFX_RenderDevice* pDevice,
                                : std::nullopt;
     const pdfium::rust::RenderLayerPlan plan = rust_plan.value_or(
         BuildCppRenderLayerPlan(has_options, has_last_matrix));
+    pdfium::rust::RecordRenderTraceForTesting(plan);
     if (plan.Has(pdfium::rust::RenderLayerPlanBit::kSetOptions)) {
       status.SetOptions(*pOptions);
     }
@@ -132,6 +133,7 @@ void CPDF_RenderContext::Render(CFX_RenderDevice* pDevice,
     const pdfium::rust::RenderLayerCompletion completion =
         rust_completion.value_or(
             BuildCppRenderLayerCompletion(limited_image_cache, stopped));
+    pdfium::rust::RecordRenderTraceForTesting(completion);
     if (completion.Has(
             pdfium::rust::RenderLayerCompletionBit::kOptimizeCache)) {
       page_cache_->CacheOptimization(

@@ -402,4 +402,40 @@ mod tests {
             )
         });
     }
+
+    #[test]
+    fn render_layer_plan_should_map_all_optional_setup() {
+        assert_eq!(0, build_render_layer_plan(false, false));
+        assert_eq!(LAYER_PLAN_SET_OPTIONS, build_render_layer_plan(true, false));
+        assert_eq!(LAYER_PLAN_APPLY_LAST_MATRIX, build_render_layer_plan(false, true));
+        assert_eq!(
+            LAYER_PLAN_SET_OPTIONS | LAYER_PLAN_APPLY_LAST_MATRIX,
+            build_render_layer_plan(true, true)
+        );
+    }
+
+    #[test]
+    fn render_layer_completion_should_map_cache_and_stop() {
+        assert_eq!(0, build_render_layer_completion(false, false));
+        assert_eq!(LAYER_COMPLETION_OPTIMIZE_CACHE, build_render_layer_completion(true, false));
+        assert_eq!(LAYER_COMPLETION_STOP, build_render_layer_completion(false, true));
+        assert_eq!(
+            LAYER_COMPLETION_OPTIMIZE_CACHE | LAYER_COMPLETION_STOP,
+            build_render_layer_completion(true, true)
+        );
+    }
+
+    #[test]
+    fn render_layer_ffi_should_reject_null_outputs() {
+        // SAFETY: Null outputs are explicitly supported and rejected without
+        // dereferencing them.
+        assert!(!unsafe {
+            pdfium_rust_build_render_layer_plan(false, false, core::ptr::null_mut())
+        });
+        // SAFETY: Null outputs are explicitly supported and rejected without
+        // dereferencing them.
+        assert!(!unsafe {
+            pdfium_rust_build_render_layer_completion(false, false, core::ptr::null_mut())
+        });
+    }
 }

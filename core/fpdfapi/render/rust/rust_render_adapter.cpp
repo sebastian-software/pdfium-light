@@ -39,6 +39,8 @@ thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
 
 constexpr uint8_t kPageObjectRenderCommandTraceBase = 0x10;
+constexpr uint8_t kRenderLayerPlanTraceBase = 0x20;
+constexpr uint8_t kRenderLayerCompletionTraceBase = 0x30;
 
 static_assert(FPDF_ANNOT == 0x01);
 static_assert(FPDF_LCD_TEXT == 0x02);
@@ -184,6 +186,33 @@ void RecordRenderTraceForTesting(PageObjectRenderCommand command) {
   if (g_render_trace_for_testing) {
     g_render_trace_for_testing->push_back(kPageObjectRenderCommandTraceBase +
                                           static_cast<uint8_t>(command));
+  }
+}
+
+void RecordRenderTraceForTesting(const RenderLayerPlan& plan) {
+  if (g_render_trace_for_testing) {
+    uint8_t bits = 0;
+    if (plan.Has(RenderLayerPlanBit::kSetOptions)) {
+      bits |= static_cast<uint8_t>(RenderLayerPlanBit::kSetOptions);
+    }
+    if (plan.Has(RenderLayerPlanBit::kApplyLastMatrix)) {
+      bits |= static_cast<uint8_t>(RenderLayerPlanBit::kApplyLastMatrix);
+    }
+    g_render_trace_for_testing->push_back(kRenderLayerPlanTraceBase + bits);
+  }
+}
+
+void RecordRenderTraceForTesting(const RenderLayerCompletion& completion) {
+  if (g_render_trace_for_testing) {
+    uint8_t bits = 0;
+    if (completion.Has(RenderLayerCompletionBit::kOptimizeCache)) {
+      bits |= static_cast<uint8_t>(RenderLayerCompletionBit::kOptimizeCache);
+    }
+    if (completion.Has(RenderLayerCompletionBit::kStop)) {
+      bits |= static_cast<uint8_t>(RenderLayerCompletionBit::kStop);
+    }
+    g_render_trace_for_testing->push_back(kRenderLayerCompletionTraceBase +
+                                          bits);
   }
 }
 
