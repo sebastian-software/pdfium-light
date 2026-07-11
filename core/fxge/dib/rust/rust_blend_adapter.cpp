@@ -103,6 +103,14 @@ extern "C" bool pdfium_rust_bgra_multiply_alpha(uint8_t* buffer,
                                                  size_t height,
                                                  size_t pitch,
                                                  uint8_t alpha);
+extern "C" bool pdfium_rust_clone_alpha_mask(const uint8_t* source,
+                                              size_t source_len,
+                                              size_t source_pitch,
+                                              uint8_t* destination,
+                                              size_t destination_len,
+                                              size_t destination_pitch,
+                                              size_t width,
+                                              size_t height);
 extern "C" bool pdfium_rust_clear_bitmap(uint8_t* buffer,
                                           size_t buffer_len,
                                           size_t width,
@@ -553,6 +561,21 @@ bool RustBlendAdapter::MultiplyBgraAlpha(pdfium::span<uint8_t> buffer,
   return IsValidBitmapBuffer(buffer.size(), width, height, pitch, 4) &&
          pdfium_rust_bgra_multiply_alpha(buffer.data(), width, height, pitch,
                                          alpha);
+}
+
+// static
+bool RustBlendAdapter::CloneAlphaMask(pdfium::span<const uint8_t> source,
+                                      uint32_t source_pitch,
+                                      pdfium::span<uint8_t> destination,
+                                      uint32_t destination_pitch,
+                                      int width,
+                                      int height) {
+  return IsValidBitmapBuffer(source.size(), width, height, source_pitch, 4) &&
+         IsValidBitmapBuffer(destination.size(), width, height,
+                             destination_pitch, 1) &&
+         pdfium_rust_clone_alpha_mask(
+             source.data(), source.size(), source_pitch, destination.data(),
+             destination.size(), destination_pitch, width, height);
 }
 
 // static

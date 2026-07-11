@@ -789,6 +789,13 @@ RetainPtr<CFX_DIBitmap> CFX_DIBBase::CloneAlphaMask() const {
     return nullptr;
   }
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::CloneAlphaMask(
+          GetBuffer(), GetPitch(), pMask->GetWritableBuffer(),
+          pMask->GetPitch(), GetWidth(), GetHeight())) {
+    return pMask;
+  }
+
   for (int row = 0; row < GetHeight(); ++row) {
     const uint8_t* src_scan = GetScanline(row).subspan<3u>().data();
     uint8_t* dest_scan = pMask->GetWritableScanline(row).data();

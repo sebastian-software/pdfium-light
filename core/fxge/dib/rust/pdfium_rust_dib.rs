@@ -397,6 +397,60 @@ fn packed_rows_are_valid(width: usize, height: usize, pitch: usize, components: 
         && pitch.checked_mul(height).is_some()
 }
 
+/// Copies BGRA alpha bytes into an 8-bpp mask bitmap.
+///
+/// Destination row padding is intentionally left untouched.
+///
+/// # Safety
+///
+/// Source and destination pointers must cover their supplied lengths and must
+/// not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_clone_alpha_mask(
+    source: *const u8,
+    source_len: usize,
+    source_pitch: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+    width: usize,
+    height: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() {
+        return false;
+    }
+    let Some(required_source_len) = source_pitch.checked_mul(height) else {
+        return false;
+    };
+    let Some(required_destination_len) = destination_pitch.checked_mul(height) else {
+        return false;
+    };
+    if !packed_rows_are_valid(width, height, source_pitch, 4)
+        || !packed_rows_are_valid(width, height, destination_pitch, 1)
+        || source_len < required_source_len
+        || destination_len < required_destination_len
+    {
+        return false;
+    }
+    // SAFETY: The caller contract and checked lengths guarantee distinct
+    // source and destination bitmap regions.
+    let (source, destination) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    for row in 0..height {
+        let source_row = &source[row * source_pitch..(row + 1) * source_pitch];
+        let destination_row =
+            &mut destination[row * destination_pitch..(row + 1) * destination_pitch];
+        for (column, output) in destination_row.iter_mut().take(width).enumerate() {
+            *output = source_row[column * 4 + 3];
+        }
+    }
+    true
+}
+
 /// Clears a packed bitmap with one pixel value.
 ///
 /// When `fill_padding` is set, the first pixel byte is written across the

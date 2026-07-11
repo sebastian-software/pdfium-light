@@ -93,6 +93,12 @@ class RustBlendAdapter final {
                                 int height,
                                 uint32_t pitch,
                                 uint8_t alpha);
+  static bool CloneAlphaMask(pdfium::span<const uint8_t> source,
+                             uint32_t source_pitch,
+                             pdfium::span<uint8_t> destination,
+                             uint32_t destination_pitch,
+                             int width,
+                             int height);
   static bool ClearBitmap(pdfium::span<uint8_t> buffer,
                           int width,
                           int height,
