@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef FPDFSDK_RUST_RENDER_PLAN_ADAPTER_H_
-#define FPDFSDK_RUST_RENDER_PLAN_ADAPTER_H_
+#ifndef CORE_FPDFAPI_RENDER_RUST_RUST_RENDER_ADAPTER_H_
+#define CORE_FPDFAPI_RENDER_RUST_RUST_RENDER_ADAPTER_H_
 
 #include <stdint.h>
 
 #include <optional>
 
-namespace fpdfsdk {
+namespace pdfium::rust {
 
 enum class RenderPlanBit : uint32_t {
   kAnnotations = 1u << 0,
@@ -44,6 +44,6 @@ std::optional<RenderRequestPlan> BuildRustRenderRequestPlan(
     bool has_color_scheme,
     bool restore_device);
 
-}  // namespace fpdfsdk
+}  // namespace pdfium::rust
 
-#endif  // FPDFSDK_RUST_RENDER_PLAN_ADAPTER_H_
+#endif  // CORE_FPDFAPI_RENDER_RUST_RUST_RENDER_ADAPTER_H_

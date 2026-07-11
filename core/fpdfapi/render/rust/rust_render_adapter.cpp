@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "fpdfsdk/rust/render_plan_adapter.h"
+#include "core/fpdfapi/render/rust/rust_render_adapter.h"
 
 #include "public/fpdfview.h"
 
 namespace {
 
 extern "C" bool pdfium_rust_build_render_request_plan(uint32_t flags,
-                                                       bool has_color_scheme,
-                                                       bool restore_device,
-                                                       uint32_t* output);
+                                                      bool has_color_scheme,
+                                                      bool restore_device,
+                                                      uint32_t* output);
 
 static_assert(FPDF_ANNOT == 0x01);
 static_assert(FPDF_LCD_TEXT == 0x02);
@@ -27,19 +27,19 @@ static_assert(FPDF_RENDER_NO_SMOOTHPATH == 0x4000);
 
 }  // namespace
 
-namespace fpdfsdk {
+namespace pdfium::rust {
 
 std::optional<RenderRequestPlan> BuildRustRenderRequestPlan(
     int flags,
     bool has_color_scheme,
     bool restore_device) {
   uint32_t bits = 0;
-  if (!pdfium_rust_build_render_request_plan(
-          static_cast<uint32_t>(flags), has_color_scheme, restore_device,
-          &bits)) {
+  if (!pdfium_rust_build_render_request_plan(static_cast<uint32_t>(flags),
+                                             has_color_scheme, restore_device,
+                                             &bits)) {
     return std::nullopt;
   }
   return RenderRequestPlan(bits);
 }
 
-}  // namespace fpdfsdk
+}  // namespace pdfium::rust

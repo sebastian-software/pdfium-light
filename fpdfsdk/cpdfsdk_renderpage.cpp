@@ -14,10 +14,10 @@
 #include "core/fpdfapi/render/cpdf_pagerendercontext.h"
 #include "core/fpdfapi/render/cpdf_rendercontext.h"
 #include "core/fpdfapi/render/cpdf_renderoptions.h"
+#include "core/fpdfapi/render/rust/rust_render_adapter.h"
 #include "core/fpdfdoc/cpdf_annotlist.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
-#include "fpdfsdk/rust/render_plan_adapter.h"
 
 namespace {
 
@@ -98,7 +98,7 @@ void RenderPageCandidate(CPDF_PageRenderContext* context,
                          int flags,
                          const FPDF_COLORSCHEME* color_scheme,
                          bool need_to_restore) {
-  const auto plan = fpdfsdk::BuildRustRenderRequestPlan(
+  const auto plan = pdfium::rust::BuildRustRenderRequestPlan(
       flags, color_scheme != nullptr, need_to_restore);
   if (!plan.has_value()) {
     RenderPageCppReference(context, pPage, matrix, clipping_rect, flags,
@@ -111,32 +111,32 @@ void RenderPageCandidate(CPDF_PageRenderContext* context,
   }
 
   auto& options = context->options_->GetOptions();
-  options.bClearType = plan->Has(fpdfsdk::RenderPlanBit::kClearType);
-  options.bNoNativeText = plan->Has(fpdfsdk::RenderPlanBit::kNoNativeText);
+  options.bClearType = plan->Has(pdfium::rust::RenderPlanBit::kClearType);
+  options.bNoNativeText = plan->Has(pdfium::rust::RenderPlanBit::kNoNativeText);
   options.bLimitedImageCache =
-      plan->Has(fpdfsdk::RenderPlanBit::kLimitedImageCache);
-  options.bForceHalftone = plan->Has(fpdfsdk::RenderPlanBit::kForceHalftone);
+      plan->Has(pdfium::rust::RenderPlanBit::kLimitedImageCache);
+  options.bForceHalftone =
+      plan->Has(pdfium::rust::RenderPlanBit::kForceHalftone);
   options.bNoTextSmooth =
-      plan->Has(fpdfsdk::RenderPlanBit::kNoTextSmoothing);
+      plan->Has(pdfium::rust::RenderPlanBit::kNoTextSmoothing);
   options.bNoImageSmooth =
-      plan->Has(fpdfsdk::RenderPlanBit::kNoImageSmoothing);
+      plan->Has(pdfium::rust::RenderPlanBit::kNoImageSmoothing);
   options.bNoPathSmooth =
-      plan->Has(fpdfsdk::RenderPlanBit::kNoPathSmoothing);
+      plan->Has(pdfium::rust::RenderPlanBit::kNoPathSmoothing);
 
-  if (plan->Has(fpdfsdk::RenderPlanBit::kGrayscale)) {
+  if (plan->Has(pdfium::rust::RenderPlanBit::kGrayscale)) {
     context->options_->SetColorMode(CPDF_RenderOptions::kGray);
   }
-  if (plan->Has(fpdfsdk::RenderPlanBit::kForcedColor)) {
+  if (plan->Has(pdfium::rust::RenderPlanBit::kForcedColor)) {
     context->options_->SetColorMode(CPDF_RenderOptions::kForcedColor);
     SetColorFromScheme(color_scheme, context->options_.get());
     options.bConvertFillToStroke =
-        plan->Has(fpdfsdk::RenderPlanBit::kConvertFillToStroke);
+        plan->Has(pdfium::rust::RenderPlanBit::kConvertFillToStroke);
   }
 
   const CPDF_OCContext::UsageType usage =
-      plan->Has(fpdfsdk::RenderPlanBit::kPrinting)
-          ? CPDF_OCContext::kPrint
-          : CPDF_OCContext::kView;
+      plan->Has(pdfium::rust::RenderPlanBit::kPrinting) ? CPDF_OCContext::kPrint
+                                                        : CPDF_OCContext::kView;
   context->options_->SetOCContext(
       pdfium::MakeRetain<CPDF_OCContext>(pPage->GetDocument(), usage));
 
@@ -148,11 +148,11 @@ void RenderPageCandidate(CPDF_PageRenderContext* context,
       pPage->GetPageImageCache());
   context->context_->AppendLayer(pPage, matrix);
 
-  if (plan->Has(fpdfsdk::RenderPlanBit::kAnnotations)) {
+  if (plan->Has(pdfium::rust::RenderPlanBit::kAnnotations)) {
     auto owned_list = std::make_unique<CPDF_AnnotList>(pPage);
     CPDF_AnnotList* list = owned_list.get();
     context->annots_ = std::move(owned_list);
-    bool is_printing = plan->Has(fpdfsdk::RenderPlanBit::kPrinting);
+    bool is_printing = plan->Has(pdfium::rust::RenderPlanBit::kPrinting);
 #if BUILDFLAG(IS_WIN)
     is_printing |= context->device_->GetDeviceType() == DeviceType::kPrinter;
 #endif
@@ -162,7 +162,7 @@ void RenderPageCandidate(CPDF_PageRenderContext* context,
 
   context->context_->Render(context->device_.get(), nullptr,
                             context->options_.get(), nullptr);
-  if (plan->Has(fpdfsdk::RenderPlanBit::kRestoreDevice)) {
+  if (plan->Has(pdfium::rust::RenderPlanBit::kRestoreDevice)) {
     context->device_->RestoreState(false);
   }
 }

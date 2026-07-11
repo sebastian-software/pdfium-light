@@ -51,12 +51,12 @@ source_set("fpdfsdk") {
     "../core/fpdfapi/page",
     "../core/fpdfapi/parser",
     "../core/fpdfapi/render",
+    "../core/fpdfapi/render/rust:rust_render_adapter",
     "../core/fpdfdoc",
     "../core/fpdftext",
     "../core/fxcodec",
     "../core/fxcrt",
     "../core/fxge",
-    "rust:render_plan_adapter",
   ]
   visibility = [ "../*" ]
 }
