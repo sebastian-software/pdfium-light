@@ -324,6 +324,15 @@ void CFX_ImageTransformer::CalcMono(const CalcData& calc_data) {
     }
   }
   const int dest_bytes_per_pixel = calc_data.bitmap->GetBPP() / 8;
+  CFX_BilinearMatrix matrix_fix(calc_data.matrix);
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::TransformBilinearIndexed(
+          matrix_fix.GetValuesForRust(), storer_.GetBitmap()->GetBuffer(),
+          calc_data.pitch, stretch_clip_.Width(), stretch_clip_.Height(), argb,
+          calc_data.bitmap->GetWritableBuffer(), calc_data.bitmap->GetPitch(),
+          result_.Width(), result_.Height())) {
+    return;
+  }
   auto func = [&calc_data, &argb](const BilinearData& data, uint8_t* dest) {
     uint8_t idx = BilinearInterpolate(calc_data.buf, data, 1, 0);
     *reinterpret_cast<uint32_t*>(dest) = argb[idx];

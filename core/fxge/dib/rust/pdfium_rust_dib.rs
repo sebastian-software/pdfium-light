@@ -1379,6 +1379,8 @@ fn bilinear_sample(
     source_pitch: usize,
     source_width: usize,
     source_height: usize,
+    components: usize,
+    channel: usize,
     source_x: i32,
     source_y: i32,
     residual_x: i32,
@@ -1400,10 +1402,16 @@ fn bilinear_sample(
     let bottom = (top + 1).min(source_height - 1);
     let top_offset = top.checked_mul(source_pitch)?;
     let bottom_offset = bottom.checked_mul(source_pitch)?;
-    let p0 = u32::from(*source.get(top_offset.checked_add(left)?)?);
-    let p1 = u32::from(*source.get(top_offset.checked_add(right)?)?);
-    let p2 = u32::from(*source.get(bottom_offset.checked_add(left)?)?);
-    let p3 = u32::from(*source.get(bottom_offset.checked_add(right)?)?);
+    if components == 0 || channel >= components {
+        return None;
+    }
+    let channel_offset = |row_offset: usize, column: usize| {
+        row_offset.checked_add(column.checked_mul(components)?)?.checked_add(channel)
+    };
+    let p0 = u32::from(*source.get(channel_offset(top_offset, left)?)?);
+    let p1 = u32::from(*source.get(channel_offset(top_offset, right)?)?);
+    let p2 = u32::from(*source.get(channel_offset(bottom_offset, left)?)?);
+    let p3 = u32::from(*source.get(channel_offset(bottom_offset, right)?)?);
     let residual_x = u32::try_from(residual_x).ok()?;
     let residual_y = u32::try_from(residual_y).ok()?;
     if residual_x > 255 || residual_y > 255 {
@@ -1463,6 +1471,8 @@ fn transform_bilinear_alpha(
                 source_pitch,
                 source_width,
                 source_height,
+                1,
+                0,
                 source_x,
                 source_y,
                 residual_x,
@@ -1476,6 +1486,90 @@ fn transform_bilinear_alpha(
                 return false;
             };
             destination[destination_offset] = value;
+        }
+    }
+    true
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the helper validates source, palette, and destination geometries"
+)]
+fn transform_bilinear_indexed(
+    matrix: &[i32; 6],
+    source: &[u8],
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    palette: &[u32],
+    destination: &mut [u8],
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    let (Ok(source_width), Ok(source_height), Ok(destination_width), Ok(destination_height)) = (
+        usize::try_from(source_width),
+        usize::try_from(source_height),
+        usize::try_from(destination_width),
+        usize::try_from(destination_height),
+    ) else {
+        return false;
+    };
+    if source_width == 0
+        || source_height == 0
+        || destination_width == 0
+        || destination_height == 0
+        || palette.len() < 256
+    {
+        return false;
+    }
+    let Some(source_required) = source_height.checked_mul(source_pitch) else {
+        return false;
+    };
+    let Some(destination_row_bytes) = destination_width.checked_mul(4) else {
+        return false;
+    };
+    let Some(destination_required) = destination_height.checked_mul(destination_pitch) else {
+        return false;
+    };
+    if source.len() < source_required
+        || destination.len() < destination_required
+        || source_pitch < source_width
+        || destination_pitch < destination_row_bytes
+    {
+        return false;
+    }
+    for row in 0..destination_height {
+        for column in 0..destination_width {
+            let (source_x, source_y, residual_x, residual_y) =
+                bilinear_coordinate(matrix, column, row);
+            let Some(index) = bilinear_sample(
+                source,
+                source_pitch,
+                source_width,
+                source_height,
+                1,
+                0,
+                source_x,
+                source_y,
+                residual_x,
+                residual_y,
+            ) else {
+                continue;
+            };
+            let Some(destination_offset) = row.checked_mul(destination_pitch).and_then(|offset| {
+                column.checked_mul(4).and_then(|column| offset.checked_add(column))
+            }) else {
+                return false;
+            };
+            let Some(destination_end) = destination_offset.checked_add(4) else {
+                return false;
+            };
+            let Some(destination_pixel) = destination.get_mut(destination_offset..destination_end)
+            else {
+                return false;
+            };
+            destination_pixel.copy_from_slice(&palette[usize::from(index)].to_ne_bytes());
         }
     }
     true
@@ -1520,6 +1614,61 @@ pub unsafe extern "C" fn pdfium_rust_transform_bilinear_alpha(
         source_pitch,
         source_width,
         source_height,
+        destination,
+        destination_pitch,
+        destination_width,
+        destination_height,
+    )
+}
+
+/// Applies the retained fixed-matrix bilinear transform to indexed pixels.
+///
+/// # Safety
+///
+/// All pointers must cover their supplied lengths. Destination must not
+/// overlap either input region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_transform_bilinear_indexed(
+    matrix: *const i32,
+    matrix_len: usize,
+    source: *const u8,
+    source_len: usize,
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    palette: *const u32,
+    palette_len: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    if matrix.is_null()
+        || matrix_len != 6
+        || source.is_null()
+        || palette.is_null()
+        || destination.is_null()
+    {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees disjoint regions covering the
+    // supplied lengths, and the matrix length was checked above.
+    let (matrix, source, palette, destination) = unsafe {
+        (
+            &*matrix.cast::<[i32; 6]>(),
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts(palette, palette_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    transform_bilinear_indexed(
+        matrix,
+        source,
+        source_pitch,
+        source_width,
+        source_height,
+        palette,
         destination,
         destination_pitch,
         destination_width,

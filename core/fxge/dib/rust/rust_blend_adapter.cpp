@@ -143,6 +143,21 @@ extern "C" bool pdfium_rust_transform_bilinear_alpha(
     size_t destination_pitch,
     int32_t destination_width,
     int32_t destination_height);
+extern "C" bool pdfium_rust_transform_bilinear_indexed(
+    const int32_t* matrix,
+    size_t matrix_len,
+    const uint8_t* source,
+    size_t source_len,
+    size_t source_pitch,
+    int32_t source_width,
+    int32_t source_height,
+    const uint32_t* palette,
+    size_t palette_len,
+    uint8_t* destination,
+    size_t destination_len,
+    size_t destination_pitch,
+    int32_t destination_width,
+    int32_t destination_height);
 extern "C" bool pdfium_rust_calculate_stretch_weights(
     int32_t destination_length,
     int32_t destination_minimum,
@@ -702,6 +717,25 @@ bool RustBlendAdapter::TransformBilinearAlpha(
       matrix.data(), matrix.size(), source.data(), source.size(), source_pitch,
       source_width, source_height, destination.data(), destination.size(),
       destination_pitch, destination_width, destination_height);
+}
+
+// static
+bool RustBlendAdapter::TransformBilinearIndexed(
+    const std::array<int32_t, 6>& matrix,
+    pdfium::span<const uint8_t> source,
+    size_t source_pitch,
+    int source_width,
+    int source_height,
+    pdfium::span<const uint32_t> palette,
+    pdfium::span<uint8_t> destination,
+    size_t destination_pitch,
+    int destination_width,
+    int destination_height) {
+  return pdfium_rust_transform_bilinear_indexed(
+      matrix.data(), matrix.size(), source.data(), source.size(), source_pitch,
+      source_width, source_height, palette.data(), palette.size(),
+      destination.data(), destination.size(), destination_pitch,
+      destination_width, destination_height);
 }
 
 // static

@@ -122,6 +122,17 @@ class RustBlendAdapter final {
       size_t destination_pitch,
       int destination_width,
       int destination_height);
+  static bool TransformBilinearIndexed(
+      const std::array<int32_t, 6>& matrix,
+      pdfium::span<const uint8_t> source,
+      size_t source_pitch,
+      int source_width,
+      int source_height,
+      pdfium::span<const uint32_t> palette,
+      pdfium::span<uint8_t> destination,
+      size_t destination_pitch,
+      int destination_width,
+      int destination_height);
   static std::optional<std::array<size_t, 2>> CalculateStretchWeights(
       int destination_length,
       int destination_minimum,
