@@ -1023,7 +1023,15 @@ bool CPDF_RenderStatus::ProcessText(CPDF_TextObject* textobj,
     }
   }
   CFX_Matrix text_matrix = textobj->GetTextMatrix();
-  if (!IsAvailableMatrix(text_matrix)) {
+  const auto rust_matrix_available =
+      pdfium::rust::UseRustRenderCandidate()
+          ? pdfium::rust::RustPathMatrixIsAvailable(
+                text_matrix.a, text_matrix.b, text_matrix.c, text_matrix.d)
+          : std::nullopt;
+  const bool matrix_available =
+      rust_matrix_available.value_or(IsAvailableMatrix(text_matrix));
+  pdfium::rust::RecordPathMatrixAvailabilityForTesting(matrix_available);
+  if (!matrix_available) {
     return true;
   }
 
