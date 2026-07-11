@@ -227,6 +227,31 @@ fn composite_bgra_pixel(mode: BlendMode, input: [u8; 4], clip: u8, output: &mut 
     output[3] = destination_alpha;
 }
 
+fn composite_mask_bgra_pixel(
+    mode: BlendMode,
+    input: [u8; 4],
+    source_alpha: u8,
+    output: &mut [u8; 4],
+) {
+    if output[3] == 0 {
+        output[..3].copy_from_slice(&input[..3]);
+        output[3] = source_alpha;
+        return;
+    }
+    if source_alpha == 0 {
+        return;
+    }
+
+    let destination_alpha = (u16::from(output[3]) + u16::from(source_alpha)
+        - u16::from(output[3]) * u16::from(source_alpha) / 255) as u8;
+    let alpha_ratio = (u16::from(source_alpha) * 255 / u16::from(destination_alpha)) as u8;
+    let blended_channels = rgb_blend(mode, input, *output);
+    for channel in 0..3 {
+        output[channel] = alpha_merge(output[channel], blended_channels[channel], alpha_ratio);
+    }
+    output[3] = destination_alpha;
+}
+
 fn composite_bgra_to_bgr_pixel(
     mode: BlendMode,
     input: [u8; 4],
@@ -592,6 +617,24 @@ pub unsafe extern "C" fn pdfium_rust_composite_mask_row(
             let output =
                 slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
             let effective_mode = if target <= 1 { BlendMode::Normal as u8 } else { mode };
+            if target == 3 && matches!(mode, 12..=15) {
+                let Ok(mode) = BlendMode::try_from(mode) else {
+                    return false;
+                };
+                let mut destination = if rgb_byte_order {
+                    [output[2], output[1], output[0], output[3]]
+                } else {
+                    [output[0], output[1], output[2], output[3]]
+                };
+                composite_mask_bgra_pixel(mode, input, coverage as u8, &mut destination);
+                if rgb_byte_order {
+                    output[..3].copy_from_slice(&[destination[2], destination[1], destination[0]]);
+                } else {
+                    output[..3].copy_from_slice(&destination[..3]);
+                }
+                output[3] = destination[3];
+                continue;
+            }
             if !composite_opaque_pixel(
                 effective_mode,
                 input,
