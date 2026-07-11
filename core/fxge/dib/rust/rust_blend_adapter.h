@@ -74,6 +74,25 @@ class RustBlendAdapter final {
       uint8_t key);
   static bool ConvertCmykToBgrRow(pdfium::span<const uint8_t> source,
                                   pdfium::span<uint8_t> output);
+  static bool SetBgraRedFromAlpha(pdfium::span<uint8_t> buffer,
+                                  int width,
+                                  int height,
+                                  uint32_t pitch);
+  static bool SetBgraOpaqueAlpha(pdfium::span<uint8_t> buffer,
+                                 int width,
+                                 int height,
+                                 uint32_t pitch);
+  static bool MultiplyBgraAlphaMask(pdfium::span<uint8_t> buffer,
+                                    uint32_t buffer_pitch,
+                                    pdfium::span<const uint8_t> mask,
+                                    uint32_t mask_pitch,
+                                    int width,
+                                    int height);
+  static bool MultiplyBgraAlpha(pdfium::span<uint8_t> buffer,
+                                int width,
+                                int height,
+                                uint32_t pitch,
+                                uint8_t alpha);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

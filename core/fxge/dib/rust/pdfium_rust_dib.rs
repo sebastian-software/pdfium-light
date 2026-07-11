@@ -392,6 +392,135 @@ fn adobe_cmyk_to_standard_rgb(cyan: u8, magenta: u8, yellow: u8, key: u8) -> [u8
     rgb.map(|channel| (channel.max(0) >> 8) as u8)
 }
 
+fn packed_rows_are_valid(width: usize, height: usize, pitch: usize, components: usize) -> bool {
+    width.checked_mul(components).is_some_and(|row_bytes| row_bytes <= pitch)
+        && pitch.checked_mul(height).is_some()
+}
+
+/// Copies each packed BGRA pixel's alpha channel into its red channel.
+///
+/// # Safety
+///
+/// `buffer` must be valid for `pitch * height` writable bytes. Each row must
+/// contain at least `width * 4` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_bgra_set_red_from_alpha(
+    buffer: *mut u8,
+    width: usize,
+    height: usize,
+    pitch: usize,
+) -> bool {
+    if buffer.is_null() || !packed_rows_are_valid(width, height, pitch, 4) {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee a
+            // complete BGRA pixel at every computed row/column offset.
+            unsafe {
+                let pixel = buffer.add(row * pitch + column * 4);
+                *pixel.add(2) = *pixel.add(3);
+            }
+        }
+    }
+    true
+}
+
+/// Sets every packed BGRA pixel's alpha channel to fully opaque.
+///
+/// # Safety
+///
+/// `buffer` must be valid for `pitch * height` writable bytes. Each row must
+/// contain at least `width * 4` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_bgra_set_opaque_alpha(
+    buffer: *mut u8,
+    width: usize,
+    height: usize,
+    pitch: usize,
+) -> bool {
+    if buffer.is_null() || !packed_rows_are_valid(width, height, pitch, 4) {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee a
+            // complete BGRA pixel at every computed row/column offset.
+            unsafe {
+                *buffer.add(row * pitch + column * 4 + 3) = 255;
+            }
+        }
+    }
+    true
+}
+
+/// Multiplies each packed BGRA alpha by the corresponding 8-bit mask value.
+///
+/// # Safety
+///
+/// `buffer` and `mask` must cover their respective `pitch * height` regions,
+/// with at least `width * 4` BGRA bytes and `width` mask bytes per row. The
+/// regions must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_bgra_multiply_alpha_mask(
+    buffer: *mut u8,
+    buffer_pitch: usize,
+    mask: *const u8,
+    mask_pitch: usize,
+    width: usize,
+    height: usize,
+) -> bool {
+    if buffer.is_null()
+        || mask.is_null()
+        || !packed_rows_are_valid(width, height, buffer_pitch, 4)
+        || !packed_rows_are_valid(width, height, mask_pitch, 1)
+    {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee both
+            // addressed bytes, and the two regions do not overlap.
+            unsafe {
+                let alpha = buffer.add(row * buffer_pitch + column * 4 + 3);
+                *alpha = (u16::from(*alpha) * u16::from(*mask.add(row * mask_pitch + column)) / 255)
+                    as u8;
+            }
+        }
+    }
+    true
+}
+
+/// Multiplies every packed BGRA alpha by one 8-bit factor.
+///
+/// # Safety
+///
+/// `buffer` must be valid for `pitch * height` writable bytes. Each row must
+/// contain at least `width * 4` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_bgra_multiply_alpha(
+    buffer: *mut u8,
+    width: usize,
+    height: usize,
+    pitch: usize,
+    alpha: u8,
+) -> bool {
+    if buffer.is_null() || !packed_rows_are_valid(width, height, pitch, 4) {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee the
+            // addressed alpha byte at every computed row/column offset.
+            unsafe {
+                let destination = buffer.add(row * pitch + column * 4 + 3);
+                *destination = (u16::from(*destination) * u16::from(alpha) / 255) as u8;
+            }
+        }
+    }
+    true
+}
+
 /// Converts one Adobe CMYK sample to standard RGB.
 ///
 /// # Safety

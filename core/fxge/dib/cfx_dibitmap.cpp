@@ -27,6 +27,7 @@
 #include "core/fxge/calculate_pitch.h"
 #include "core/fxge/cfx_gemodule.h"
 #include "core/fxge/dib/cfx_scanlinecompositor.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 
 namespace {
 
@@ -297,6 +298,11 @@ void CFX_DIBitmap::SetRedFromAlpha() {
   CHECK_EQ(FXDIB_Format::kBgra, GetFormat());
   CHECK(buffer_);
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::SetBgraRedFromAlpha(
+          GetWritableBuffer(), GetWidth(), GetHeight(), GetPitch())) {
+    return;
+  }
   for (int row = 0; row < GetHeight(); row++) {
     auto scanline = GetWritableScanlineAs<FX_BGRA_STRUCT<uint8_t>>(row).first(
         static_cast<size_t>(GetWidth()));
@@ -310,6 +316,11 @@ void CFX_DIBitmap::SetUniformOpaqueAlpha() {
   CHECK_EQ(FXDIB_Format::kBgra, GetFormat());
   CHECK(buffer_);
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::SetBgraOpaqueAlpha(
+          GetWritableBuffer(), GetWidth(), GetHeight(), GetPitch())) {
+    return;
+  }
   for (int row = 0; row < GetHeight(); row++) {
     auto scanline = GetWritableScanlineAs<FX_BGRA_STRUCT<uint8_t>>(row).first(
         static_cast<size_t>(GetWidth()));
@@ -325,13 +336,23 @@ bool CFX_DIBitmap::MultiplyAlphaMask(RetainPtr<const CFX_DIBitmap> mask) {
   CHECK_EQ(FXDIB_Format::k8bppMask, mask->GetFormat());
   CHECK(buffer_);
 
-  if (GetFormat() == FXDIB_Format::kBgrx) {
+  const bool converted_from_bgrx = GetFormat() == FXDIB_Format::kBgrx;
+  if (converted_from_bgrx) {
     // TODO(crbug.com/42271020): Consider adding support for
     // `FXDIB_Format::kBgraPremul`
     if (!ConvertFormat(FXDIB_Format::kBgra)) {
       return false;
     }
+  }
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::MultiplyBgraAlphaMask(
+          GetWritableBuffer(), GetPitch(), mask->GetBuffer(), mask->GetPitch(),
+          GetWidth(), GetHeight())) {
+    return true;
+  }
+
+  if (converted_from_bgrx) {
     for (int row = 0; row < GetHeight(); row++) {
       auto dest_scan =
           GetWritableScanlineAs<FX_BGRA_STRUCT<uint8_t>>(row).first(
@@ -380,6 +401,12 @@ bool CFX_DIBitmap::MultiplyAlpha(float alpha) {
   }
 
   const int bitmap_alpha = static_cast<int>(alpha * 255.0f);
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::MultiplyBgraAlpha(
+          GetWritableBuffer(), GetWidth(), GetHeight(), GetPitch(),
+          static_cast<uint8_t>(bitmap_alpha))) {
+    return true;
+  }
   for (int row = 0; row < GetHeight(); row++) {
     auto dest_scan = GetWritableScanlineAs<FX_BGRA_STRUCT<uint8_t>>(row).first(
         static_cast<size_t>(GetWidth()));

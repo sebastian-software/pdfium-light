@@ -83,6 +83,26 @@ extern "C" bool pdfium_rust_adobe_cmyk_to_rgb(uint8_t cyan,
 extern "C" bool pdfium_rust_adobe_cmyk_to_bgr_row(const uint8_t* source,
                                                     uint8_t* output,
                                                     size_t pixel_count);
+extern "C" bool pdfium_rust_bgra_set_red_from_alpha(uint8_t* buffer,
+                                                     size_t width,
+                                                     size_t height,
+                                                     size_t pitch);
+extern "C" bool pdfium_rust_bgra_set_opaque_alpha(uint8_t* buffer,
+                                                   size_t width,
+                                                   size_t height,
+                                                   size_t pitch);
+extern "C" bool pdfium_rust_bgra_multiply_alpha_mask(
+    uint8_t* buffer,
+    size_t buffer_pitch,
+    const uint8_t* mask,
+    size_t mask_pitch,
+    size_t width,
+    size_t height);
+extern "C" bool pdfium_rust_bgra_multiply_alpha(uint8_t* buffer,
+                                                 size_t width,
+                                                 size_t height,
+                                                 size_t pitch,
+                                                 uint8_t alpha);
 
 namespace {
 
@@ -362,6 +382,65 @@ bool RustBlendAdapter::ConvertCmykToBgrRow(
   }
   return pdfium_rust_adobe_cmyk_to_bgr_row(
       source.data(), output.data(), source.size() / kSourceBytesPerPixel);
+}
+
+namespace {
+
+bool IsValidBitmapBuffer(size_t buffer_size,
+                         int width,
+                         int height,
+                         uint32_t pitch,
+                         size_t components) {
+  return width > 0 && height > 0 && pitch > 0 &&
+         static_cast<size_t>(width) <= pitch / components &&
+         static_cast<size_t>(height) <= buffer_size / pitch;
+}
+
+}  // namespace
+
+// static
+bool RustBlendAdapter::SetBgraRedFromAlpha(pdfium::span<uint8_t> buffer,
+                                           int width,
+                                           int height,
+                                           uint32_t pitch) {
+  return IsValidBitmapBuffer(buffer.size(), width, height, pitch, 4) &&
+         pdfium_rust_bgra_set_red_from_alpha(buffer.data(), width, height,
+                                             pitch);
+}
+
+// static
+bool RustBlendAdapter::SetBgraOpaqueAlpha(pdfium::span<uint8_t> buffer,
+                                          int width,
+                                          int height,
+                                          uint32_t pitch) {
+  return IsValidBitmapBuffer(buffer.size(), width, height, pitch, 4) &&
+         pdfium_rust_bgra_set_opaque_alpha(buffer.data(), width, height, pitch);
+}
+
+// static
+bool RustBlendAdapter::MultiplyBgraAlphaMask(
+    pdfium::span<uint8_t> buffer,
+    uint32_t buffer_pitch,
+    pdfium::span<const uint8_t> mask,
+    uint32_t mask_pitch,
+    int width,
+    int height) {
+  return IsValidBitmapBuffer(buffer.size(), width, height, buffer_pitch, 4) &&
+         IsValidBitmapBuffer(mask.size(), width, height, mask_pitch, 1) &&
+         pdfium_rust_bgra_multiply_alpha_mask(
+             buffer.data(), buffer_pitch, mask.data(), mask_pitch, width,
+             height);
+}
+
+// static
+bool RustBlendAdapter::MultiplyBgraAlpha(pdfium::span<uint8_t> buffer,
+                                         int width,
+                                         int height,
+                                         uint32_t pitch,
+                                         uint8_t alpha) {
+  return IsValidBitmapBuffer(buffer.size(), width, height, pitch, 4) &&
+         pdfium_rust_bgra_multiply_alpha(buffer.data(), width, height, pitch,
+                                         alpha);
 }
 
 // static
