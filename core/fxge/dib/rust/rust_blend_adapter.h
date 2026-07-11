@@ -101,6 +101,8 @@ class RustBlendAdapter final {
                             int bits_per_pixel,
                             pdfium::span<uint8_t> destination,
                             int destination_width);
+  static bool CopyBitmapRow(pdfium::span<const uint8_t> source,
+                            pdfium::span<uint8_t> destination);
   static bool ClearBitmap(pdfium::span<uint8_t> buffer,
                           int width,
                           int height,

@@ -516,6 +516,30 @@ pub unsafe extern "C" fn pdfium_rust_clip_bitmap_row(
     true
 }
 
+/// Copies one complete bitmap scanline, including row padding.
+///
+/// # Safety
+///
+/// Source and destination pointers must cover their supplied lengths and must
+/// not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_copy_bitmap_row(
+    source: *const u8,
+    source_len: usize,
+    destination: *mut u8,
+    destination_len: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() || destination_len < source_len {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees distinct regions, and the length
+    // check guarantees the destination covers the complete source scanline.
+    unsafe {
+        std::ptr::copy_nonoverlapping(source, destination, source_len);
+    }
+    true
+}
+
 /// Clears a packed bitmap with one pixel value.
 ///
 /// When `fill_padding` is set, the first pixel byte is written across the

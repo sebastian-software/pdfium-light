@@ -115,6 +115,10 @@ extern "C" bool pdfium_rust_clip_bitmap_row(const uint8_t* source,
                                              uint8_t* destination,
                                              size_t destination_len,
                                              size_t destination_width);
+extern "C" bool pdfium_rust_copy_bitmap_row(const uint8_t* source,
+                                             size_t source_len,
+                                             uint8_t* destination,
+                                             size_t destination_len);
 extern "C" bool pdfium_rust_clear_bitmap(uint8_t* buffer,
                                           size_t buffer_len,
                                           size_t width,
@@ -588,6 +592,14 @@ bool RustBlendAdapter::ClipBitmapRow(pdfium::span<const uint8_t> source,
          pdfium_rust_clip_bitmap_row(
              source.data(), source.size(), source_left, bits_per_pixel,
              destination.data(), destination.size(), destination_width);
+}
+
+// static
+bool RustBlendAdapter::CopyBitmapRow(pdfium::span<const uint8_t> source,
+                                     pdfium::span<uint8_t> destination) {
+  return source.data() != destination.data() &&
+         pdfium_rust_copy_bitmap_row(source.data(), source.size(),
+                                     destination.data(), destination.size());
 }
 
 // static

@@ -93,7 +93,13 @@ bool CFX_DIBitmap::Copy(RetainPtr<const CFX_DIBBase> source) {
 
   SetPalette(source->GetPaletteSpan());
   for (int row = 0; row < source->GetHeight(); row++) {
-    fxcrt::spancpy(GetWritableScanline(row), source->GetScanline(row));
+    auto destination = GetWritableScanline(row);
+    auto source_row = source->GetScanline(row);
+    if (fxge::RustBlendAdapter::UseCandidate() &&
+        fxge::RustBlendAdapter::CopyBitmapRow(source_row, destination)) {
+      continue;
+    }
+    fxcrt::spancpy(destination, source_row);
   }
   return true;
 }
