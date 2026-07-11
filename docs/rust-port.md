@@ -73,6 +73,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `c78f121a5` Phase 2 object-list slice | 12,506 | 5,695 | 241 | 1,910 | 6,570 | 270,904 | 4.62% | 2.88% | Prior surfaces plus stop-object precedence, active-state filtering, exact float clip rejection, and same-process render-command traces |
 | `aa5d3cdba` Phase 2 render-layer slice | 12,707 | 5,896 | 241 | 2,054 | 6,570 | 271,338 | 4.68% | 2.98% | Prior surfaces plus Rust-owned layer setup/completion planning and ordered layer iteration with stop-aware C++ callbacks |
 | `08a3a00d4` Phase 3 path-paint slice | 12,824 | 6,013 | 241 | 2,135 | 6,570 | 271,558 | 4.72% | 3.04% | Prior surfaces plus Rust-owned path fill/stroke preservation, no-paint early completion, and forced-color fill-to-stroke conversion |
+| `adab6e20f` Phase 3 path-matrix slice | 12,884 | 6,073 | 241 | 2,164 | 6,570 | 271,655 | 4.74% | 3.07% | Prior surfaces plus Rust-owned path matrix availability across scale, swapped axes, shear, signed zero, infinity, and NaN semantics |
 
 ## Toolchain
 
@@ -395,6 +396,14 @@ paths, clip paths, and a form-owned path; all 16 native render tests and all 18
 zero-tolerance bitmap-plus-trace corpus cases pass. Path colors, transfer
 functions, matrix validation, graph-state planning, `CFX_RenderDevice`, and
 the AGG raster backend remain C++-owned for the next sub-slices.
+
+Path matrix availability now runs in Rust after the retained fill/stroke color
+and transfer-function work, preserving the original observable ordering. The
+four linear matrix components use the same axis-pair rules as the C++ oracle;
+translation remains irrelevant. Native cases cover identity, swapped axes,
+degenerate rows/columns, shear, signed zero, infinity, all-NaN input, and null
+output. The availability result is part of the exact render trace. All 18
+native render/path tests and all 18 bitmap-plus-trace corpus cases pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

@@ -66,6 +66,7 @@ ACTIVE_SURFACES = (
     "page-object list stop, activity, and clip planning",
     "render-layer setup, completion, and ordered iteration",
     "path fill, stroke, and forced-color paint planning",
+    "path matrix availability validation",
 )
 CANDIDATE_SURFACES = ("remaining path processing and the AGG adapter boundary",)
 
