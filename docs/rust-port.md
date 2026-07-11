@@ -75,6 +75,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `08a3a00d4` Phase 3 path-paint slice | 12,824 | 6,013 | 241 | 2,135 | 6,570 | 271,558 | 4.72% | 3.04% | Prior surfaces plus Rust-owned path fill/stroke preservation, no-paint early completion, and forced-color fill-to-stroke conversion |
 | `adab6e20f` Phase 3 path-matrix slice | 12,884 | 6,073 | 241 | 2,164 | 6,570 | 271,655 | 4.74% | 3.07% | Prior surfaces plus Rust-owned path matrix availability across scale, swapped axes, shear, signed zero, infinity, and NaN semantics |
 | `336749474` Phase 3 fill-options slice | 13,016 | 6,205 | 241 | 2,244 | 6,570 | 271,876 | 4.79% | 3.13% | Prior surfaces plus Rust-owned fill rule, rectangle AA, path aliasing, stroke adjustment, stroke, and Type3 path-option planning |
+| `b2613c9f5` Phase 3 AGG dash slice | 13,111 | 6,300 | 241 | 2,339 | 6,570 | 272,075 | 4.82% | 3.18% | Prior surfaces plus Rust-owned dash-pattern applicability at the AGG stroke boundary, including exact threshold and non-finite semantics |
 
 ## Toolchain
 
@@ -414,6 +415,18 @@ their retained defaults. Native tests cover every flag, the fill-only AA rule,
 invalid fill values, unchanged output on failure, and null output. The exact
 options are recorded in the render trace. All 21 native render/path tests and
 all 18 bitmap-plus-trace cases pass.
+
+The first production AGG boundary now delegates dash-pattern applicability
+from `RasterizeStroke()` to Rust once per stroke. Rust accepts a borrowed dash
+span, rejects non-finite dash entries, clamps negative entries only while
+forming the cycle sum, and preserves the exact `0.1` device-pixel threshold.
+The original comparison also applies dashes when the scale product is NaN;
+Rust preserves that behavior explicitly with `partial_cmp()`. Empty patterns,
+invalid boundary inputs, and adapter validation failures retain the C++ oracle
+and fallback. A dedicated test selector and trace keep the reference render on
+the C++ decision while the candidate render uses Rust. All 3 native AGG tests,
+all 21 native render/path tests, and all 18 zero-tolerance bitmap-plus-core-and-
+AGG-trace corpus cases pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
