@@ -102,6 +102,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `1fe71e0eb` Phase 6 xref-range slice | 15,685 | 8,874 | 241 | 3,574 | 6,570 | 276,531 | 5.67% | 4.40% | Prior surfaces plus Rust-owned cross-reference segment byte-range planning; C++ retains spans, iteration, and object graph mutation |
 | `da18dac0c` Phase 6 xref-iteration slice | 15,745 | 8,934 | 241 | 3,590 | 6,570 | 276,644 | 5.69% | 4.43% | Prior surfaces plus Rust-owned ordered cross-reference segment iteration; C++ retains entry processing and object graph mutation |
 | `d8a078a25` Phase 6 xref-width slice | 15,774 | 8,963 | 241 | 3,601 | 6,570 | 276,688 | 5.70% | 4.45% | Prior surfaces plus Rust-owned `/W` signed-to-unsigned field-width conversion; C++ retains array traversal and object graph mutation |
+| `cb1fb95a7` Phase 6 simple-token scan slice | 15,885 | 9,074 | 241 | 3,628 | 6,570 | 276,831 | 5.74% | 4.50% | Prior surfaces plus Rust-owned simple-PDF-token whitespace and comment scanning; C++ retains the borrowed buffer and token handling |
 
 ## Toolchain
 
@@ -742,6 +743,15 @@ preserves PDFium's signed-to-unsigned cast semantics, including negative
 values, while C++ retains the array traversal, field-width vector, and all
 subsequent segment/object-graph work. Native tests cover zero, ordinary,
 negative, and minimum signed values.
+
+The ninth Phase 6 slice moves `CPDF_SimpleParser` whitespace and comment
+scanning into Rust. Rust consumes only the borrowed byte span and returns the
+new position plus the first parseable byte; C++ retains the span lifetime and
+all delimiter-, name-, string-, and token-specific handling. End-of-input
+still advances the same consumed position, including after an unterminated
+comment, before returning no byte. The native parser tests cover every PDFium
+whitespace byte, comment line endings, chained comments, and the no-mutation
+byte-output failure contract.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
