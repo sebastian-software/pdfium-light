@@ -531,7 +531,12 @@ bool CPDF_RenderStatus::ProcessPath(CPDF_PathObject* path_obj,
                            : 0;
   uint32_t stroke_argb = stroke ? GetStrokeArgb(path_obj) : 0;
   CFX_Matrix path_matrix = path_obj->matrix() * mtObj2Device;
-  if (!IsAvailableMatrix(path_matrix)) {
+  const auto rust_matrix_available =
+      pdfium::rust::UseRustRenderCandidate()
+          ? pdfium::rust::RustPathMatrixIsAvailable(
+                path_matrix.a, path_matrix.b, path_matrix.c, path_matrix.d)
+          : std::nullopt;
+  if (!rust_matrix_available.value_or(IsAvailableMatrix(path_matrix))) {
     return true;
   }
 

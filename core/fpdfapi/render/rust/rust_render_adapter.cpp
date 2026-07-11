@@ -45,6 +45,11 @@ extern "C" bool pdfium_rust_build_path_paint_plan(uint8_t fill_type,
                                                   bool forced_color,
                                                   bool convert_fill_to_stroke,
                                                   uint8_t* output);
+extern "C" bool pdfium_rust_path_matrix_is_available(float a,
+                                                     float b,
+                                                     float c,
+                                                     float d,
+                                                     bool* output);
 
 thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
@@ -224,6 +229,17 @@ std::optional<PathPaintPlan> BuildRustPathPaintPlan(
   return PathPaintPlan(
       static_cast<CFX_FillRenderOptions::FillType>(planned_fill),
       (bits & kPathPlanStroke) != 0, (bits & kPathPlanDraw) != 0);
+}
+
+std::optional<bool> RustPathMatrixIsAvailable(float a,
+                                              float b,
+                                              float c,
+                                              float d) {
+  bool available = false;
+  if (!pdfium_rust_path_matrix_is_available(a, b, c, d, &available)) {
+    return std::nullopt;
+  }
+  return available;
 }
 
 ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(

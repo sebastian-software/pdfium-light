@@ -181,6 +181,16 @@ fn build_path_paint_plan(
     Some(plan)
 }
 
+fn path_matrix_is_available(a: f32, b: f32, c: f32, d: f32) -> bool {
+    if a == 0.0 || d == 0.0 {
+        return b != 0.0 && c != 0.0;
+    }
+    if b == 0.0 || c == 0.0 {
+        return a != 0.0 && d != 0.0;
+    }
+    true
+}
+
 /// Builds a compact render request plan from the supported public flags.
 ///
 /// # Safety
@@ -362,6 +372,29 @@ pub unsafe extern "C" fn pdfium_rust_build_path_paint_plan(
     // SAFETY: The caller contract guarantees one writable output value.
     unsafe {
         *output = plan;
+    }
+    true
+}
+
+/// Checks whether a path matrix can be sent to the retained backend.
+///
+/// # Safety
+///
+/// `output` must point to one writable `bool` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_path_matrix_is_available(
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    output: *mut bool,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees one writable output value.
+    unsafe {
+        *output = path_matrix_is_available(a, b, c, d);
     }
     true
 }

@@ -143,6 +143,10 @@ std::optional<PathPaintPlan> BuildRustPathPaintPlan(
     bool stroke,
     bool forced_color,
     bool convert_fill_to_stroke);
+std::optional<bool> RustPathMatrixIsAvailable(float a,
+                                              float b,
+                                              float c,
+                                              float d);
 
 class ScopedRenderTraceForTesting final {
  public:
