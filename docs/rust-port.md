@@ -63,6 +63,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `f1ec24da9` Phase 1 horizontal-stretch slice | 10,980 | 4,169 | 241 | 1,403 | 6,570 | 268,477 | 4.09% | 2.13% | Prior surfaces plus all six horizontal pixel transforms for mask, indexed, BGR, BGRx, and BGRA scanlines |
 | `626a359b0` Phase 1 vertical-stretch slice | 11,281 | 4,470 | 241 | 1,453 | 6,570 | 268,837 | 4.20% | 2.28% | Prior surfaces plus vertical scalar/color filtering and BGRA unpremultiplication for complete destination rows |
 | `2363f01d1` Phase 1 bitmap-transpose slice | 11,452 | 4,641 | 241 | 1,489 | 6,570 | 269,103 | 4.26% | 2.37% | Prior surfaces plus packed-bit and 8-/24-/32-bpp transposition with independent axis mirroring |
+| `408f15262` Phase 1 alpha-transform slice | 11,645 | 4,834 | 241 | 1,529 | 6,570 | 269,383 | 4.32% | 2.46% | Prior surfaces plus fixed-matrix coordinate mapping and bilinear sampling for transformed alpha masks |
 
 ## Toolchain
 
@@ -222,6 +223,14 @@ transposed destination for packed 1-bpp and 8-/24-/32-bpp pixels, including
 independent X/Y mirroring and the retained all-ones initialization for 1-bpp
 padding. Thirty-six same-process cases cover every retained format, default
 and custom palettes, and all four flip combinations.
+
+Non-axis-aligned alpha-image transforms now pass the six C++-rounded 8.8 fixed
+matrix coefficients into Rust. Rust owns destination coordinate mapping,
+inclusive edge clamping, residual weights, and four-tap bilinear sampling over
+the complete mask buffer. Four public `TransformTo` matrices cover positive
+and negative shear, reflection, translation, exact result offsets, and full
+output bytes; a native 2-by-2 case locks in the retained double `/256` integer
+rounding. Color and indexed transform sampling remain C++-owned in this slice.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
