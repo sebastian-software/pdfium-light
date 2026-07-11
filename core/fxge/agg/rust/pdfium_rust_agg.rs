@@ -15,7 +15,10 @@ fn should_apply_dash_pattern(dash_array: &[f32], scale: f32) -> bool {
         }
         cycle_length += value.max(0.0);
     }
-    !(cycle_length * scale < MIN_DASH_CYCLE_DEVICE_PIXELS)
+    match (cycle_length * scale).partial_cmp(&MIN_DASH_CYCLE_DEVICE_PIXELS) {
+        Some(core::cmp::Ordering::Less) => false,
+        Some(_) | None => true,
+    }
 }
 
 /// Decides whether AGG should receive the PDF dash pattern.
@@ -45,4 +48,48 @@ pub unsafe extern "C" fn pdfium_rust_should_apply_agg_dash_pattern(
         *output = should_apply_dash_pattern(dash_array, scale);
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dash_pattern_should_preserve_threshold_and_negative_clamping() {
+        assert!(!should_apply_dash_pattern(&[], 1.0));
+        assert!(!should_apply_dash_pattern(&[0.049, 0.05], 1.0));
+        assert!(should_apply_dash_pattern(&[0.05, 0.05], 1.0));
+        assert!(should_apply_dash_pattern(&[-10.0, 0.2], 1.0));
+        assert!(!should_apply_dash_pattern(&[-10.0], 1.0));
+    }
+
+    #[test]
+    fn dash_pattern_should_reject_nonfinite_values_but_preserve_scale_nan() {
+        assert!(!should_apply_dash_pattern(&[f32::NAN], 1.0));
+        assert!(!should_apply_dash_pattern(&[f32::INFINITY], 1.0));
+        assert!(should_apply_dash_pattern(&[1.0], f32::NAN));
+        assert!(should_apply_dash_pattern(&[1.0], f32::INFINITY));
+        assert!(!should_apply_dash_pattern(&[1.0], -1.0));
+    }
+
+    #[test]
+    fn dash_pattern_ffi_should_reject_invalid_boundaries() {
+        let mut output = true;
+        // SAFETY: A null nonempty input is explicitly supported and rejected
+        // before the input is read.
+        assert!(!unsafe {
+            pdfium_rust_should_apply_agg_dash_pattern(core::ptr::null(), 1, 1.0, &mut output)
+        });
+        assert!(output);
+        // SAFETY: A null output is explicitly supported and rejected before
+        // the valid input is read.
+        assert!(!unsafe {
+            pdfium_rust_should_apply_agg_dash_pattern(
+                [1.0_f32].as_ptr(),
+                1,
+                1.0,
+                core::ptr::null_mut(),
+            )
+        });
+    }
 }

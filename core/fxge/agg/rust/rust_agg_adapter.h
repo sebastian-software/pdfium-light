@@ -6,6 +6,7 @@
 #define CORE_FXGE_AGG_RUST_RUST_AGG_ADAPTER_H_
 
 #include <optional>
+#include <vector>
 
 #include "core/fxcrt/span.h"
 
@@ -17,6 +18,19 @@ std::optional<bool> RustShouldApplyAggDashPattern(
 
 bool UseRustAggCandidate();
 bool SetUseRustAggCandidateForTesting(bool use_candidate);
+
+class ScopedAggTraceForTesting final {
+ public:
+  explicit ScopedAggTraceForTesting(std::vector<uint8_t>* trace);
+  ScopedAggTraceForTesting(const ScopedAggTraceForTesting&) = delete;
+  ScopedAggTraceForTesting& operator=(const ScopedAggTraceForTesting&) = delete;
+  ~ScopedAggTraceForTesting();
+
+ private:
+  std::vector<uint8_t>* previous_;
+};
+
+void RecordAggDashDecisionForTesting(bool should_apply);
 
 }  // namespace fxge
 

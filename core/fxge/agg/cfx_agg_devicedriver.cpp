@@ -358,6 +358,7 @@ void RasterizeStroke(agg::rasterizer_scanline_aa* rasterizer,
   const bool should_apply_dash_pattern = rust_should_apply.has_value()
                                              ? *rust_should_apply
                                              : should_apply_dash_pattern_cpp();
+  fxge::RecordAggDashDecisionForTesting(should_apply_dash_pattern);
 
   if (should_apply_dash_pattern) {
     using DashConverter = agg::conv_dash<agg::path_storage>;
