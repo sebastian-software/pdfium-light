@@ -10,6 +10,12 @@ extern "C" bool pdfium_rust_cross_ref_object_type(uint32_t type_code,
 extern "C" bool pdfium_rust_cross_ref_entry_type(bool has_type_field,
                                                   uint32_t type_code,
                                                   uint8_t* output);
+extern "C" bool pdfium_rust_cross_ref_entry_action(
+    uint8_t type_code,
+    bool normal_offset_fits,
+    uint32_t generation,
+    bool archive_object_valid,
+    uint8_t* output);
 
 thread_local bool g_use_rust_parser_candidate = true;
 
@@ -40,6 +46,21 @@ std::optional<uint8_t> RustCrossRefEntryType(bool has_type_field,
   uint8_t output = 0;
   if (!pdfium_rust_cross_ref_entry_type(has_type_field, type_code, &output) ||
       output > 2) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+std::optional<uint8_t> RustCrossRefEntryAction(
+    uint8_t type_code,
+    bool normal_offset_fits,
+    uint32_t generation,
+    bool archive_object_valid) {
+  uint8_t output = 0;
+  if (!pdfium_rust_cross_ref_entry_action(
+          type_code, normal_offset_fits, generation, archive_object_valid,
+          &output) ||
+      output > 3) {
     return std::nullopt;
   }
   return output;

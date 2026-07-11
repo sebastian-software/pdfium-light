@@ -14,6 +14,10 @@ std::optional<uint32_t> RustReadBigEndianVarInt(
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);
 std::optional<uint8_t> RustCrossRefEntryType(bool has_type_field,
                                              uint32_t type_code);
+std::optional<uint8_t> RustCrossRefEntryAction(uint8_t type_code,
+                                               bool normal_offset_fits,
+                                               uint32_t generation,
+                                               bool archive_object_valid);
 
 bool UseRustParserCandidate();
 bool SetUseRustParserCandidateForTesting(bool use_candidate);

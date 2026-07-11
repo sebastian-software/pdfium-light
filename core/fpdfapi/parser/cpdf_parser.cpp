@@ -1009,35 +1009,44 @@ void CPDF_Parser::ProcessCrossRefStreamEntry(
     type = ObjectType::kNormal;
   }
 
-  if (type == ObjectType::kFree) {
-    const uint32_t gen_num = GetThirdXRefStreamEntry(entry_span, field_widths);
-    if (pdfium::IsValueInRangeForNumericType<uint16_t>(gen_num)) {
-      cross_ref_table_->SetFree(obj_num, gen_num);
-    }
-    return;
+  const uint32_t second = GetSecondXRefStreamEntry(entry_span, field_widths);
+  const uint32_t third = GetThirdXRefStreamEntry(entry_span, field_widths);
+  const bool normal_offset_fits =
+      pdfium::IsValueInRangeForNumericType<FX_FILESIZE>(second);
+  const bool archive_object_valid = IsValidObjectNumber(second);
+  const uint8_t type_code = type == ObjectType::kFree
+                                ? 0
+                                : type == ObjectType::kNormal ? 1 : 2;
+  const auto rust_action =
+      pdfium::rust::UseRustParserCandidate()
+          ? pdfium::rust::RustCrossRefEntryAction(
+                type_code, normal_offset_fits, third, archive_object_valid)
+          : std::nullopt;
+  const uint8_t action = rust_action.value_or(
+      type == ObjectType::kFree
+          ? (pdfium::IsValueInRangeForNumericType<uint16_t>(third) ? 1 : 0)
+          : type == ObjectType::kNormal
+                ? (normal_offset_fits &&
+                           pdfium::IsValueInRangeForNumericType<uint16_t>(third)
+                       ? 2
+                       : 0)
+                : (archive_object_valid ? 3 : 0));
+  switch (action) {
+    case 0:
+      return;
+    case 1:
+      cross_ref_table_->SetFree(obj_num, third);
+      return;
+    case 2:
+      cross_ref_table_->AddNormal(obj_num, third, /*is_object_stream=*/false,
+                                  second);
+      return;
+    case 3:
+      cross_ref_table_->AddCompressed(obj_num, second, third);
+      return;
+    default:
+      return;
   }
-
-  if (type == ObjectType::kNormal) {
-    const uint32_t offset = GetSecondXRefStreamEntry(entry_span, field_widths);
-    const uint32_t gen_num = GetThirdXRefStreamEntry(entry_span, field_widths);
-    if (pdfium::IsValueInRangeForNumericType<FX_FILESIZE>(offset) &&
-        pdfium::IsValueInRangeForNumericType<uint16_t>(gen_num)) {
-      cross_ref_table_->AddNormal(obj_num, gen_num, /*is_object_stream=*/false,
-                                  offset);
-    }
-    return;
-  }
-
-  DCHECK_EQ(type, ObjectType::kCompressed);
-  const uint32_t archive_obj_num =
-      GetSecondXRefStreamEntry(entry_span, field_widths);
-  if (!IsValidObjectNumber(archive_obj_num)) {
-    return;
-  }
-
-  const uint32_t archive_obj_index =
-      GetThirdXRefStreamEntry(entry_span, field_widths);
-  cross_ref_table_->AddCompressed(obj_num, archive_obj_num, archive_obj_index);
 }
 
 RetainPtr<const CPDF_Array> CPDF_Parser::GetIDArray() const {

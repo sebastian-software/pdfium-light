@@ -19,6 +19,24 @@ fn cross_ref_entry_type(has_type_field: bool, type_code: u32) -> Option<u8> {
     }
 }
 
+fn cross_ref_entry_action(
+    type_code: u8,
+    normal_offset_fits: bool,
+    generation: u32,
+    archive_object_valid: bool,
+) -> Option<u8> {
+    const SKIP: u8 = 0;
+    const FREE: u8 = 1;
+    const NORMAL: u8 = 2;
+    const COMPRESSED: u8 = 3;
+    match type_code {
+        0 => Some(if generation <= u16::MAX as u32 { FREE } else { SKIP }),
+        1 => Some(if normal_offset_fits && generation <= u16::MAX as u32 { NORMAL } else { SKIP }),
+        2 => Some(if archive_object_valid { COMPRESSED } else { SKIP }),
+        _ => None,
+    }
+}
+
 /// Reads a variable-width big-endian cross-reference field.
 ///
 /// # Safety
@@ -94,6 +112,35 @@ pub unsafe extern "C" fn pdfium_rust_cross_ref_entry_type(
     true
 }
 
+/// Plans the observable action for one decoded cross-reference entry.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u8` value. Unsupported type codes
+/// leave it unchanged and return `false`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_entry_action(
+    type_code: u8,
+    normal_offset_fits: bool,
+    generation: u32,
+    archive_object_valid: bool,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let Some(action) =
+        cross_ref_entry_action(type_code, normal_offset_fits, generation, archive_object_valid)
+    else {
+        return false;
+    };
+    // SAFETY: The checked output pointer refers to one writable action byte.
+    unsafe {
+        *output = action;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +186,16 @@ mod tests {
         assert_eq!(Some(1), cross_ref_entry_type(false, u32::MAX));
         assert_eq!(Some(0), cross_ref_entry_type(true, 0));
         assert_eq!(None, cross_ref_entry_type(true, 3));
+    }
+
+    #[test]
+    fn cross_ref_entry_action_should_preserve_field_range_rejections() {
+        assert_eq!(Some(1), cross_ref_entry_action(0, true, u16::MAX as u32, false));
+        assert_eq!(Some(0), cross_ref_entry_action(0, true, u16::MAX as u32 + 1, false));
+        assert_eq!(Some(2), cross_ref_entry_action(1, true, 0, false));
+        assert_eq!(Some(0), cross_ref_entry_action(1, false, 0, false));
+        assert_eq!(Some(3), cross_ref_entry_action(2, false, 0, true));
+        assert_eq!(Some(0), cross_ref_entry_action(2, false, 0, false));
+        assert_eq!(None, cross_ref_entry_action(3, true, 0, true));
     }
 }
