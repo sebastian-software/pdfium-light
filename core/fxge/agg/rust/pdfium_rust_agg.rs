@@ -12,6 +12,14 @@ const LINE_CAP_SQUARE: u8 = 2;
 const LINE_JOIN_MITER: u8 = 0;
 const LINE_JOIN_ROUND: u8 = 1;
 const LINE_JOIN_BEVEL: u8 = 2;
+const PATH_POINT_LINE: u8 = 0;
+const PATH_POINT_BEZIER: u8 = 1;
+const PATH_POINT_MOVE: u8 = 2;
+const PATH_COMMAND_MOVE: u8 = 0;
+const PATH_COMMAND_LINE: u8 = 1;
+const PATH_COMMAND_BEZIER: u8 = 2;
+const PATH_COMMAND_CLOSE: u8 = 3;
+const MAX_PATH_POSITION: f32 = 32_000.0;
 
 /// Plain-data stroke settings returned to the AGG adapter.
 #[repr(C)]
@@ -21,6 +29,42 @@ pub struct RustAggStrokePlan {
     reserved: [u8; 2],
     width: f32,
     miter_limit: f32,
+}
+
+/// Plain-data path point borrowed from the C++ path owner.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct RustAggPathPoint {
+    x: f32,
+    y: f32,
+    point_type: u8,
+    close_figure: u8,
+    reserved: [u8; 2],
+}
+
+#[derive(Clone, Copy)]
+struct Matrix {
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    e: f32,
+    f: f32,
+}
+
+fn hard_clip(value: f32) -> f32 {
+    value.clamp(-MAX_PATH_POSITION, MAX_PATH_POSITION)
+}
+
+fn transform_and_clip(point: RustAggPathPoint, matrix: Option<Matrix>) -> [f32; 2] {
+    let (x, y) = match matrix {
+        Some(matrix) => (
+            matrix.a * point.x + matrix.c * point.y + matrix.e,
+            matrix.b * point.x + matrix.d * point.y + matrix.f,
+        ),
+        None => (point.x, point.y),
+    };
+    [hard_clip(x), hard_clip(y)]
 }
 
 struct StrokeInputs {
@@ -192,6 +236,149 @@ pub unsafe extern "C" fn pdfium_rust_emit_agg_dash_pattern(
     // SAFETY: The caller guarantees one writable output value.
     unsafe {
         *dash_start = dash_phase * scale;
+    }
+    true
+}
+
+type PathPointCallback = unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut RustAggPathPoint);
+type PathCommandCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u8, *const f32, usize);
+
+unsafe fn read_path_point(
+    context: *mut core::ffi::c_void,
+    index: usize,
+    callback: PathPointCallback,
+) -> RustAggPathPoint {
+    let mut point =
+        RustAggPathPoint { x: 0.0, y: 0.0, point_type: u8::MAX, close_figure: 0, reserved: [0; 2] };
+    // SAFETY: The caller guarantees that the callback writes one point for
+    // every index below the declared point count.
+    unsafe {
+        callback(context, index, &mut point);
+    }
+    point
+}
+
+unsafe fn emit_path_command(
+    context: *mut core::ffi::c_void,
+    command: u8,
+    coordinates: &[f32],
+    callback: PathCommandCallback,
+) {
+    // SAFETY: The caller guarantees that the callback consumes the borrowed
+    // coordinate span before returning.
+    unsafe {
+        callback(context, command, coordinates.as_ptr(), coordinates.len());
+    }
+}
+
+/// Iterates, transforms, clips, and emits a PDF path without allocating.
+///
+/// # Safety
+///
+/// `read_callback` must write one valid `RustAggPathPoint` for every requested
+/// index below `point_count`. `command_callback` must consume each borrowed
+/// coordinate span before returning. Both callbacks must accept `context` for
+/// the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_emit_agg_path(
+    point_count: usize,
+    has_matrix: bool,
+    matrix_a: f32,
+    matrix_b: f32,
+    matrix_c: f32,
+    matrix_d: f32,
+    matrix_e: f32,
+    matrix_f: f32,
+    context: *mut core::ffi::c_void,
+    read_callback: Option<PathPointCallback>,
+    command_callback: Option<PathCommandCallback>,
+) -> bool {
+    let (read_point, emit_command) = match (read_callback, command_callback) {
+        (Some(read_point), Some(emit_command)) => (read_point, emit_command),
+        _ => return false,
+    };
+    let matrix = has_matrix.then_some(Matrix {
+        a: matrix_a,
+        b: matrix_b,
+        c: matrix_c,
+        d: matrix_d,
+        e: matrix_e,
+        f: matrix_f,
+    });
+    let mut index = 0;
+    while index < point_count {
+        // SAFETY: `index` is below the declared point count.
+        let point = unsafe { read_path_point(context, index, read_point) };
+        let mut position = transform_and_clip(point, matrix);
+        let mut close_figure = point.close_figure != 0;
+        match point.point_type {
+            PATH_POINT_MOVE => {
+                // SAFETY: The coordinate array remains live for the callback.
+                unsafe {
+                    emit_path_command(context, PATH_COMMAND_MOVE, &position, emit_command);
+                }
+            }
+            PATH_POINT_LINE => {
+                if index > 0 {
+                    // SAFETY: `index - 1` is below the declared point count.
+                    let previous = unsafe { read_path_point(context, index - 1, read_point) };
+                    let next_is_open_move = if index + 1 == point_count {
+                        true
+                    } else {
+                        // SAFETY: `index + 1` is below the declared point count.
+                        let next = unsafe { read_path_point(context, index + 1, read_point) };
+                        next.point_type == PATH_POINT_MOVE && next.close_figure == 0
+                    };
+                    if previous.point_type == PATH_POINT_MOVE
+                        && previous.close_figure == 0
+                        && next_is_open_move
+                        && point.x == previous.x
+                        && point.y == previous.y
+                    {
+                        position[0] += 1.0;
+                    }
+                }
+                // SAFETY: The coordinate array remains live for the callback.
+                unsafe {
+                    emit_path_command(context, PATH_COMMAND_LINE, &position, emit_command);
+                }
+            }
+            PATH_POINT_BEZIER if index > 0 && index + 2 < point_count => {
+                // SAFETY: The guarded indices are below the declared count.
+                let previous = unsafe { read_path_point(context, index - 1, read_point) };
+                // SAFETY: The guarded indices are below the declared count.
+                let next = unsafe { read_path_point(context, index + 1, read_point) };
+                // SAFETY: The guarded indices are below the declared count.
+                let end = unsafe { read_path_point(context, index + 2, read_point) };
+                let previous_position = transform_and_clip(previous, matrix);
+                let next_position = transform_and_clip(next, matrix);
+                let end_position = transform_and_clip(end, matrix);
+                let coordinates = [
+                    previous_position[0],
+                    previous_position[1],
+                    position[0],
+                    position[1],
+                    next_position[0],
+                    next_position[1],
+                    end_position[0],
+                    end_position[1],
+                ];
+                // SAFETY: The coordinate array remains live for the callback.
+                unsafe {
+                    emit_path_command(context, PATH_COMMAND_BEZIER, &coordinates, emit_command);
+                }
+                index += 2;
+                close_figure = end.close_figure != 0;
+            }
+            _ => {}
+        }
+        if close_figure {
+            // SAFETY: The empty coordinate span remains valid for the callback.
+            unsafe {
+                emit_path_command(context, PATH_COMMAND_CLOSE, &[], emit_command);
+            }
+        }
+        index += 1;
     }
     true
 }

@@ -17,6 +17,7 @@ struct RustAggStrokePlan {
 };
 
 static_assert(sizeof(RustAggStrokePlan) == 12);
+static_assert(sizeof(fxge::AggPathPoint) == 12);
 
 extern "C" bool pdfium_rust_should_apply_agg_dash_pattern(
     const float* dash_values,
@@ -42,6 +43,19 @@ extern "C" bool pdfium_rust_emit_agg_dash_pattern(
     void* context,
     fxge::AggDashValueCallback callback,
     float* dash_start);
+
+extern "C" bool pdfium_rust_emit_agg_path(
+    size_t point_count,
+    bool has_matrix,
+    float matrix_a,
+    float matrix_b,
+    float matrix_c,
+    float matrix_d,
+    float matrix_e,
+    float matrix_f,
+    void* context,
+    fxge::AggPathPointCallback read_callback,
+    fxge::AggPathCommandCallback command_callback);
 
 thread_local bool g_use_rust_agg_candidate = true;
 thread_local std::vector<uint8_t>* g_agg_trace_for_testing = nullptr;
@@ -105,6 +119,22 @@ std::optional<float> RustEmitAggDashPattern(
     return std::nullopt;
   }
   return dash_start;
+}
+
+bool RustEmitAggPath(size_t point_count,
+                     bool has_matrix,
+                     float matrix_a,
+                     float matrix_b,
+                     float matrix_c,
+                     float matrix_d,
+                     float matrix_e,
+                     float matrix_f,
+                     void* context,
+                     AggPathPointCallback read_callback,
+                     AggPathCommandCallback command_callback) {
+  return pdfium_rust_emit_agg_path(point_count, has_matrix, matrix_a, matrix_b,
+                                   matrix_c, matrix_d, matrix_e, matrix_f,
+                                   context, read_callback, command_callback);
 }
 
 bool UseRustAggCandidate() {

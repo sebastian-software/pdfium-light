@@ -977,8 +977,8 @@ class RendererScanLineAaOffset {
   unsigned top_;
 };
 
-agg::path_storage BuildAggPath(const CFX_Path& path,
-                               const CFX_Matrix* pObject2Device) {
+agg::path_storage BuildAggPathCpp(const CFX_Path& path,
+                                  const CFX_Matrix* pObject2Device) {
   agg::path_storage agg_path;
   pdfium::span<const CFX_Path::Point> points = path.GetPoints();
   for (size_t i = 0; i < points.size(); ++i) {
@@ -1023,6 +1023,98 @@ agg::path_storage BuildAggPath(const CFX_Path& path,
     }
   }
   return agg_path;
+}
+
+struct AggPathEmissionContext {
+  pdfium::span<const CFX_Path::Point> points;
+  agg::path_storage path;
+  bool valid = true;
+};
+
+void ReadAggPathPoint(void* raw_context,
+                      size_t index,
+                      fxge::AggPathPoint* output) {
+  auto* context = static_cast<AggPathEmissionContext*>(raw_context);
+  if (!output || index >= context->points.size()) {
+    context->valid = false;
+    return;
+  }
+  const CFX_Path::Point& point = context->points[index];
+  *output = fxge::AggPathPoint{
+      .x = point.point_.x,
+      .y = point.point_.y,
+      .point_type = static_cast<uint8_t>(point.type_),
+      .close_figure = static_cast<uint8_t>(point.close_figure_),
+      .reserved = {0, 0},
+  };
+}
+
+void EmitAggPathCommand(void* raw_context,
+                        uint8_t command,
+                        const float* coordinates,
+                        size_t coordinate_count) {
+  auto* context = static_cast<AggPathEmissionContext*>(raw_context);
+  if (!context->valid || (coordinate_count != 0 && !coordinates)) {
+    context->valid = false;
+    return;
+  }
+  auto values = UNSAFE_BUFFERS(pdfium::span(coordinates, coordinate_count));
+  switch (command) {
+    case 0:
+      if (values.size() == 2) {
+        context->path.move_to(values[0], values[1]);
+        return;
+      }
+      break;
+    case 1:
+      if (values.size() == 2) {
+        context->path.line_to(values[0], values[1]);
+        return;
+      }
+      break;
+    case 2:
+      if (values.size() == 8) {
+        agg::curve4 curve(values[0], values[1], values[2], values[3], values[4],
+                          values[5], values[6], values[7]);
+        context->path.add_path(curve);
+        return;
+      }
+      break;
+    case 3:
+      if (values.empty()) {
+        context->path.end_poly();
+        return;
+      }
+      break;
+    default:
+      break;
+  }
+  context->valid = false;
+}
+
+agg::path_storage BuildAggPath(const CFX_Path& path,
+                               const CFX_Matrix* pObject2Device) {
+  static_assert(static_cast<uint8_t>(CFX_Path::Point::Type::kLine) == 0);
+  static_assert(static_cast<uint8_t>(CFX_Path::Point::Type::kBezier) == 1);
+  static_assert(static_cast<uint8_t>(CFX_Path::Point::Type::kMove) == 2);
+  if (fxge::UseRustAggCandidate()) {
+    AggPathEmissionContext context{
+        .points = path.GetPoints(),
+    };
+    const bool emitted =
+        fxge::RustEmitAggPath(context.points.size(), !!pObject2Device,
+                              pObject2Device ? pObject2Device->a : 0.0f,
+                              pObject2Device ? pObject2Device->b : 0.0f,
+                              pObject2Device ? pObject2Device->c : 0.0f,
+                              pObject2Device ? pObject2Device->d : 0.0f,
+                              pObject2Device ? pObject2Device->e : 0.0f,
+                              pObject2Device ? pObject2Device->f : 0.0f,
+                              &context, ReadAggPathPoint, EmitAggPathCommand);
+    if (emitted && context.valid) {
+      return std::move(context.path);
+    }
+  }
+  return BuildAggPathCpp(path, pObject2Device);
 }
 
 }  // namespace

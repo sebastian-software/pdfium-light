@@ -5,6 +5,7 @@
 #ifndef CORE_FXGE_AGG_RUST_RUST_AGG_ADAPTER_H_
 #define CORE_FXGE_AGG_RUST_RUST_AGG_ADAPTER_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <optional>
@@ -24,7 +25,22 @@ struct AggStrokePlan {
   float miter_limit;
 };
 
+struct AggPathPoint {
+  float x;
+  float y;
+  uint8_t point_type;
+  uint8_t close_figure;
+  uint8_t reserved[2];
+};
+
 using AggDashValueCallback = void (*)(void* context, float value);
+using AggPathPointCallback = void (*)(void* context,
+                                      size_t index,
+                                      AggPathPoint* point);
+using AggPathCommandCallback = void (*)(void* context,
+                                        uint8_t command,
+                                        const float* coordinates,
+                                        size_t coordinate_count);
 
 std::optional<bool> RustShouldApplyAggDashPattern(
     pdfium::span<const float> dash_array,
@@ -45,6 +61,18 @@ std::optional<float> RustEmitAggDashPattern(
     float scale,
     void* context,
     AggDashValueCallback callback);
+
+bool RustEmitAggPath(size_t point_count,
+                     bool has_matrix,
+                     float matrix_a,
+                     float matrix_b,
+                     float matrix_c,
+                     float matrix_d,
+                     float matrix_e,
+                     float matrix_f,
+                     void* context,
+                     AggPathPointCallback read_callback,
+                     AggPathCommandCallback command_callback);
 
 bool UseRustAggCandidate();
 bool SetUseRustAggCandidateForTesting(bool use_candidate);
