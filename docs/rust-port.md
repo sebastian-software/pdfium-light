@@ -94,6 +94,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `8dc87fd9e` Phase 5 text-backend slice | 15,292 | 8,481 | 241 | 3,364 | 6,570 | 275,848 | 5.54% | 4.22% | Prior surfaces plus Rust-owned normal/path text-backend route; C++ retains backend calls and arguments |
 | `8ff532f47` Phase 5 text-CTM slice | 15,326 | 8,515 | 241 | 3,383 | 6,570 | 275,906 | 5.55% | 4.23% | Prior surfaces plus Rust-owned stroked-text CTM-adjustment decision; C++ retains matrix work and backend calls |
 | `9286e9a6d` Phase 5 path-text options slice | 15,385 | 8,574 | 241 | 3,413 | 6,570 | 276,002 | 5.57% | 4.26% | Prior surfaces plus Rust-owned path-text fill/stroke option planning; C++ retains objects and backend calls |
+| `e122a59b0` Phase 6 xref-field slice | 15,439 | 8,628 | 241 | 3,468 | 6,570 | 276,122 | 5.59% | 4.29% | Prior surfaces plus Rust-owned variable-width cross-reference field reading; C++ retains stream interpretation and cross-reference ownership |
 
 ## Toolchain
 
@@ -677,6 +678,20 @@ preserves the special combined fill-and-stroke flags plus stroke adjustment
 and text smoothing. C++ keeps the text object and render options, and still
 calls `DrawTextPath()` with the planned result. The Rust unit suite covers
 stroke-only, combined, and independent adjustment/smoothing cases.
+
+## Phase 6 parser and PDF object graph
+
+The first Phase 6 slice moves variable-width big-endian cross-reference stream
+field reading into Rust. Rust accepts a borrowed byte span and preserves the
+original unsigned 32-bit wraparound semantics even for malformed over-wide
+fields. C++ retains cross-reference stream segmentation, field widths, object
+entry interpretation, bounds checks, and all cross-reference table ownership.
+An invalid FFI boundary retains the original C++ reader.
+
+Two native Rust tests cover empty through five-byte fields, wraparound, and
+null-input rejection without output mutation. The local validation gate passes;
+full parser/object snapshots and fuzzing remain mandatory evidence as the
+object-model migration advances.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
