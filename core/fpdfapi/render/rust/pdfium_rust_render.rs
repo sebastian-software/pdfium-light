@@ -259,4 +259,78 @@ mod tests {
             pdfium_rust_build_page_object_render_command(PAGE_OBJECT_TEXT, core::ptr::null_mut())
         });
     }
+
+    #[test]
+    fn object_list_stop_should_take_precedence() {
+        let empty = FloatRect { left: 0.0, bottom: 0.0, right: 0.0, top: 0.0 };
+        assert_eq!(
+            OBJECT_LIST_COMMAND_STOP,
+            build_object_list_command(true, false, false, empty, empty)
+        );
+    }
+
+    #[test]
+    fn object_list_should_skip_missing_inactive_and_outside_objects() {
+        let clip = FloatRect { left: 0.0, bottom: 0.0, right: 10.0, top: 10.0 };
+        let inside = FloatRect { left: 2.0, bottom: 2.0, right: 8.0, top: 8.0 };
+        assert_eq!(
+            OBJECT_LIST_COMMAND_SKIP,
+            build_object_list_command(false, false, false, inside, clip)
+        );
+        assert_eq!(
+            OBJECT_LIST_COMMAND_SKIP,
+            build_object_list_command(false, true, false, inside, clip)
+        );
+
+        let outside = [
+            FloatRect { left: 11.0, bottom: 2.0, right: 12.0, top: 8.0 },
+            FloatRect { left: -2.0, bottom: 2.0, right: -1.0, top: 8.0 },
+            FloatRect { left: 2.0, bottom: 11.0, right: 8.0, top: 12.0 },
+            FloatRect { left: 2.0, bottom: -2.0, right: 8.0, top: -1.0 },
+        ];
+        for object_rect in outside {
+            assert_eq!(
+                OBJECT_LIST_COMMAND_SKIP,
+                build_object_list_command(false, true, true, object_rect, clip)
+            );
+        }
+    }
+
+    #[test]
+    fn object_list_should_render_touching_and_nan_bounds() {
+        let clip = FloatRect { left: 0.0, bottom: 0.0, right: 10.0, top: 10.0 };
+        let touching = FloatRect { left: 10.0, bottom: 2.0, right: 12.0, top: 8.0 };
+        assert_eq!(
+            OBJECT_LIST_COMMAND_RENDER,
+            build_object_list_command(false, true, true, touching, clip)
+        );
+
+        let nan_bound = FloatRect { left: f32::NAN, bottom: 2.0, right: 12.0, top: 8.0 };
+        assert_eq!(
+            OBJECT_LIST_COMMAND_RENDER,
+            build_object_list_command(false, true, true, nan_bound, clip)
+        );
+    }
+
+    #[test]
+    fn object_list_ffi_should_reject_a_null_output() {
+        // SAFETY: A null output is explicitly supported and rejected without
+        // dereferencing it.
+        assert!(!unsafe {
+            pdfium_rust_build_object_list_command(
+                false,
+                true,
+                true,
+                0.0,
+                0.0,
+                1.0,
+                1.0,
+                0.0,
+                0.0,
+                1.0,
+                1.0,
+                core::ptr::null_mut(),
+            )
+        });
+    }
 }

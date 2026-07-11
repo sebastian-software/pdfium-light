@@ -29,6 +29,9 @@ extern "C" bool pdfium_rust_build_object_list_command(bool is_stop_object,
                                                       uint8_t* output);
 
 thread_local bool g_use_rust_render_candidate = true;
+thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
+
+constexpr uint8_t kPageObjectRenderCommandTraceBase = 0x10;
 
 static_assert(FPDF_ANNOT == 0x01);
 static_assert(FPDF_LCD_TEXT == 0x02);
@@ -108,6 +111,29 @@ std::optional<ObjectListCommand> BuildRustObjectListCommand(bool is_stop_object,
       return ObjectListCommand::kRender;
     default:
       return std::nullopt;
+  }
+}
+
+ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(
+    std::vector<uint8_t>* trace)
+    : previous_(g_render_trace_for_testing) {
+  g_render_trace_for_testing = trace;
+}
+
+ScopedRenderTraceForTesting::~ScopedRenderTraceForTesting() {
+  g_render_trace_for_testing = previous_;
+}
+
+void RecordRenderTraceForTesting(ObjectListCommand command) {
+  if (g_render_trace_for_testing) {
+    g_render_trace_for_testing->push_back(static_cast<uint8_t>(command));
+  }
+}
+
+void RecordRenderTraceForTesting(PageObjectRenderCommand command) {
+  if (g_render_trace_for_testing) {
+    g_render_trace_for_testing->push_back(kPageObjectRenderCommandTraceBase +
+                                          static_cast<uint8_t>(command));
   }
 }
 

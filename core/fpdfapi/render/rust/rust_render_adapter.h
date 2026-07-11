@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <optional>
+#include <vector>
 
 namespace pdfium::rust {
 
@@ -72,6 +73,21 @@ std::optional<ObjectListCommand> BuildRustObjectListCommand(bool is_stop_object,
                                                             float clip_bottom,
                                                             float clip_right,
                                                             float clip_top);
+
+class ScopedRenderTraceForTesting final {
+ public:
+  explicit ScopedRenderTraceForTesting(std::vector<uint8_t>* trace);
+  ScopedRenderTraceForTesting(const ScopedRenderTraceForTesting&) = delete;
+  ScopedRenderTraceForTesting& operator=(const ScopedRenderTraceForTesting&) =
+      delete;
+  ~ScopedRenderTraceForTesting();
+
+ private:
+  std::vector<uint8_t>* previous_;
+};
+
+void RecordRenderTraceForTesting(ObjectListCommand command);
+void RecordRenderTraceForTesting(PageObjectRenderCommand command);
 
 // Production defaults to the Rust candidate. The setter exists only so the
 // same-process differential harness can keep the retained C++ oracle isolated.

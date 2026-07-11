@@ -7,7 +7,9 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
+#include "core/fpdfapi/render/rust/rust_render_adapter.h"
 #include "core/fxcrt/compiler_specific.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxcrt/span.h"
@@ -61,20 +63,26 @@ TEST_P(RustRendererParityEmbedderTest, CandidateMatchesCppReferenceExactly) {
   ASSERT_TRUE(page);
 
   ScopedFPDFBitmap reference;
+  std::vector<uint8_t> reference_trace;
   {
     ScopedRenderImplementationForTesting implementation(
         RenderImplementationForTesting::kCppReference);
+    pdfium::rust::ScopedRenderTraceForTesting trace(&reference_trace);
     reference = RenderLoadedPageWithFlags(page.get(), test_case.flags);
   }
 
   ScopedFPDFBitmap candidate;
+  std::vector<uint8_t> candidate_trace;
   {
     ScopedRenderImplementationForTesting implementation(
         RenderImplementationForTesting::kCandidate);
+    pdfium::rust::ScopedRenderTraceForTesting trace(&candidate_trace);
     candidate = RenderLoadedPageWithFlags(page.get(), test_case.flags);
   }
 
   ExpectExactBitmapParity(reference.get(), candidate.get());
+  ASSERT_FALSE(reference_trace.empty());
+  EXPECT_EQ(reference_trace, candidate_trace);
 }
 
 INSTANTIATE_TEST_SUITE_P(

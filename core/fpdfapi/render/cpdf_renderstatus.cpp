@@ -271,9 +271,10 @@ void CPDF_RenderStatus::RenderObjectList(
                   clip_rect.left, clip_rect.bottom, clip_rect.right,
                   clip_rect.top)
             : std::nullopt;
-    const pdfium::rust::ObjectListCommand command = rust_command.value_or(
-        BuildCppObjectListCommand(is_stop_object, is_present, is_active,
-                                  object_rect, clip_rect));
+    const pdfium::rust::ObjectListCommand command =
+        rust_command.value_or(BuildCppObjectListCommand(
+            is_stop_object, is_present, is_active, object_rect, clip_rect));
+    pdfium::rust::RecordRenderTraceForTesting(command);
     switch (command) {
       case pdfium::rust::ObjectListCommand::kStop:
         stopped_ = true;
@@ -367,6 +368,7 @@ void CPDF_RenderStatus::ProcessObjectNoClip(CPDF_PageObject* pObj,
           : std::nullopt;
   const pdfium::rust::PageObjectRenderCommand command =
       rust_command.value_or(BuildCppPageObjectRenderCommand(page_object_type));
+  pdfium::rust::RecordRenderTraceForTesting(command);
 
   bool bRet = false;
   switch (command) {
