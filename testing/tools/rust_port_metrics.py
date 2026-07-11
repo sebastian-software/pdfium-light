@@ -79,9 +79,10 @@ ACTIVE_SURFACES = (
     "glyph device-origin rounding",
     "glyph bitmap bounding-box aggregation",
     "glyph bitmap lookup and native fallback action planning",
+    "glyph path and width cache key planning",
 )
 CANDIDATE_SURFACES = (
-    "glyph path and width cache planning and the FreeType adapter boundary",
+    "the FreeType adapter boundary",
 )
 
 

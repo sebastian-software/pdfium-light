@@ -86,6 +86,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `026b3cd97` Phase 4 device-origin slice | 14,411 | 7,600 | 241 | 3,008 | 6,570 | 274,388 | 5.25% | 3.80% | Prior surfaces plus Rust-owned LCD-floor and saturated half-away-from-zero device-origin rounding before glyph bitmap loading |
 | `074c9b1b5` Phase 4 glyph-bounds slice | 14,657 | 7,846 | 241 | 3,075 | 6,570 | 274,766 | 5.33% | 3.92% | Prior surfaces plus Rust-owned borrowed glyph iteration, LCD width adjustment, checked edge construction, skip behavior, and bounding-box min/max aggregation |
 | `8d94db0fa` Phase 4 bitmap-lookup slice | 14,740 | 7,929 | 241 | 3,131 | 6,570 | 274,956 | 5.36% | 3.96% | Prior surfaces plus Rust-owned invalid-glyph rejection, requested-key lookup, native-cache return, and non-native fallback/option-update planning |
+| `b8ba94e27` Phase 4 path/width cache slice | 14,984 | 8,173 | 241 | 3,209 | 6,570 | 275,308 | 5.44% | 4.07% | Prior surfaces plus Rust-owned glyph-path and glyph-width cache key planning; C++ retains cache maps, font calls, and path ownership |
 
 ## Toolchain
 
@@ -597,8 +598,18 @@ Fifteen native glyph tests cover all four actions and null-output rejection in
 addition to the existing placement and bounds contracts. The structured trace
 records validity, native mode, probe result, and selected action;
 `HelloWorldNoNativeText` proves the ordinary lookup route is active, and all 19
-exact renderer cases pass. Path/width cache planning and the narrow FreeType
-adapter boundary remain next.
+exact renderer cases pass. The path/width cache-key slice follows.
+
+The sixth slice moves glyph-path and glyph-width cache key planning into Rust.
+Rust preserves the exact glyph-index, destination-width, weight, italic-angle,
+and vertical-key shape. Substitution-only metadata is zeroed when no
+substitution exists, matching the retained C++ tuple construction. C++ keeps
+the `std::map` containers, font calls, path objects, and their lifetimes; any
+failed Rust boundary call falls back to the unchanged tuple construction.
+
+Nineteen native Rust tests now cover the complete scalar key shapes, signed
+metadata, absent substitutions, and null-output rejection without caller
+mutation. The FreeType adapter boundary remains the final Phase 4 candidate.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
