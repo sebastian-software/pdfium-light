@@ -1862,4 +1862,26 @@ mod tests {
         assert_eq!(Some(0xffff_ffff), default_palette_argb(1, 1));
         assert_eq!(Some(0xffad_adad), default_palette_argb(8, 0xad));
     }
+
+    #[test]
+    fn buffer_conversion_should_map_custom_palette_to_bgr() {
+        let source = [0, 1, 2];
+        let mut palette = [0; 256];
+        palette[0] = 0xff11_2233;
+        palette[1] = 0xff44_5566;
+        palette[2] = 0xff77_8899;
+        let mut output = [0; 9];
+
+        assert!(convert_buffer_row(0x018, 0x108, &source, 0, &palette, &mut output, 3,));
+        assert_eq!([0x33, 0x22, 0x11, 0x66, 0x55, 0x44, 0x99, 0x88, 0x77], output);
+    }
+
+    #[test]
+    fn buffer_conversion_should_preserve_fourth_destination_byte() {
+        let source = [0x13, 0x27, 0x42];
+        let mut output = [0, 0, 0, 0xad];
+
+        assert!(convert_buffer_row(0x220, 0x018, &source, 0, &[], &mut output, 1,));
+        assert_eq!([0x13, 0x27, 0x42, 0xad], output);
+    }
 }

@@ -301,6 +301,41 @@ TEST(CFXDIBitmapTest, RustColorScaleMatchesCppReferenceAcrossFormats) {
   }
 }
 
+TEST(CFXDIBitmapTest, RustBgraConvertFormatMatchesCppReference) {
+  struct SourceCase {
+    FXDIB_Format format;
+    bool custom_palette;
+  };
+  static constexpr std::array<SourceCase, 6> kSources = {
+      SourceCase{FXDIB_Format::k8bppMask, false},
+      SourceCase{FXDIB_Format::k8bppRgb, false},
+      SourceCase{FXDIB_Format::k8bppRgb, true},
+      SourceCase{FXDIB_Format::kBgr, false},
+      SourceCase{FXDIB_Format::kBgrx, false},
+      SourceCase{FXDIB_Format::kBgra, false},
+  };
+  for (const auto& source_case : kSources) {
+    auto reference = CreatePatternedBitmap(source_case.format);
+    auto candidate = CreatePatternedBitmap(source_case.format);
+    ASSERT_TRUE(reference);
+    ASSERT_TRUE(candidate);
+    if (source_case.custom_palette) {
+      const int index = source_case.format == FXDIB_Format::k1bppRgb ? 1 : 173;
+      reference->SetPaletteArgb(index, 0x8042a7e1);
+      candidate->SetPaletteArgb(index, 0x8042a7e1);
+    }
+    {
+      fxge::ScopedRustDibImplementationForTesting implementation(false);
+      ASSERT_TRUE(reference->ConvertFormat(FXDIB_Format::kBgra));
+    }
+    ASSERT_TRUE(candidate->ConvertFormat(FXDIB_Format::kBgra));
+    EXPECT_THAT(candidate->GetBuffer(),
+                ElementsAreArray(reference->GetBuffer()))
+        << "source_format=" << static_cast<int>(source_case.format)
+        << " custom_palette=" << source_case.custom_palette;
+  }
+}
+
 TEST(CFXDIBitmapTest, RustExpand1bppMaskMatchesCppReference) {
   auto reference = CreatePatternedBitmap(FXDIB_Format::k8bppMask, 9, 3);
   auto candidate = CreatePatternedBitmap(FXDIB_Format::k8bppMask, 9, 3);

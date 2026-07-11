@@ -4,6 +4,7 @@
 
 #include "core/fxge/dib/cfx_dibbase.h"
 
+#include <array>
 #include <limits>
 #include <optional>
 
@@ -55,6 +56,23 @@ void RunOverlapRectTest(const CFX_DIBitmap* bitmap,
     EXPECT_EQ(expected_output->overlap_size.width, overlap_width);
     EXPECT_EQ(expected_output->overlap_size.height, overlap_height);
   }
+}
+
+RetainPtr<CFX_DIBitmap> CreateConversionBitmap(FXDIB_Format format,
+                                               bool custom_palette) {
+  auto bitmap = pdfium::MakeRetain<CFX_DIBitmap>();
+  if (!bitmap->Create(7, 3, format)) {
+    return nullptr;
+  }
+  auto buffer = bitmap->GetWritableBuffer();
+  for (size_t index = 0; index < buffer.size(); ++index) {
+    buffer[index] = static_cast<uint8_t>(index * 61 + 23);
+  }
+  if (custom_palette) {
+    const int index = format == FXDIB_Format::k1bppRgb ? 1 : 173;
+    bitmap->SetPaletteArgb(index, 0x8042a7e1);
+  }
+  return bitmap;
 }
 
 }  // namespace
@@ -290,6 +308,68 @@ TEST(CFXDIBBaseTest, RustCustomPaletteLookupMatchesCppReference) {
     for (size_t byte = 0; byte < reference->GetBuffer().size(); ++byte) {
       EXPECT_EQ(reference->GetBuffer()[byte], candidate->GetBuffer()[byte])
           << "format=" << static_cast<int>(format) << " byte=" << byte;
+    }
+  }
+}
+
+TEST(CFXDIBBaseTest, RustConvertBufferMatchesCppReference) {
+  struct SourceCase {
+    FXDIB_Format format;
+    bool custom_palette;
+  };
+  static constexpr std::array<SourceCase, 9> kSources = {
+      SourceCase{FXDIB_Format::k1bppMask, false},
+      SourceCase{FXDIB_Format::k1bppRgb, false},
+      SourceCase{FXDIB_Format::k1bppRgb, true},
+      SourceCase{FXDIB_Format::k8bppMask, false},
+      SourceCase{FXDIB_Format::k8bppRgb, false},
+      SourceCase{FXDIB_Format::k8bppRgb, true},
+      SourceCase{FXDIB_Format::kBgr, false},
+      SourceCase{FXDIB_Format::kBgrx, false},
+      SourceCase{FXDIB_Format::kBgra, false},
+  };
+  for (const auto& source_case : kSources) {
+    auto source =
+        CreateConversionBitmap(source_case.format, source_case.custom_palette);
+    ASSERT_TRUE(source);
+    for (const FXDIB_Format destination_format :
+         {FXDIB_Format::k8bppRgb, FXDIB_Format::kBgr}) {
+      if (destination_format == source_case.format) {
+        continue;
+      }
+      if (destination_format == FXDIB_Format::k8bppRgb &&
+          source->GetBPP() > 8) {
+        continue;
+      }
+      RetainPtr<CFX_DIBitmap> reference;
+      {
+        fxge::ScopedRustDibImplementationForTesting implementation(false);
+        reference = source->ConvertTo(destination_format);
+      }
+      auto candidate = source->ConvertTo(destination_format);
+      ASSERT_EQ(static_cast<bool>(reference), static_cast<bool>(candidate));
+      ASSERT_TRUE(reference);
+      ASSERT_EQ(reference->GetFormat(), candidate->GetFormat());
+      const size_t active_row_bytes =
+          static_cast<size_t>(reference->GetWidth()) *
+          GetCompsFromFormat(reference->GetFormat());
+      for (int row = 0; row < reference->GetHeight(); ++row) {
+        for (size_t byte = 0; byte < active_row_bytes; ++byte) {
+          EXPECT_EQ(reference->GetScanline(row)[byte],
+                    candidate->GetScanline(row)[byte])
+              << "source_format=" << static_cast<int>(source_case.format)
+              << " custom_palette=" << source_case.custom_palette
+              << " destination_format=" << static_cast<int>(destination_format)
+              << " row=" << row << " byte=" << byte;
+        }
+      }
+      ASSERT_EQ(reference->GetPaletteSpan().size(),
+                candidate->GetPaletteSpan().size());
+      for (size_t index = 0; index < reference->GetPaletteSpan().size();
+           ++index) {
+        EXPECT_EQ(reference->GetPaletteSpan()[index],
+                  candidate->GetPaletteSpan()[index]);
+      }
     }
   }
 }
