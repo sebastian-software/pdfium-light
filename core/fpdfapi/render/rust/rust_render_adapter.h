@@ -11,6 +11,8 @@
 #include <optional>
 #include <vector>
 
+#include "core/fxge/cfx_fillrenderoptions.h"
+
 namespace pdfium::rust {
 
 enum class RenderPlanBit : uint32_t {
@@ -77,6 +79,23 @@ class RenderLayerCompletion final {
   uint8_t bits_;
 };
 
+class PathPaintPlan final {
+ public:
+  PathPaintPlan(CFX_FillRenderOptions::FillType fill_type,
+                bool stroke,
+                bool should_draw)
+      : fill_type_(fill_type), stroke_(stroke), should_draw_(should_draw) {}
+
+  CFX_FillRenderOptions::FillType fill_type() const { return fill_type_; }
+  bool stroke() const { return stroke_; }
+  bool should_draw() const { return should_draw_; }
+
+ private:
+  CFX_FillRenderOptions::FillType fill_type_;
+  bool stroke_;
+  bool should_draw_;
+};
+
 class RenderRequestPlan final {
  public:
   explicit RenderRequestPlan(uint32_t bits) : bits_(bits) {}
@@ -119,6 +138,11 @@ using RenderLayerCallback = bool (*)(void* context, uint32_t layer_index);
 bool RunRustRenderLayers(size_t layer_count,
                          void* context,
                          RenderLayerCallback callback);
+std::optional<PathPaintPlan> BuildRustPathPaintPlan(
+    CFX_FillRenderOptions::FillType fill_type,
+    bool stroke,
+    bool forced_color,
+    bool convert_fill_to_stroke);
 
 class ScopedRenderTraceForTesting final {
  public:

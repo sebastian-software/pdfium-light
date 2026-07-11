@@ -40,6 +40,11 @@ extern "C" bool pdfium_rust_run_render_layers(
     uint32_t layer_count,
     void* context,
     pdfium::rust::RenderLayerCallback callback);
+extern "C" bool pdfium_rust_build_path_paint_plan(uint8_t fill_type,
+                                                  bool stroke,
+                                                  bool forced_color,
+                                                  bool convert_fill_to_stroke,
+                                                  uint8_t* output);
 
 thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
@@ -47,6 +52,17 @@ thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
 constexpr uint8_t kPageObjectRenderCommandTraceBase = 0x10;
 constexpr uint8_t kRenderLayerPlanTraceBase = 0x20;
 constexpr uint8_t kRenderLayerCompletionTraceBase = 0x30;
+
+constexpr uint8_t kPathPlanFillMask = 0x03;
+constexpr uint8_t kPathPlanStroke = 1u << 2;
+constexpr uint8_t kPathPlanDraw = 1u << 3;
+
+static_assert(static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kNoFill) ==
+              0);
+static_assert(static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kEvenOdd) ==
+              1);
+static_assert(static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kWinding) ==
+              2);
 
 static_assert(FPDF_ANNOT == 0x01);
 static_assert(FPDF_LCD_TEXT == 0x02);
@@ -181,6 +197,32 @@ bool RunRustRenderLayers(size_t layer_count,
   }
   return pdfium_rust_run_render_layers(static_cast<uint32_t>(layer_count),
                                        context, callback);
+}
+
+std::optional<PathPaintPlan> BuildRustPathPaintPlan(
+    CFX_FillRenderOptions::FillType fill_type,
+    bool stroke,
+    bool forced_color,
+    bool convert_fill_to_stroke) {
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_path_paint_plan(static_cast<uint8_t>(fill_type),
+                                         stroke, forced_color,
+                                         convert_fill_to_stroke, &bits)) {
+    return std::nullopt;
+  }
+  constexpr uint8_t kAllowedBits =
+      kPathPlanFillMask | kPathPlanStroke | kPathPlanDraw;
+  if ((bits & ~kAllowedBits) != 0) {
+    return std::nullopt;
+  }
+  const uint8_t planned_fill = bits & kPathPlanFillMask;
+  if (planned_fill >
+      static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kWinding)) {
+    return std::nullopt;
+  }
+  return PathPaintPlan(
+      static_cast<CFX_FillRenderOptions::FillType>(planned_fill),
+      (bits & kPathPlanStroke) != 0, (bits & kPathPlanDraw) != 0);
 }
 
 ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(

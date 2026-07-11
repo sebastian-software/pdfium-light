@@ -127,6 +127,24 @@ pdfium::rust::ObjectListCommand BuildCppObjectListCommand(
   return pdfium::rust::ObjectListCommand::kRender;
 }
 
+pdfium::rust::PathPaintPlan BuildCppPathPaintPlan(
+    CFX_FillRenderOptions::FillType fill_type,
+    bool stroke,
+    bool forced_color,
+    bool convert_fill_to_stroke) {
+  if (fill_type == CFX_FillRenderOptions::FillType::kNoFill && !stroke) {
+    return pdfium::rust::PathPaintPlan(fill_type, stroke,
+                                       /*should_draw=*/false);
+  }
+  if (forced_color && convert_fill_to_stroke &&
+      fill_type != CFX_FillRenderOptions::FillType::kNoFill) {
+    fill_type = CFX_FillRenderOptions::FillType::kNoFill;
+    stroke = true;
+  }
+  return pdfium::rust::PathPaintPlan(fill_type, stroke,
+                                     /*should_draw=*/true);
+}
+
 CFX_FillRenderOptions GetFillOptionsForDrawPathWithBlend(
     const CPDF_RenderOptions::Options& options,
     const CPDF_PathObject* path_obj,
@@ -180,7 +198,7 @@ FXDIB_Format GetFormatForLuminosity(bool is_luminosity) {
   }
 #if BUILDFLAG(IS_APPLE)
   return FXDIB_Format::kBgrx;
-#else  // BUILDFLAG(IS_APPLE)
+#else   // BUILDFLAG(IS_APPLE)
   return FXDIB_Format::kBgr;
 #endif  // BUILDFLAG(IS_APPLE)
 }
@@ -490,19 +508,22 @@ bool CPDF_RenderStatus::ProcessPath(CPDF_PathObject* path_obj,
   CFX_FillRenderOptions::FillType fill_type = path_obj->filltype();
   bool stroke = path_obj->stroke();
   ProcessPathPattern(path_obj, mtObj2Device, &fill_type, &stroke);
-  if (fill_type == CFX_FillRenderOptions::FillType::kNoFill && !stroke) {
+  CPDF_RenderOptions::Options& options = options_.GetOptions();
+  const bool forced_color =
+      options_.ColorModeIs(CPDF_RenderOptions::Type::kForcedColor);
+  const auto rust_plan =
+      pdfium::rust::UseRustRenderCandidate()
+          ? pdfium::rust::BuildRustPathPaintPlan(
+                fill_type, stroke, forced_color, options.bConvertFillToStroke)
+          : std::nullopt;
+  const pdfium::rust::PathPaintPlan plan =
+      rust_plan.value_or(BuildCppPathPaintPlan(fill_type, stroke, forced_color,
+                                               options.bConvertFillToStroke));
+  if (!plan.should_draw()) {
     return true;
   }
-
-  // If the option to convert fill paths to stroke is enabled for forced color,
-  // set |fill_type| to FillType::kNoFill and |stroke| to true.
-  CPDF_RenderOptions::Options& options = options_.GetOptions();
-  if (options_.ColorModeIs(CPDF_RenderOptions::Type::kForcedColor) &&
-      options.bConvertFillToStroke &&
-      fill_type != CFX_FillRenderOptions::FillType::kNoFill) {
-    stroke = true;
-    fill_type = CFX_FillRenderOptions::FillType::kNoFill;
-  }
+  fill_type = plan.fill_type();
+  stroke = plan.stroke();
 
   uint32_t fill_argb = fill_type != CFX_FillRenderOptions::FillType::kNoFill
                            ? GetFillArgb(path_obj)

@@ -49,6 +49,13 @@ const LAYER_PLAN_APPLY_LAST_MATRIX: u8 = 1 << 1;
 const LAYER_COMPLETION_OPTIMIZE_CACHE: u8 = 1 << 0;
 const LAYER_COMPLETION_STOP: u8 = 1 << 1;
 
+const PATH_FILL_NONE: u8 = 0;
+const PATH_FILL_EVEN_ODD: u8 = 1;
+const PATH_FILL_WINDING: u8 = 2;
+const PATH_PLAN_FILL_MASK: u8 = 0x03;
+const PATH_PLAN_STROKE: u8 = 1 << 2;
+const PATH_PLAN_DRAW: u8 = 1 << 3;
+
 type RenderLayerCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
 
 fn build_render_request_plan(flags: u32, has_color_scheme: bool, restore_device: bool) -> u32 {
@@ -144,6 +151,34 @@ fn build_render_layer_completion(limited_image_cache: bool, stopped: bool) -> u8
         plan |= LAYER_COMPLETION_STOP;
     }
     plan
+}
+
+fn build_path_paint_plan(
+    fill_type: u8,
+    stroke: bool,
+    forced_color: bool,
+    convert_fill_to_stroke: bool,
+) -> Option<u8> {
+    match fill_type {
+        PATH_FILL_NONE | PATH_FILL_EVEN_ODD | PATH_FILL_WINDING => {}
+        _ => return None,
+    }
+    if fill_type == PATH_FILL_NONE && !stroke {
+        return Some(PATH_FILL_NONE);
+    }
+
+    let (planned_fill, planned_stroke) =
+        if forced_color && convert_fill_to_stroke && fill_type != PATH_FILL_NONE {
+            (PATH_FILL_NONE, true)
+        } else {
+            (fill_type, stroke)
+        };
+    let mut plan = planned_fill & PATH_PLAN_FILL_MASK;
+    if planned_stroke {
+        plan |= PATH_PLAN_STROKE;
+    }
+    plan |= PATH_PLAN_DRAW;
+    Some(plan)
 }
 
 /// Builds a compact render request plan from the supported public flags.
@@ -300,6 +335,33 @@ pub unsafe extern "C" fn pdfium_rust_run_render_layers(
         if unsafe { callback(context, index) } {
             break;
         }
+    }
+    true
+}
+
+/// Plans path fill/stroke behavior before native color and backend work.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u8` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_path_paint_plan(
+    fill_type: u8,
+    stroke: bool,
+    forced_color: bool,
+    convert_fill_to_stroke: bool,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let Some(plan) = build_path_paint_plan(fill_type, stroke, forced_color, convert_fill_to_stroke)
+    else {
+        return false;
+    };
+    // SAFETY: The caller contract guarantees one writable output value.
+    unsafe {
+        *output = plan;
     }
     true
 }
