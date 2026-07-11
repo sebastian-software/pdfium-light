@@ -72,6 +72,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `da914a73c` Phase 2 object-dispatch slice | 12,355 | 5,544 | 241 | 1,808 | 6,570 | 270,607 | 4.57% | 2.81% | Prior surfaces plus Rust-owned dispatch planning for text, path, image, shading, and form page objects |
 | `c78f121a5` Phase 2 object-list slice | 12,506 | 5,695 | 241 | 1,910 | 6,570 | 270,904 | 4.62% | 2.88% | Prior surfaces plus stop-object precedence, active-state filtering, exact float clip rejection, and same-process render-command traces |
 | `aa5d3cdba` Phase 2 render-layer slice | 12,707 | 5,896 | 241 | 2,054 | 6,570 | 271,338 | 4.68% | 2.98% | Prior surfaces plus Rust-owned layer setup/completion planning and ordered layer iteration with stop-aware C++ callbacks |
+| `08a3a00d4` Phase 3 path-paint slice | 12,824 | 6,013 | 241 | 2,135 | 6,570 | 271,558 | 4.72% | 3.04% | Prior surfaces plus Rust-owned path fill/stroke preservation, no-paint early completion, and forced-color fill-to-stroke conversion |
 
 ## Toolchain
 
@@ -375,6 +376,25 @@ embedder run passes 500 of 551 tests; its 51 failed static `_agg_mac.png`
 goldens are the exact same named baseline set recorded at Phase 1, while the
 nine additional Phase 2 corpus cases all pass. Phase 3 therefore starts at
 path processing and the narrow AGG adapter boundary.
+
+## Phase 3 path processing and AGG boundary
+
+The first path slice moves the paint decision immediately after retained
+pattern handling into Rust. It preserves no-fill/even-odd/winding modes and
+stroke state, completes no-paint objects without touching colors or the
+backend, and converts a nonempty forced-color fill to stroke only when the
+existing option is enabled. The adapter pins all three fill enum values,
+rejects unknown plan bits and invalid fill values, and falls back to the
+retained C++ decision before color, transfer-function, matrix, or device work.
+
+Three native tests cover the fill/stroke matrix, both forced-color conversion
+preconditions, invalid fill values, unchanged output on failure, and null
+output. The render trace now includes the exact paint plan. Four additional
+path-focused cases cover regular and aliased rectangle sets, direct rectangle
+paths, clip paths, and a form-owned path; all 16 native render tests and all 18
+zero-tolerance bitmap-plus-trace corpus cases pass. Path colors, transfer
+functions, matrix validation, graph-state planning, `CFX_RenderDevice`, and
+the AGG raster backend remain C++-owned for the next sub-slices.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
