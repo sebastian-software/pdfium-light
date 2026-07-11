@@ -190,11 +190,15 @@ void RenderPageSelected(CPDF_PageRenderContext* context,
 
 ScopedRenderImplementationForTesting::ScopedRenderImplementationForTesting(
     RenderImplementationForTesting implementation)
-    : previous_(g_render_implementation) {
+    : previous_(g_render_implementation),
+      previous_core_candidate_(
+          pdfium::rust::SetUseRustRenderCandidateForTesting(
+              implementation == RenderImplementationForTesting::kCandidate)) {
   g_render_implementation = implementation;
 }
 
 ScopedRenderImplementationForTesting::~ScopedRenderImplementationForTesting() {
+  pdfium::rust::SetUseRustRenderCandidateForTesting(previous_core_candidate_);
   g_render_implementation = previous_;
 }
 

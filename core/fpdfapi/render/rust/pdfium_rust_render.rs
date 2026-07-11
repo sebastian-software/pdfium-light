@@ -28,6 +28,18 @@ const PLAN_NO_PATH_SMOOTHING: u32 = 1 << 10;
 const PLAN_FORCED_COLOR: u32 = 1 << 11;
 const PLAN_RESTORE_DEVICE: u32 = 1 << 12;
 
+const PAGE_OBJECT_TEXT: u32 = 1;
+const PAGE_OBJECT_PATH: u32 = 2;
+const PAGE_OBJECT_IMAGE: u32 = 3;
+const PAGE_OBJECT_SHADING: u32 = 4;
+const PAGE_OBJECT_FORM: u32 = 5;
+
+const RENDER_COMMAND_TEXT: u8 = 1;
+const RENDER_COMMAND_PATH: u8 = 2;
+const RENDER_COMMAND_IMAGE: u8 = 3;
+const RENDER_COMMAND_SHADING: u8 = 4;
+const RENDER_COMMAND_FORM: u8 = 5;
+
 fn build_render_request_plan(flags: u32, has_color_scheme: bool, restore_device: bool) -> u32 {
     let mappings = [
         (FPDF_ANNOT, PLAN_ANNOTATIONS),
@@ -59,6 +71,17 @@ fn build_render_request_plan(flags: u32, has_color_scheme: bool, restore_device:
     plan
 }
 
+fn build_page_object_render_command(page_object_type: u32) -> Option<u8> {
+    match page_object_type {
+        PAGE_OBJECT_TEXT => Some(RENDER_COMMAND_TEXT),
+        PAGE_OBJECT_PATH => Some(RENDER_COMMAND_PATH),
+        PAGE_OBJECT_IMAGE => Some(RENDER_COMMAND_IMAGE),
+        PAGE_OBJECT_SHADING => Some(RENDER_COMMAND_SHADING),
+        PAGE_OBJECT_FORM => Some(RENDER_COMMAND_FORM),
+        _ => None,
+    }
+}
+
 /// Builds a compact render request plan from the supported public flags.
 ///
 /// # Safety
@@ -77,6 +100,29 @@ pub unsafe extern "C" fn pdfium_rust_build_render_request_plan(
     // SAFETY: The caller contract guarantees one writable output value.
     unsafe {
         *output = build_render_request_plan(flags, has_color_scheme, restore_device);
+    }
+    true
+}
+
+/// Maps a page-object type to the render command that handles it.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u8` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_page_object_render_command(
+    page_object_type: u32,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let Some(command) = build_page_object_render_command(page_object_type) else {
+        return false;
+    };
+    // SAFETY: The caller contract guarantees one writable output value.
+    unsafe {
+        *output = command;
     }
     true
 }

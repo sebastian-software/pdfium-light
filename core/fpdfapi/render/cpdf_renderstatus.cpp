@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <set>
 #include <utility>
 #include <vector>
@@ -49,6 +50,7 @@
 #include "core/fpdfapi/render/cpdf_rendertiling.h"
 #include "core/fpdfapi/render/cpdf_textrenderer.h"
 #include "core/fpdfapi/render/cpdf_type3cache.h"
+#include "core/fpdfapi/render/rust/rust_render_adapter.h"
 #include "core/fxcrt/autorestorer.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/compiler_specific.h"
@@ -81,6 +83,28 @@ namespace {
 
 constexpr int kRenderMaxRecursionDepth = 64;
 int g_CurrentRecursionDepth = 0;
+
+static_assert(static_cast<uint32_t>(CPDF_PageObject::Type::kText) == 1);
+static_assert(static_cast<uint32_t>(CPDF_PageObject::Type::kPath) == 2);
+static_assert(static_cast<uint32_t>(CPDF_PageObject::Type::kImage) == 3);
+static_assert(static_cast<uint32_t>(CPDF_PageObject::Type::kShading) == 4);
+static_assert(static_cast<uint32_t>(CPDF_PageObject::Type::kForm) == 5);
+
+pdfium::rust::PageObjectRenderCommand BuildCppPageObjectRenderCommand(
+    CPDF_PageObject::Type page_object_type) {
+  switch (page_object_type) {
+    case CPDF_PageObject::Type::kText:
+      return pdfium::rust::PageObjectRenderCommand::kText;
+    case CPDF_PageObject::Type::kPath:
+      return pdfium::rust::PageObjectRenderCommand::kPath;
+    case CPDF_PageObject::Type::kImage:
+      return pdfium::rust::PageObjectRenderCommand::kImage;
+    case CPDF_PageObject::Type::kShading:
+      return pdfium::rust::PageObjectRenderCommand::kShading;
+    case CPDF_PageObject::Type::kForm:
+      return pdfium::rust::PageObjectRenderCommand::kForm;
+  }
+}
 
 CFX_FillRenderOptions GetFillOptionsForDrawPathWithBlend(
     const CPDF_RenderOptions::Options& options,
@@ -301,21 +325,30 @@ FX_RECT CPDF_RenderStatus::GetObjectClippedRect(
 
 void CPDF_RenderStatus::ProcessObjectNoClip(CPDF_PageObject* pObj,
                                             const CFX_Matrix& mtObj2Device) {
+  const CPDF_PageObject::Type page_object_type = pObj->GetType();
+  const auto rust_command =
+      pdfium::rust::UseRustRenderCandidate()
+          ? pdfium::rust::BuildRustPageObjectRenderCommand(
+                static_cast<uint32_t>(page_object_type))
+          : std::nullopt;
+  const pdfium::rust::PageObjectRenderCommand command =
+      rust_command.value_or(BuildCppPageObjectRenderCommand(page_object_type));
+
   bool bRet = false;
-  switch (pObj->GetType()) {
-    case CPDF_PageObject::Type::kText:
+  switch (command) {
+    case pdfium::rust::PageObjectRenderCommand::kText:
       bRet = ProcessText(pObj->AsText(), mtObj2Device, nullptr);
       break;
-    case CPDF_PageObject::Type::kPath:
+    case pdfium::rust::PageObjectRenderCommand::kPath:
       bRet = ProcessPath(pObj->AsPath(), mtObj2Device);
       break;
-    case CPDF_PageObject::Type::kImage:
+    case pdfium::rust::PageObjectRenderCommand::kImage:
       bRet = ProcessImage(pObj->AsImage(), mtObj2Device);
       break;
-    case CPDF_PageObject::Type::kShading:
+    case pdfium::rust::PageObjectRenderCommand::kShading:
       ProcessShading(pObj->AsShading(), mtObj2Device);
       return;
-    case CPDF_PageObject::Type::kForm:
+    case pdfium::rust::PageObjectRenderCommand::kForm:
       bRet = ProcessForm(pObj->AsForm(), mtObj2Device);
       break;
   }

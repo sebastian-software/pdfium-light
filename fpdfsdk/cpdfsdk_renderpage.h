@@ -35,6 +35,7 @@ class ScopedRenderImplementationForTesting final {
 
  private:
   RenderImplementationForTesting previous_;
+  bool previous_core_candidate_;
 };
 
 void CPDFSDK_RenderPage(CPDF_PageRenderContext* context,

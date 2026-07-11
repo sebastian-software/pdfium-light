@@ -27,6 +27,14 @@ enum class RenderPlanBit : uint32_t {
   kRestoreDevice = 1u << 12,
 };
 
+enum class PageObjectRenderCommand : uint8_t {
+  kText = 1,
+  kPath,
+  kImage,
+  kShading,
+  kForm,
+};
+
 class RenderRequestPlan final {
  public:
   explicit RenderRequestPlan(uint32_t bits) : bits_(bits) {}
@@ -43,6 +51,14 @@ std::optional<RenderRequestPlan> BuildRustRenderRequestPlan(
     int flags,
     bool has_color_scheme,
     bool restore_device);
+
+std::optional<PageObjectRenderCommand> BuildRustPageObjectRenderCommand(
+    uint32_t page_object_type);
+
+// Production defaults to the Rust candidate. The setter exists only so the
+// same-process differential harness can keep the retained C++ oracle isolated.
+bool UseRustRenderCandidate();
+bool SetUseRustRenderCandidateForTesting(bool use_candidate);
 
 }  // namespace pdfium::rust
 
