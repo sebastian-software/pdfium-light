@@ -98,6 +98,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `9dfe83b11` Phase 6 xref-type slice | 15,488 | 8,677 | 241 | 3,479 | 6,570 | 276,197 | 5.61% | 4.31% | Prior surfaces plus Rust-owned cross-reference object-type validation; C++ retains entry interpretation and table mutation |
 | `64abd58c8` Phase 6 xref-entry slice | 15,528 | 8,717 | 241 | 3,494 | 6,570 | 276,271 | 5.62% | 4.33% | Prior surfaces plus Rust-owned effective cross-reference entry-type planning; C++ retains field interpretation and table mutation |
 | `112e036cf` Phase 6 xref-action slice | 15,586 | 8,775 | 241 | 3,519 | 6,570 | 276,363 | 5.64% | 4.36% | Prior surfaces plus Rust-owned cross-reference free/normal/compressed/skip action planning; C++ retains table mutation |
+| `0b48bf90e` Phase 6 xref-index slice | 15,631 | 8,820 | 241 | 3,539 | 6,570 | 276,433 | 5.65% | 4.38% | Prior surfaces plus Rust-owned `/Index` start/count validation; C++ retains segment storage and object graph mutation |
 
 ## Toolchain
 
@@ -714,6 +715,12 @@ Generation overflow, non-representable normal offsets, and invalid archive
 object numbers remain rejects. C++ owns every `CPDF_CrossRefTable` mutation,
 so the object graph and lifetime boundary remain unchanged. Native tests cover
 each valid action and every scalar rejection path.
+
+The fifth Phase 6 slice moves `/Index` pair validation into Rust. Negative
+starts and non-positive counts are rejected; accepted signed values are
+normalized to the original unsigned representation. C++ retains the segment
+vector, the empty-array default, and later segment/object-graph processing.
+Native tests cover valid bounds plus negative and empty rejection.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
