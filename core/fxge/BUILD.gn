@@ -107,6 +107,7 @@ source_set("fxge") {
   deps = [
     "../fxcrt",
     "dib/rust:rust_dib_adapter",
+    "freetype/rust:rust_glyph_adapter",
   ]
   public_deps = []
   defines = []

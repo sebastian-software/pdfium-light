@@ -1,0 +1,112 @@
+// Copyright 2026 Sebastian Werner
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+const MAX_GLYPH_CACHE_KEY_WORDS: usize = 10;
+
+struct GlyphCacheKeyInputs {
+    matrix: [i32; 4],
+    destination_width: i32,
+    anti_alias: i32,
+    has_substitution: bool,
+    weight: i32,
+    italic_angle: i32,
+    vertical: bool,
+    native_text: bool,
+}
+
+struct GlyphCacheKey {
+    words: [u32; MAX_GLYPH_CACHE_KEY_WORDS],
+    len: usize,
+}
+
+fn push_word(key: &mut GlyphCacheKey, value: i32) -> bool {
+    let Some(output) = key.words.get_mut(key.len) else {
+        return false;
+    };
+    *output = value as u32;
+    key.len += 1;
+    true
+}
+
+fn build_glyph_cache_key(inputs: GlyphCacheKeyInputs) -> Option<GlyphCacheKey> {
+    let mut key = GlyphCacheKey { words: [0; MAX_GLYPH_CACHE_KEY_WORDS], len: 0 };
+    for value in inputs.matrix {
+        if !push_word(&mut key, value) {
+            return None;
+        }
+    }
+    if !push_word(&mut key, inputs.destination_width) || !push_word(&mut key, inputs.anti_alias) {
+        return None;
+    }
+    if inputs.has_substitution
+        && (!push_word(&mut key, inputs.weight)
+            || !push_word(&mut key, inputs.italic_angle)
+            || !push_word(&mut key, i32::from(inputs.vertical)))
+    {
+        return None;
+    }
+    if inputs.native_text && !push_word(&mut key, 3) {
+        return None;
+    }
+    Some(key)
+}
+
+/// Builds the exact word sequence used as the C++ glyph-bitmap cache key.
+///
+/// # Safety
+///
+/// `output_len` must point to one writable `usize`. `output` must point to at
+/// least `output_capacity` writable `u32` values, and the capacity must fit the
+/// selected key shape.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_fill_glyph_cache_key(
+    matrix_a: i32,
+    matrix_b: i32,
+    matrix_c: i32,
+    matrix_d: i32,
+    destination_width: i32,
+    anti_alias: i32,
+    has_substitution: bool,
+    weight: i32,
+    italic_angle: i32,
+    vertical: bool,
+    native_text: bool,
+    output: *mut u32,
+    output_capacity: usize,
+    output_len: *mut usize,
+) -> bool {
+    if output_len.is_null() {
+        return false;
+    }
+    let Some(key) = build_glyph_cache_key(GlyphCacheKeyInputs {
+        matrix: [matrix_a, matrix_b, matrix_c, matrix_d],
+        destination_width,
+        anti_alias,
+        has_substitution,
+        weight,
+        italic_angle,
+        vertical,
+        native_text,
+    }) else {
+        return false;
+    };
+    if output_capacity < key.len || (key.len != 0 && output.is_null()) {
+        return false;
+    }
+    // SAFETY: The caller guarantees a writable span of `output_capacity`
+    // words, and the capacity was checked against the selected key length.
+    let output = unsafe { core::slice::from_raw_parts_mut(output, output_capacity) };
+    let Some(destination) = output.get_mut(..key.len) else {
+        return false;
+    };
+    let Some(source) = key.words.get(..key.len) else {
+        return false;
+    };
+    destination.copy_from_slice(source);
+    // SAFETY: The caller guarantees one writable length value.
+    unsafe {
+        *output_len = key.len;
+    }
+    true
+}

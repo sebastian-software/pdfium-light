@@ -18,6 +18,7 @@
 #include "core/fpdfdoc/cpdf_annotlist.h"
 #include "core/fxge/agg/rust/rust_agg_adapter.h"
 #include "core/fxge/cfx_renderdevice.h"
+#include "core/fxge/freetype/rust/rust_glyph_adapter.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 
 namespace {
@@ -196,6 +197,8 @@ ScopedRenderImplementationForTesting::ScopedRenderImplementationForTesting(
           pdfium::rust::SetUseRustRenderCandidateForTesting(
               implementation == RenderImplementationForTesting::kCandidate)),
       previous_agg_candidate_(fxge::SetUseRustAggCandidateForTesting(
+          implementation == RenderImplementationForTesting::kCandidate)),
+      previous_glyph_candidate_(fxge::SetUseRustGlyphCandidateForTesting(
           implementation == RenderImplementationForTesting::kCandidate)) {
   g_render_implementation = implementation;
 }
@@ -203,6 +206,7 @@ ScopedRenderImplementationForTesting::ScopedRenderImplementationForTesting(
 ScopedRenderImplementationForTesting::~ScopedRenderImplementationForTesting() {
   pdfium::rust::SetUseRustRenderCandidateForTesting(previous_core_candidate_);
   fxge::SetUseRustAggCandidateForTesting(previous_agg_candidate_);
+  fxge::SetUseRustGlyphCandidateForTesting(previous_glyph_candidate_);
   g_render_implementation = previous_;
 }
 

@@ -19,6 +19,7 @@
 #include "core/fxge/cfx_glyphbitmap.h"
 #include "core/fxge/cfx_path.h"
 #include "core/fxge/cfx_substfont.h"
+#include "core/fxge/freetype/rust/rust_glyph_adapter.h"
 #include "core/fxge/fx_font.h"
 
 #if BUILDFLAG(IS_APPLE)
@@ -69,6 +70,33 @@ UniqueKeyGen::UniqueKeyGen(const CFX_Font* font,
   int nMatrixC = static_cast<int>(matrix.c * 10000);
   int nMatrixD = static_cast<int>(matrix.d * 10000);
 
+#if !BUILDFLAG(IS_APPLE)
+  CHECK(!bNative);
+#endif
+
+  const CFX_SubstFont* substitution = font->GetSubstFont();
+  if (fxge::UseRustGlyphCandidate()) {
+    const auto key_len = fxge::RustFillGlyphCacheKey(
+        fxge::GlyphCacheKeyInputs{
+            .matrix_a = nMatrixA,
+            .matrix_b = nMatrixB,
+            .matrix_c = nMatrixC,
+            .matrix_d = nMatrixD,
+            .destination_width = dest_width,
+            .anti_alias = fxcrt::to_underlying(anti_alias),
+            .has_substitution = !!substitution,
+            .weight = substitution ? substitution->GetWeight() : 0,
+            .italic_angle = substitution ? substitution->GetItalicAngle() : 0,
+            .vertical = font->IsVertical(),
+            .native_text = bNative,
+        },
+        key_);
+    if (key_len.has_value()) {
+      key_len_ = *key_len;
+      return;
+    }
+  }
+
 #if BUILDFLAG(IS_APPLE)
   if (bNative) {
     if (font->GetSubstFont()) {
@@ -84,7 +112,6 @@ UniqueKeyGen::UniqueKeyGen(const CFX_Font* font,
   }
 #endif
 
-  CHECK(!bNative);
   if (font->GetSubstFont()) {
     Initialize({nMatrixA, nMatrixB, nMatrixC, nMatrixD, dest_width,
                 fxcrt::to_underlying(anti_alias),

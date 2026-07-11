@@ -37,6 +37,7 @@ class ScopedRenderImplementationForTesting final {
   RenderImplementationForTesting previous_;
   bool previous_core_candidate_;
   bool previous_agg_candidate_;
+  bool previous_glyph_candidate_;
 };
 
 void CPDFSDK_RenderPage(CPDF_PageRenderContext* context,
