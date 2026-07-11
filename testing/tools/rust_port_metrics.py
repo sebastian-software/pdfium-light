@@ -38,6 +38,7 @@ ACTIVE_SURFACES = (
     "byte and bit mask row compositing",
     "1-bit and 8-bit palette row compositing",
     "Adobe CMYK scalar and row conversion",
+    "BGRA bitmap alpha mutations",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 
