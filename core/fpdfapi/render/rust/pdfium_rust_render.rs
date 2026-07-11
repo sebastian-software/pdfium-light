@@ -69,6 +69,10 @@ const TEXT_PLAN_NORMAL: u8 = 3;
 const TEXT_PLAN_FILL: u8 = 1 << 0;
 const TEXT_PLAN_STROKE: u8 = 1 << 1;
 const TEXT_PLAN_CLIP: u8 = 1 << 2;
+const TEXT_PATH_OPTION_STROKE: u8 = 1 << 0;
+const TEXT_PATH_OPTION_STROKE_TEXT_MODE: u8 = 1 << 1;
+const TEXT_PATH_OPTION_ADJUST_STROKE: u8 = 1 << 2;
+const TEXT_PATH_OPTION_ALIASED: u8 = 1 << 3;
 
 type RenderLayerCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
 
@@ -284,6 +288,25 @@ fn text_uses_path_backend(is_clip: bool, is_stroke: bool) -> bool {
 
 fn text_needs_device_matrix_adjustment(is_stroke: bool, ctm_a: f32, ctm_d: f32) -> bool {
     is_stroke && (ctm_a != 1.0 || ctm_d != 1.0)
+}
+
+fn build_text_path_fill_options(
+    is_stroke: bool,
+    is_fill: bool,
+    stroke_adjust: bool,
+    no_text_smooth: bool,
+) -> u8 {
+    let mut bits = 0;
+    if is_stroke && is_fill {
+        bits |= TEXT_PATH_OPTION_STROKE | TEXT_PATH_OPTION_STROKE_TEXT_MODE;
+    }
+    if stroke_adjust {
+        bits |= TEXT_PATH_OPTION_ADJUST_STROKE;
+    }
+    if no_text_smooth {
+        bits |= TEXT_PATH_OPTION_ALIASED;
+    }
+    bits
 }
 
 /// Builds a compact render request plan from the supported public flags.
@@ -628,6 +651,29 @@ pub unsafe extern "C" fn pdfium_rust_text_needs_device_matrix_adjustment(
     // SAFETY: The caller guarantees one writable bool output.
     unsafe {
         *output = text_needs_device_matrix_adjustment(is_stroke, ctm_a, ctm_d);
+    }
+    true
+}
+
+/// Builds the retained path-text fill options from scalar text state.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u8` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_text_path_fill_options(
+    is_stroke: bool,
+    is_fill: bool,
+    stroke_adjust: bool,
+    no_text_smooth: bool,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller guarantees one writable byte output.
+    unsafe {
+        *output = build_text_path_fill_options(is_stroke, is_fill, stroke_adjust, no_text_smooth);
     }
     true
 }
@@ -1059,5 +1105,18 @@ mod tests {
         assert!(!text_needs_device_matrix_adjustment(true, 1.0, 1.0));
         assert!(text_needs_device_matrix_adjustment(true, 2.0, 1.0));
         assert!(text_needs_device_matrix_adjustment(true, -0.0, f32::NAN));
+    }
+
+    #[test]
+    fn text_path_options_should_preserve_combined_stroke_semantics() {
+        assert_eq!(0, build_text_path_fill_options(true, false, false, false));
+        assert_eq!(
+            TEXT_PATH_OPTION_STROKE | TEXT_PATH_OPTION_STROKE_TEXT_MODE,
+            build_text_path_fill_options(true, true, false, false)
+        );
+        assert_eq!(
+            TEXT_PATH_OPTION_ADJUST_STROKE | TEXT_PATH_OPTION_ALIASED,
+            build_text_path_fill_options(false, true, true, true)
+        );
     }
 }

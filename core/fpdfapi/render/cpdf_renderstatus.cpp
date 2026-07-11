@@ -1062,13 +1062,20 @@ bool CPDF_RenderStatus::ProcessText(CPDF_TextObject* textobj,
         pDeviceMatrix = &device_matrix;
       }
     }
+    const auto rust_fill_options =
+        pdfium::rust::UseRustRenderCandidate()
+            ? pdfium::rust::BuildRustTextPathFillOptions(
+                  is_stroke, is_fill,
+                  textobj->general_state().GetStrokeAdjust(),
+                  options_.GetOptions().bNoTextSmooth)
+            : std::nullopt;
     return CPDF_TextRenderer::DrawTextPath(
         device_, textobj->GetCharCodes(), textobj->GetCharPositions(),
         pFont.Get(), font_size, text_matrix, pDeviceMatrix,
         textobj->graph_state().GetObject(), fill_argb, stroke_argb,
         clipping_path,
-        GetFillOptionsForDrawTextPath(options_.GetOptions(), textobj, is_stroke,
-                                      is_fill));
+        rust_fill_options.value_or(GetFillOptionsForDrawTextPath(
+            options_.GetOptions(), textobj, is_stroke, is_fill)));
   }
   text_matrix.Concat(mtObj2Device);
   return CPDF_TextRenderer::DrawNormalText(

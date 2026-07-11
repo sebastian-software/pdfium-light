@@ -78,6 +78,12 @@ extern "C" bool pdfium_rust_text_needs_device_matrix_adjustment(
     float ctm_a,
     float ctm_d,
     bool* output);
+extern "C" bool pdfium_rust_build_text_path_fill_options(
+    bool is_stroke,
+    bool is_fill,
+    bool stroke_adjust,
+    bool no_text_smooth,
+    uint8_t* output);
 
 thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
@@ -362,6 +368,25 @@ std::optional<bool> RustTextNeedsDeviceMatrixAdjustment(bool is_stroke,
     return std::nullopt;
   }
   return needs_adjustment;
+}
+
+std::optional<CFX_FillRenderOptions> BuildRustTextPathFillOptions(
+    bool is_stroke,
+    bool is_fill,
+    bool stroke_adjust,
+    bool no_text_smooth) {
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_text_path_fill_options(
+          is_stroke, is_fill, stroke_adjust, no_text_smooth, &bits) ||
+      (bits & ~0x0fu) != 0) {
+    return std::nullopt;
+  }
+  CFX_FillRenderOptions options;
+  options.stroke = bits & 1u;
+  options.stroke_text_mode = bits & 2u;
+  options.adjust_stroke = bits & 4u;
+  options.aliased_path = bits & 8u;
+  return options;
 }
 
 ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(

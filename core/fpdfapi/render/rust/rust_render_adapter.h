@@ -184,6 +184,11 @@ std::optional<bool> RustTextUsesPathBackend(bool is_clip, bool is_stroke);
 std::optional<bool> RustTextNeedsDeviceMatrixAdjustment(bool is_stroke,
                                                         float ctm_a,
                                                         float ctm_d);
+std::optional<CFX_FillRenderOptions> BuildRustTextPathFillOptions(
+    bool is_stroke,
+    bool is_fill,
+    bool stroke_adjust,
+    bool no_text_smooth);
 
 class ScopedRenderTraceForTesting final {
  public:
