@@ -521,16 +521,29 @@ fn composite_rect(
             let Some(scanline) = buffer.get_mut(row_start..row_end) else {
                 return false;
             };
-            for column in rect.left..rect.right {
-                let Some(byte) = scanline.get_mut(column / 8) else {
-                    return false;
-                };
-                let mask = 1 << (7 - column % 8);
+            let left_index = rect.left / 8;
+            let right_index = rect.right / 8;
+            if right_index >= scanline.len() {
+                return false;
+            }
+            let left_shift = rect.left % 8;
+            let right_shift = rect.right % 8;
+            let left_flag = scanline[left_index] & ((0xff_u16 << (8 - left_shift)) as u8);
+            let right_flag = scanline[right_index] & (0xff_u8 >> right_shift);
+            let byte_width = right_index - left_index;
+            if byte_width != 0 {
+                scanline[left_index + 1..right_index].fill(if index == 0 { 0 } else { 0xff });
                 if index == 0 {
-                    *byte &= !mask;
+                    scanline[left_index] &= left_flag;
+                    scanline[right_index] &= right_flag;
                 } else {
-                    *byte |= mask;
+                    scanline[left_index] |= !left_flag;
+                    scanline[right_index] |= !right_flag;
                 }
+            } else if index == 0 {
+                scanline[left_index] &= left_flag | right_flag;
+            } else {
+                scanline[left_index] |= !(left_flag | right_flag);
             }
         }
         return true;
@@ -2154,6 +2167,22 @@ mod tests {
             0x8042_a7e1,
         ));
         assert_eq!([225, 167, 66, 128, 162, 138, 92, 255], buffer);
+    }
+
+    #[test]
+    fn composite_rect_should_preserve_1bpp_boundary_byte_masks() {
+        let mut buffer = [0x13, 0, 0, 0];
+        assert!(composite_rect(
+            &mut buffer,
+            9,
+            1,
+            4,
+            0x101,
+            &[],
+            BitmapRect { left: 1, top: 0, right: 6, bottom: 1 },
+            0xffff_ffff,
+        ));
+        assert_eq!([0xff, 0, 0, 0], buffer);
     }
 
     #[test]
