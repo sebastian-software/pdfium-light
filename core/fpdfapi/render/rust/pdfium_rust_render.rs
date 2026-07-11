@@ -308,6 +308,24 @@ pub unsafe extern "C" fn pdfium_rust_run_render_layers(
 mod tests {
     use super::*;
 
+    struct LayerLoopState {
+        visited: [u32; 4],
+        visited_count: usize,
+        stop_at: Option<u32>,
+    }
+
+    unsafe extern "C" fn record_render_layer(
+        context: *mut core::ffi::c_void,
+        layer_index: u32,
+    ) -> bool {
+        // SAFETY: The tests pass a unique, live `LayerLoopState` pointer for
+        // the complete callback loop.
+        let state = unsafe { &mut *context.cast::<LayerLoopState>() };
+        state.visited[state.visited_count] = layer_index;
+        state.visited_count += 1;
+        state.stop_at == Some(layer_index)
+    }
+
     #[test]
     fn request_plan_should_map_every_supported_flag() {
         let flags = FPDF_ANNOT
@@ -468,5 +486,52 @@ mod tests {
         assert!(!unsafe {
             pdfium_rust_build_render_layer_completion(false, false, core::ptr::null_mut())
         });
+    }
+
+    #[test]
+    fn render_layer_loop_should_visit_in_order_and_stop() {
+        let mut all_layers =
+            LayerLoopState { visited: [u32::MAX; 4], visited_count: 0, stop_at: None };
+        // SAFETY: The context points to `all_layers` for the complete call and
+        // the callback accepts every generated index.
+        assert!(unsafe {
+            pdfium_rust_run_render_layers(
+                3,
+                (&mut all_layers as *mut LayerLoopState).cast(),
+                Some(record_render_layer),
+            )
+        });
+        assert_eq!(3, all_layers.visited_count);
+        assert_eq!([0, 1, 2], all_layers.visited[..3]);
+
+        let mut stopped =
+            LayerLoopState { visited: [u32::MAX; 4], visited_count: 0, stop_at: Some(1) };
+        // SAFETY: The context points to `stopped` for the complete call and
+        // the callback accepts every generated index.
+        assert!(unsafe {
+            pdfium_rust_run_render_layers(
+                4,
+                (&mut stopped as *mut LayerLoopState).cast(),
+                Some(record_render_layer),
+            )
+        });
+        assert_eq!(2, stopped.visited_count);
+        assert_eq!([0, 1], stopped.visited[..2]);
+    }
+
+    #[test]
+    fn render_layer_loop_should_reject_invalid_boundaries() {
+        let mut state = LayerLoopState { visited: [u32::MAX; 4], visited_count: 0, stop_at: None };
+        // SAFETY: A null context is explicitly supported and rejected before
+        // invoking the valid callback.
+        assert!(!unsafe {
+            pdfium_rust_run_render_layers(1, core::ptr::null_mut(), Some(record_render_layer))
+        });
+        // SAFETY: A missing callback is explicitly supported and rejected
+        // before reading the valid context.
+        assert!(!unsafe {
+            pdfium_rust_run_render_layers(1, (&mut state as *mut LayerLoopState).cast(), None)
+        });
+        assert_eq!(0, state.visited_count);
     }
 }
