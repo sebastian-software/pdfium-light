@@ -132,6 +132,22 @@ extern "C" bool pdfium_rust_calculate_stretch_weights(
     size_t output_len,
     size_t* item_size_output,
     size_t* table_size_output);
+extern "C" bool pdfium_rust_stretch_horizontal_row(
+    uint8_t transform_method,
+    uint16_t destination_format,
+    size_t components,
+    const uint8_t* source,
+    size_t source_len,
+    const uint32_t* palette,
+    size_t palette_len,
+    const uint8_t* weight_table,
+    size_t weight_table_len,
+    size_t item_size,
+    int32_t destination_minimum,
+    int32_t destination_left,
+    int32_t destination_right,
+    uint8_t* output,
+    size_t output_len);
 extern "C" bool pdfium_rust_clear_bitmap(uint8_t* buffer,
                                           size_t buffer_len,
                                           size_t width,
@@ -635,6 +651,26 @@ RustBlendAdapter::CalculateStretchWeights(
     return std::nullopt;
   }
   return sizes;
+}
+
+// static
+bool RustBlendAdapter::StretchHorizontalRow(
+    uint8_t transform_method,
+    FXDIB_Format destination_format,
+    size_t components,
+    pdfium::span<const uint8_t> source,
+    pdfium::span<const uint32_t> palette,
+    pdfium::span<const uint8_t> weight_table,
+    size_t item_size,
+    int destination_minimum,
+    int destination_left,
+    int destination_right,
+    pdfium::span<uint8_t> output) {
+  return pdfium_rust_stretch_horizontal_row(
+      transform_method, static_cast<uint16_t>(destination_format), components,
+      source.data(), source.size(), palette.data(), palette.size(),
+      weight_table.data(), weight_table.size(), item_size, destination_minimum,
+      destination_left, destination_right, output.data(), output.size());
 }
 
 // static

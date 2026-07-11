@@ -113,6 +113,18 @@ class RustBlendAdapter final {
       bool no_smoothing,
       bool bilinear,
       pdfium::span<uint8_t> output);
+  static bool StretchHorizontalRow(
+      uint8_t transform_method,
+      FXDIB_Format destination_format,
+      size_t components,
+      pdfium::span<const uint8_t> source,
+      pdfium::span<const uint32_t> palette,
+      pdfium::span<const uint8_t> weight_table,
+      size_t item_size,
+      int destination_minimum,
+      int destination_left,
+      int destination_right,
+      pdfium::span<uint8_t> output);
   static bool ClearBitmap(pdfium::span<uint8_t> buffer,
                           int width,
                           int height,

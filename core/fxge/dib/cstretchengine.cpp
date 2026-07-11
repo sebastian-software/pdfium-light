@@ -354,9 +354,20 @@ bool CStretchEngine::ContinueStretchHorz(PauseIndicatorIface* pPause) {
       rows_to_go = kStrechPauseRows;
     }
 
-    const uint8_t* src_scan = source_->GetScanline(cur_row_).data();
+    const auto source_scanline = source_->GetScanline(cur_row_);
+    const uint8_t* src_scan = source_scanline.data();
     pdfium::span<uint8_t> dest_span = inter_buf_.subspan(
         (cur_row_ - src_clip_.top) * inter_pitch_, inter_pitch_);
+    if (fxge::RustBlendAdapter::UseCandidate() &&
+        fxge::RustBlendAdapter::StretchHorizontalRow(
+            static_cast<uint8_t>(trans_method_), dest_format_, Bpp,
+            source_scanline, src_palette_, weight_table_.GetRawTableForRust(),
+            weight_table_.GetItemSizeForRust(),
+            weight_table_.GetDestinationMinimumForRust(), dest_clip_.left,
+            dest_clip_.right, dest_span)) {
+      rows_to_go--;
+      continue;
+    }
     size_t dest_span_index = 0;
     // TODO(npm): reduce duplicated code here
     switch (trans_method_) {

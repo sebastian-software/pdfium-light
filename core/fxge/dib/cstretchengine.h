@@ -105,6 +105,12 @@ class CStretchEngine {
     const PixelWeight* GetPixelWeight(int pixel) const;
     PixelWeight* GetPixelWeight(int pixel);
 
+    pdfium::span<const uint8_t> GetRawTableForRust() const {
+      return weight_tables_;
+    }
+    size_t GetItemSizeForRust() const { return item_size_bytes_; }
+    int GetDestinationMinimumForRust() const { return dest_min_; }
+
    private:
     int dest_min_ = 0;
     size_t item_size_bytes_ = 0;

@@ -442,6 +442,16 @@ fn read_native_u32(bytes: &[u8], index: usize) -> Option<u32> {
     Some(u32::from_ne_bytes(bytes.get(offset..end)?.try_into().ok()?))
 }
 
+fn read_native_i32_at(bytes: &[u8], offset: usize) -> Option<i32> {
+    let end = offset.checked_add(4)?;
+    Some(i32::from_ne_bytes(bytes.get(offset..end)?.try_into().ok()?))
+}
+
+fn read_native_u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
+    let end = offset.checked_add(4)?;
+    Some(u32::from_ne_bytes(bytes.get(offset..end)?.try_into().ok()?))
+}
+
 fn write_native_i32(bytes: &mut [u8], offset: usize, value: i32) -> bool {
     let Some(end) = offset.checked_add(4) else {
         return false;
@@ -743,6 +753,258 @@ pub unsafe extern "C" fn pdfium_rust_calculate_stretch_weights(
         &mut output[..table_size],
         weight_count,
         item_size,
+    )
+}
+
+struct StretchPixelWeights<'a> {
+    source_start: i32,
+    source_end: i32,
+    item: &'a [u8],
+}
+
+impl StretchPixelWeights<'_> {
+    fn weight(&self, position: i32) -> Option<u32> {
+        let index = usize::try_from(position.checked_sub(self.source_start)?).ok()?;
+        read_native_u32_at(self.item, 8usize.checked_add(index.checked_mul(4)?)?)
+    }
+}
+
+fn stretch_pixel_weights<'a>(
+    table: &'a [u8],
+    item_size: usize,
+    destination_minimum: i32,
+    destination_pixel: i32,
+) -> Option<StretchPixelWeights<'a>> {
+    if item_size < 12 {
+        return None;
+    }
+    let item_index = usize::try_from(destination_pixel.checked_sub(destination_minimum)?).ok()?;
+    let item_offset = item_index.checked_mul(item_size)?;
+    let item = table.get(item_offset..item_offset.checked_add(item_size)?)?;
+    let source_start = read_native_i32_at(item, 0)?;
+    let source_end = read_native_i32_at(item, 4)?;
+    let range = source_end.checked_sub(source_start)?;
+    if range >= i32::try_from((item_size - 8) / 4).ok()? {
+        return None;
+    }
+    Some(StretchPixelWeights { source_start, source_end, item })
+}
+
+fn pixel_from_fixed(value: u32) -> u8 {
+    (value >> 16) as u8
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the row helper mirrors all six retained stretch transform methods"
+)]
+fn stretch_horizontal_row(
+    transform_method: u8,
+    destination_format: u16,
+    components: usize,
+    source: &[u8],
+    palette: &[u32],
+    weight_table: &[u8],
+    item_size: usize,
+    destination_minimum: i32,
+    destination_left: i32,
+    destination_right: i32,
+    output: &mut [u8],
+) -> bool {
+    let Some(destination_width) = destination_right.checked_sub(destination_left) else {
+        return false;
+    };
+    let Ok(destination_width) = usize::try_from(destination_width) else {
+        return false;
+    };
+    let required_output = match transform_method {
+        0..=2 => Some(destination_width),
+        3 => destination_width.checked_mul(3),
+        4 | 5 => destination_width.checked_mul(components),
+        _ => return false,
+    };
+    let Some(required_output) = required_output else {
+        return false;
+    };
+    if output.len() < required_output || !matches!(components, 1 | 3 | 4) {
+        return false;
+    }
+
+    let mut output_index = 0;
+    for destination_pixel in destination_left..destination_right {
+        let Some(weights) =
+            stretch_pixel_weights(weight_table, item_size, destination_minimum, destination_pixel)
+        else {
+            return false;
+        };
+        match transform_method {
+            0 | 1 => {
+                let mut destination_alpha = 0_u32;
+                for source_pixel in weights.source_start..=weights.source_end {
+                    let Ok(source_pixel) = usize::try_from(source_pixel) else {
+                        return false;
+                    };
+                    let Some(source_byte) = source.get(source_pixel / 8) else {
+                        return false;
+                    };
+                    if source_byte & (1 << (7 - source_pixel % 8)) != 0 {
+                        let Some(weight) = weights.weight(source_pixel as i32) else {
+                            return false;
+                        };
+                        destination_alpha += weight * 255;
+                    }
+                }
+                output[output_index] = pixel_from_fixed(destination_alpha);
+                output_index += 1;
+            }
+            2 => {
+                let mut destination_alpha = 0_u32;
+                for source_pixel in weights.source_start..=weights.source_end {
+                    let Ok(source_index) = usize::try_from(source_pixel) else {
+                        return false;
+                    };
+                    let Some(source_value) = source.get(source_index) else {
+                        return false;
+                    };
+                    let Some(weight) = weights.weight(source_pixel) else {
+                        return false;
+                    };
+                    destination_alpha += weight * u32::from(*source_value);
+                }
+                output[output_index] = pixel_from_fixed(destination_alpha);
+                output_index += 1;
+            }
+            3 => {
+                let mut destination_red = 0_u32;
+                let mut destination_green = 0_u32;
+                let mut destination_blue = 0_u32;
+                for source_pixel in weights.source_start..=weights.source_end {
+                    let Ok(source_index) = usize::try_from(source_pixel) else {
+                        return false;
+                    };
+                    let Some(palette_index) = source.get(source_index) else {
+                        return false;
+                    };
+                    let Some(argb) = palette.get(usize::from(*palette_index)) else {
+                        return false;
+                    };
+                    let Some(weight) = weights.weight(source_pixel) else {
+                        return false;
+                    };
+                    if destination_format == 0x018 {
+                        destination_red += weight * u32::from((argb >> 16) as u8);
+                        destination_green += weight * u32::from((argb >> 8) as u8);
+                        destination_blue += weight * u32::from(*argb as u8);
+                    } else {
+                        destination_blue += weight * u32::from((argb >> 24) as u8);
+                        destination_green += weight * u32::from((argb >> 16) as u8);
+                        destination_red += weight * u32::from((argb >> 8) as u8);
+                    }
+                }
+                output[output_index] = pixel_from_fixed(destination_blue);
+                output[output_index + 1] = pixel_from_fixed(destination_green);
+                output[output_index + 2] = pixel_from_fixed(destination_red);
+                output_index += 3;
+            }
+            4 | 5 => {
+                if components < 3 || (transform_method == 5 && components != 4) {
+                    return false;
+                }
+                let mut destination_alpha = 0_u32;
+                let mut destination_red = 0_u32;
+                let mut destination_green = 0_u32;
+                let mut destination_blue = 0_u32;
+                for source_position in weights.source_start..=weights.source_end {
+                    let Ok(source_index) = usize::try_from(source_position) else {
+                        return false;
+                    };
+                    let Some(source_offset) = source_index.checked_mul(components) else {
+                        return false;
+                    };
+                    let Some(source_end) = source_offset.checked_add(components) else {
+                        return false;
+                    };
+                    let Some(source_pixel) = source.get(source_offset..source_end) else {
+                        return false;
+                    };
+                    let Some(mut weight) = weights.weight(source_position) else {
+                        return false;
+                    };
+                    if transform_method == 5 {
+                        weight = weight * u32::from(source_pixel[3]) / 255;
+                        destination_alpha += weight;
+                    }
+                    destination_blue += weight * u32::from(source_pixel[0]);
+                    destination_green += weight * u32::from(source_pixel[1]);
+                    destination_red += weight * u32::from(source_pixel[2]);
+                }
+                output[output_index] = pixel_from_fixed(destination_blue);
+                output[output_index + 1] = pixel_from_fixed(destination_green);
+                output[output_index + 2] = pixel_from_fixed(destination_red);
+                if transform_method == 5 {
+                    output[output_index + 3] = pixel_from_fixed(255 * destination_alpha);
+                }
+                output_index += components;
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Horizontally stretches one source row into the C++-owned intermediate row.
+///
+/// # Safety
+///
+/// All pointers must cover their supplied lengths. Output must not overlap any
+/// input region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_stretch_horizontal_row(
+    transform_method: u8,
+    destination_format: u16,
+    components: usize,
+    source: *const u8,
+    source_len: usize,
+    palette: *const u32,
+    palette_len: usize,
+    weight_table: *const u8,
+    weight_table_len: usize,
+    item_size: usize,
+    destination_minimum: i32,
+    destination_left: i32,
+    destination_right: i32,
+    output: *mut u8,
+    output_len: usize,
+) -> bool {
+    if source.is_null()
+        || weight_table.is_null()
+        || output.is_null()
+        || (palette_len != 0 && palette.is_null())
+    {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees each region for its supplied
+    // length and forbids output/input overlap.
+    let (source, palette, weight_table, output) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            if palette_len == 0 { &[] } else { slice::from_raw_parts(palette, palette_len) },
+            slice::from_raw_parts(weight_table, weight_table_len),
+            slice::from_raw_parts_mut(output, output_len),
+        )
+    };
+    stretch_horizontal_row(
+        transform_method,
+        destination_format,
+        components,
+        source,
+        palette,
+        weight_table,
+        item_size,
+        destination_minimum,
+        destination_left,
+        destination_right,
+        output,
     )
 }
 
