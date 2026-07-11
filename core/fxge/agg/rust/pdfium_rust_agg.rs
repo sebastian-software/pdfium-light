@@ -184,4 +184,102 @@ mod tests {
             )
         });
     }
+
+    #[test]
+    fn stroke_plan_should_map_caps_joins_and_miter_limit() {
+        let cases = [
+            (LINE_CAP_BUTT, LINE_JOIN_MITER),
+            (LINE_CAP_ROUND, LINE_JOIN_ROUND),
+            (LINE_CAP_SQUARE, LINE_JOIN_BEVEL),
+            (u8::MAX, u8::MAX),
+        ];
+        for (line_cap, line_join) in cases {
+            let plan = plan_stroke(StrokeInputs {
+                line_cap,
+                line_join,
+                line_width: 2.0,
+                scale: 1.0,
+                has_object_to_device: false,
+                object_x_unit: 0.0,
+                object_y_unit: 0.0,
+                miter_limit: 7.5,
+            });
+            assert_eq!(
+                plan.line_cap,
+                if line_cap <= LINE_CAP_SQUARE { line_cap } else { LINE_CAP_BUTT }
+            );
+            assert_eq!(
+                plan.line_join,
+                if line_join <= LINE_JOIN_BEVEL { line_join } else { LINE_JOIN_MITER }
+            );
+            assert_eq!(plan.miter_limit, 7.5);
+        }
+    }
+
+    #[test]
+    fn stroke_plan_should_preserve_width_floor_and_nonfinite_semantics() {
+        let without_matrix = plan_stroke(StrokeInputs {
+            line_cap: LINE_CAP_BUTT,
+            line_join: LINE_JOIN_MITER,
+            line_width: 0.25,
+            scale: 2.0,
+            has_object_to_device: false,
+            object_x_unit: 0.0,
+            object_y_unit: 0.0,
+            miter_limit: 1.0,
+        });
+        assert_eq!(without_matrix.width, 1.0);
+
+        let with_matrix = plan_stroke(StrokeInputs {
+            line_width: 0.25,
+            has_object_to_device: true,
+            object_x_unit: 0.25,
+            object_y_unit: 0.75,
+            ..StrokeInputs {
+                line_cap: LINE_CAP_BUTT,
+                line_join: LINE_JOIN_MITER,
+                line_width: 0.0,
+                scale: 2.0,
+                has_object_to_device: false,
+                object_x_unit: 0.0,
+                object_y_unit: 0.0,
+                miter_limit: 1.0,
+            }
+        });
+        assert_eq!(with_matrix.width, 2.0);
+
+        let nan_width = plan_stroke(StrokeInputs {
+            line_width: f32::NAN,
+            ..StrokeInputs {
+                line_cap: LINE_CAP_BUTT,
+                line_join: LINE_JOIN_MITER,
+                line_width: 0.0,
+                scale: 1.0,
+                has_object_to_device: false,
+                object_x_unit: 0.0,
+                object_y_unit: 0.0,
+                miter_limit: 1.0,
+            }
+        });
+        assert!(nan_width.width.is_nan());
+    }
+
+    #[test]
+    fn stroke_plan_ffi_should_reject_null_output() {
+        // SAFETY: A null output is explicitly supported and rejected before
+        // any write occurs.
+        assert!(!unsafe {
+            pdfium_rust_plan_agg_stroke(
+                LINE_CAP_BUTT,
+                LINE_JOIN_MITER,
+                1.0,
+                1.0,
+                false,
+                0.0,
+                0.0,
+                1.0,
+                core::ptr::null_mut(),
+            )
+        });
+    }
 }

@@ -354,6 +354,7 @@ void RasterizeStroke(agg::rasterizer_scanline_aa* rasterizer,
           : std::nullopt;
   const fxge::AggStrokePlan stroke_plan =
       rust_stroke_plan.has_value() ? *rust_stroke_plan : plan_stroke_cpp();
+  fxge::RecordAggStrokePlanForTesting(stroke_plan);
   const agg::line_cap_e cap =
       stroke_plan.line_cap == fxge::AggLineCap::kRound    ? agg::round_cap
       : stroke_plan.line_cap == fxge::AggLineCap::kSquare ? agg::square_cap

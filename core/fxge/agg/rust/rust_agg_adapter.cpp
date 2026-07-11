@@ -4,6 +4,8 @@
 
 #include "core/fxge/agg/rust/rust_agg_adapter.h"
 
+#include <bit>
+
 namespace {
 
 struct RustAggStrokePlan {
@@ -95,7 +97,23 @@ ScopedAggTraceForTesting::~ScopedAggTraceForTesting() {
 
 void RecordAggDashDecisionForTesting(bool should_apply) {
   if (g_agg_trace_for_testing) {
+    g_agg_trace_for_testing->push_back(0x44);
     g_agg_trace_for_testing->push_back(static_cast<uint8_t>(should_apply));
+  }
+}
+
+void RecordAggStrokePlanForTesting(const AggStrokePlan& plan) {
+  if (!g_agg_trace_for_testing) {
+    return;
+  }
+  g_agg_trace_for_testing->push_back(0x53);
+  g_agg_trace_for_testing->push_back(static_cast<uint8_t>(plan.line_cap));
+  g_agg_trace_for_testing->push_back(static_cast<uint8_t>(plan.line_join));
+  for (float value : {plan.width, plan.miter_limit}) {
+    const uint32_t bits = std::bit_cast<uint32_t>(value);
+    for (int shift = 0; shift < 32; shift += 8) {
+      g_agg_trace_for_testing->push_back(static_cast<uint8_t>(bits >> shift));
+    }
   }
 }
 

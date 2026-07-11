@@ -52,6 +52,7 @@ class ScopedAggTraceForTesting final {
 };
 
 void RecordAggDashDecisionForTesting(bool should_apply);
+void RecordAggStrokePlanForTesting(const AggStrokePlan& plan);
 
 }  // namespace fxge
 
