@@ -2141,6 +2141,22 @@ mod tests {
     }
 
     #[test]
+    fn composite_rect_should_preserve_bgra_alpha_semantics() {
+        let mut buffer = [10, 20, 30, 0, 100, 110, 120, 255];
+        assert!(composite_rect(
+            &mut buffer,
+            2,
+            1,
+            8,
+            0x220,
+            &[],
+            BitmapRect { left: 0, top: 0, right: 2, bottom: 1 },
+            0x8042_a7e1,
+        ));
+        assert_eq!([225, 167, 66, 128, 162, 138, 92, 255], buffer);
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(

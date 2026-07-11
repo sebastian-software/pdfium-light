@@ -453,3 +453,64 @@ TEST(CFXDIBitmapTest, RustOneBppMaskCompositeMatchesCppReference) {
         << " source_top=" << composite.source_top;
   }
 }
+
+TEST(CFXDIBitmapTest, RustCompositeRectMatchesCppReferenceAcrossFormats) {
+  struct FormatCase {
+    FXDIB_Format format;
+    bool custom_palette;
+  };
+  static constexpr std::array<FormatCase, 8> kFormats = {
+      FormatCase{FXDIB_Format::k1bppMask, false},
+      FormatCase{FXDIB_Format::k1bppRgb, false},
+      FormatCase{FXDIB_Format::k1bppRgb, true},
+      FormatCase{FXDIB_Format::k8bppMask, false},
+      FormatCase{FXDIB_Format::k8bppRgb, false},
+      FormatCase{FXDIB_Format::kBgr, false},
+      FormatCase{FXDIB_Format::kBgrx, false},
+      FormatCase{FXDIB_Format::kBgra, false},
+  };
+  struct RectCase {
+    int left;
+    int top;
+    int width;
+    int height;
+  };
+  static constexpr std::array<RectCase, 3> kRects = {
+      RectCase{1, 1, 5, 2},
+      RectCase{-2, -1, 6, 4},
+      RectCase{7, 2, 9, 4},
+  };
+  static constexpr std::array<uint32_t, 4> kColors = {
+      0x00000000, 0xffffffff, 0xff4287e1, 0x8042a7e1};
+
+  for (const auto& format_case : kFormats) {
+    for (const auto& rect : kRects) {
+      for (const uint32_t color : kColors) {
+        auto reference = CreatePatternedBitmap(format_case.format, 9, 4);
+        auto candidate = CreatePatternedBitmap(format_case.format, 9, 4);
+        ASSERT_TRUE(reference);
+        ASSERT_TRUE(candidate);
+        if (format_case.custom_palette) {
+          reference->SetPaletteArgb(1, 0x8042a7e1);
+          candidate->SetPaletteArgb(1, 0x8042a7e1);
+        }
+        bool reference_result;
+        {
+          fxge::ScopedRustDibImplementationForTesting implementation(false);
+          reference_result = reference->CompositeRect(
+              rect.left, rect.top, rect.width, rect.height, color);
+        }
+        const bool candidate_result = candidate->CompositeRect(
+            rect.left, rect.top, rect.width, rect.height, color);
+        ASSERT_EQ(reference_result, candidate_result);
+        EXPECT_THAT(candidate->GetBuffer(),
+                    ElementsAreArray(reference->GetBuffer()))
+            << "format=" << static_cast<int>(format_case.format)
+            << " custom_palette=" << format_case.custom_palette
+            << " left=" << rect.left << " top=" << rect.top
+            << " width=" << rect.width << " height=" << rect.height
+            << " color=" << color;
+      }
+    }
+  }
+}
