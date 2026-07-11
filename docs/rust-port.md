@@ -60,6 +60,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `c6bc0bb76` Phase 1 bitmap-clip slice | 10,205 | 3,394 | 241 | 1,296 | 6,570 | 267,349 | 3.82% | 1.74% | Prior surfaces plus aligned 1-/8-/24-/32-bpp clipping and native-word shifted 1-bpp clipping |
 | `3708a4ab5` Phase 1 bitmap-copy slice | 10,245 | 3,434 | 241 | 1,310 | 6,570 | 267,457 | 3.83% | 1.76% | Prior surfaces plus complete scanline copies, including source padding, for every retained format |
 | `64b671193` Phase 1 stretch-weight slice | 10,594 | 3,783 | 241 | 1,355 | 6,570 | 267,944 | 3.95% | 1.94% | Prior surfaces plus bounded stretch-table layout and exact nearest, bilinear, area, clipped, and mirrored fixed-point weights |
+| `f1ec24da9` Phase 1 horizontal-stretch slice | 10,980 | 4,169 | 241 | 1,403 | 6,570 | 268,477 | 4.09% | 2.13% | Prior surfaces plus all six horizontal pixel transforms for mask, indexed, BGR, BGRx, and BGRA scanlines |
 
 ## Toolchain
 
@@ -196,6 +197,15 @@ source interval and 16.16 weight. The two-pass FFI first sizes and then fills
 the caller-owned byte table without Rust allocation. Forty exact differential
 configurations cover nearest, bilinear, area, no-smoothing, clipped-source,
 negative-destination mirror, zero-length, and invalid-range behavior.
+
+Rust also owns the complete horizontal scanline transform once per source row.
+The borrowed-span boundary covers the six retained transform methods: 1-bpp
+mask expansion, 1-bpp RGB expansion, 8-bpp copy, indexed palette conversion,
+opaque BGR/BGRx filtering, and alpha-weighted BGRA filtering. A same-process
+`StretchTo` corpus compares 108 combinations of all retained source formats,
+default and custom palettes, enlargement, reduction, horizontal and vertical
+mirroring, nearest, no-smoothing, and bilinear options byte for byte against
+the C++ reference. The vertical stretch pass remains C++-owned in this slice.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
