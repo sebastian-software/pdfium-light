@@ -125,6 +125,21 @@ extern "C" bool pdfium_rust_calculate_pitch_and_size(int32_t width,
                                                       uint32_t requested_pitch,
                                                       uint32_t* output_pitch,
                                                       uint32_t* output_size);
+extern "C" bool pdfium_rust_expand_1bpp_mask(const uint8_t* source,
+                                              size_t source_len,
+                                              size_t source_pitch,
+                                              uint8_t* destination,
+                                              size_t destination_len,
+                                              size_t destination_pitch,
+                                              size_t width,
+                                              size_t height);
+extern "C" bool pdfium_rust_populate_bitmap(const uint8_t* source,
+                                             size_t source_len,
+                                             size_t source_pitch,
+                                             uint8_t* destination,
+                                             size_t destination_len,
+                                             size_t destination_pitch,
+                                             size_t height);
 
 namespace {
 
@@ -508,6 +523,32 @@ RustBlendAdapter::CalculatePitchAndSize(int width,
     return std::nullopt;
   }
   return output;
+}
+
+// static
+bool RustBlendAdapter::Expand1bppMask(
+    pdfium::span<const uint8_t> source,
+    uint32_t source_pitch,
+    pdfium::span<uint8_t> destination,
+    uint32_t destination_pitch,
+    int width,
+    int height) {
+  return width > 0 && height > 0 &&
+         pdfium_rust_expand_1bpp_mask(
+             source.data(), source.size(), source_pitch, destination.data(),
+             destination.size(), destination_pitch, width, height);
+}
+
+// static
+bool RustBlendAdapter::PopulateBitmap(pdfium::span<const uint8_t> source,
+                                      uint32_t source_pitch,
+                                      pdfium::span<uint8_t> destination,
+                                      uint32_t destination_pitch,
+                                      int height) {
+  return height > 0 && pdfium_rust_populate_bitmap(
+                           source.data(), source.size(), source_pitch,
+                           destination.data(), destination.size(),
+                           destination_pitch, height);
 }
 
 // static

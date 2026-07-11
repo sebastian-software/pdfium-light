@@ -550,6 +550,104 @@ pub unsafe extern "C" fn pdfium_rust_calculate_pitch_and_size(
     true
 }
 
+/// Expands packed 1-bpp source rows into an 8-bpp mask bitmap.
+///
+/// # Safety
+///
+/// Source and destination must cover `pitch * height` bytes for their
+/// respective pitches and must not overlap. Source rows must contain at least
+/// `ceil(width / 8)` bytes; destination rows at least `width` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_expand_1bpp_mask(
+    source: *const u8,
+    source_len: usize,
+    source_pitch: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+    width: usize,
+    height: usize,
+) -> bool {
+    let Some(source_row_bytes) = width.checked_add(7).map(|value| value / 8) else {
+        return false;
+    };
+    let Some(required_source_len) = source_pitch.checked_mul(height) else {
+        return false;
+    };
+    let Some(required_destination_len) = destination_pitch.checked_mul(height) else {
+        return false;
+    };
+    if source.is_null()
+        || destination.is_null()
+        || source_pitch < source_row_bytes
+        || destination_pitch < width
+        || required_source_len > source_len
+        || required_destination_len > destination_len
+    {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The validated pitches and lengths cover every computed
+            // source bit and destination byte, and the regions do not overlap.
+            unsafe {
+                let source_byte = *source.add(row * source_pitch + column / 8);
+                *destination.add(row * destination_pitch + column) =
+                    if source_byte & (0x80 >> (column % 8)) == 0 { 0 } else { 255 };
+            }
+        }
+    }
+    true
+}
+
+/// Zeroes a destination bitmap and copies the shared prefix of each source row.
+///
+/// # Safety
+///
+/// Source and destination must cover `pitch * height` bytes for their
+/// respective pitches and must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_populate_bitmap(
+    source: *const u8,
+    source_len: usize,
+    source_pitch: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+    height: usize,
+) -> bool {
+    let Some(required_source_len) = source_pitch.checked_mul(height) else {
+        return false;
+    };
+    let Some(required_destination_len) = destination_pitch.checked_mul(height) else {
+        return false;
+    };
+    if source.is_null()
+        || destination.is_null()
+        || required_source_len > source_len
+        || required_destination_len > destination_len
+    {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees the complete writable region.
+    unsafe {
+        std::ptr::write_bytes(destination, 0, destination_len);
+    }
+    let row_bytes = source_pitch.min(destination_pitch);
+    for row in 0..height {
+        // SAFETY: The validated lengths cover both row prefixes and the
+        // source/destination regions do not overlap.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                source.add(row * source_pitch),
+                destination.add(row * destination_pitch),
+                row_bytes,
+            );
+        }
+    }
+    true
+}
+
 /// Copies each packed BGRA pixel's alpha channel into its red channel.
 ///
 /// # Safety

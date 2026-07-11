@@ -910,6 +910,11 @@ void CFX_DIBitmap::Populate8bbpMaskFrom1bppSpan(
   const uint32_t dest_pitch = GetPitch();
   pdfium::span<uint8_t> dest_span = GetWritableBuffer();
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::Expand1bppMask(
+          src_span, src_pitch, dest_span, dest_pitch, width, rows)) {
+    return;
+  }
   for (int i = 0; i < rows; i++) {
     for (int n = 0; n < width; n++) {
       dest_span[n] = (src_span[n / 8] & (0x80 >> (n % 8))) ? 255 : 0;
@@ -922,11 +927,16 @@ void CFX_DIBitmap::Populate8bbpMaskFrom1bppSpan(
 void CFX_DIBitmap::PopulateFromSpan(pdfium::span<const uint8_t> src_span,
                                     uint32_t src_pitch) {
   pdfium::span<uint8_t> dest_span = GetWritableBuffer();
-  std::ranges::fill(dest_span, 0);
   const int rows = GetHeight();
   const uint32_t dest_pitch = GetPitch();
   const uint32_t rowbytes = std::min(src_pitch, dest_pitch);
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::PopulateBitmap(src_span, src_pitch, dest_span,
+                                             dest_pitch, rows)) {
+    return;
+  }
+  std::ranges::fill(dest_span, 0);
   for (int row = 0; row < rows; row++) {
     fxcrt::spancpy(dest_span, src_span.first(rowbytes));
     dest_span = dest_span.subspan(dest_pitch);

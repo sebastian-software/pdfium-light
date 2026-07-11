@@ -110,6 +110,17 @@ class RustBlendAdapter final {
       int height,
       FXDIB_Format format,
       uint32_t requested_pitch);
+  static bool Expand1bppMask(pdfium::span<const uint8_t> source,
+                             uint32_t source_pitch,
+                             pdfium::span<uint8_t> destination,
+                             uint32_t destination_pitch,
+                             int width,
+                             int height);
+  static bool PopulateBitmap(pdfium::span<const uint8_t> source,
+                             uint32_t source_pitch,
+                             pdfium::span<uint8_t> destination,
+                             uint32_t destination_pitch,
+                             int height);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;
