@@ -934,4 +934,56 @@ mod tests {
             pdfium_rust_plan_agg_path_draw(1, 1, true, 0xffff_ffff, false, core::ptr::null_mut())
         });
     }
+
+    #[test]
+    fn stroke_matrix_plan_should_preserve_identity_and_regular_decomposition() {
+        let identity = plan_stroke_matrices(None);
+        assert_eq!(identity.path_matrix, Matrix::IDENTITY.as_array());
+        assert_eq!(identity.stroke_matrix, Matrix::IDENTITY.as_array());
+        assert_eq!(identity.scale, 1.0);
+
+        let plan =
+            plan_stroke_matrices(Some(Matrix { a: 2.0, b: 0.0, c: 0.0, d: 3.0, e: 10.0, f: 20.0 }));
+        assert_eq!(plan.stroke_matrix, [1.0, 0.0, 0.0, 1.5, 0.0, 0.0]);
+        assert_eq!(plan.path_matrix, [2.0, 0.0, 0.0, 3.0 * (1.0 / 1.5), 10.0, 20.0 * (1.0 / 1.5)]);
+        assert_eq!(plan.scale, 2.0);
+    }
+
+    #[test]
+    fn stroke_matrix_plan_should_preserve_singular_and_nan_semantics() {
+        let singular =
+            plan_stroke_matrices(Some(Matrix { a: 0.0, b: 0.0, c: 1.0, d: 1.0, e: 0.0, f: 0.0 }));
+        assert_eq!(singular.scale, 0.0);
+        assert!(singular.stroke_matrix[0].is_nan());
+        assert!(singular.stroke_matrix[2].is_infinite());
+        assert!(singular.path_matrix.iter().all(|value| value.is_nan()));
+
+        let nan_first_operand = plan_stroke_matrices(Some(Matrix {
+            a: f32::NAN,
+            b: 2.0,
+            c: 0.0,
+            d: 1.0,
+            e: 0.0,
+            f: 0.0,
+        }));
+        assert!(nan_first_operand.scale.is_nan());
+    }
+
+    #[test]
+    fn stroke_matrix_plan_ffi_should_reject_null_output() {
+        // SAFETY: A null output is explicitly supported and rejected before
+        // any write occurs.
+        assert!(!unsafe {
+            pdfium_rust_plan_agg_stroke_matrices(
+                false,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                core::ptr::null_mut(),
+            )
+        });
+    }
 }

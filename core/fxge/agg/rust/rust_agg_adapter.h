@@ -124,9 +124,11 @@ void RecordAggDashStartForTesting(float value);
 void RecordAggPathCommandForTesting(uint8_t command,
                                     pdfium::span<const float> coordinates);
 void RecordAggPathDrawPlanForTesting(const AggPathDrawPlan& plan);
+void RecordAggStrokeMatrixPlanForTesting(const AggStrokeMatrixPlan& plan);
 bool AggTraceHasDashValuesForTesting(pdfium::span<const uint8_t> trace);
 bool AggTraceHasPathCommandsForTesting(pdfium::span<const uint8_t> trace);
 bool AggTraceHasPathDrawPlansForTesting(pdfium::span<const uint8_t> trace);
+bool AggTraceHasStrokeMatrixPlansForTesting(pdfium::span<const uint8_t> trace);
 
 }  // namespace fxge
 

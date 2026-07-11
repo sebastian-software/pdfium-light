@@ -94,6 +94,8 @@ TEST_P(RustRendererParityEmbedderTest, CandidateMatchesCppReferenceExactly) {
   }
   if (test_case.name == "DashedLines") {
     EXPECT_TRUE(fxge::AggTraceHasDashValuesForTesting(reference_agg_trace));
+    EXPECT_TRUE(
+        fxge::AggTraceHasStrokeMatrixPlansForTesting(reference_agg_trace));
   }
   if (test_case.name == "Rectangles") {
     EXPECT_TRUE(fxge::AggTraceHasPathCommandsForTesting(reference_agg_trace));

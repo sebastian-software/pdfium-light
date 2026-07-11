@@ -528,8 +528,11 @@ fxge::AggStrokeMatrixPlan PlanAggStrokeMatrices(
                 object_to_device ? object_to_device->e : 0,
                 object_to_device ? object_to_device->f : 0)
           : std::nullopt;
-  return rust_plan.has_value() ? *rust_plan
-                               : PlanAggStrokeMatricesCpp(object_to_device);
+  const fxge::AggStrokeMatrixPlan plan =
+      rust_plan.has_value() ? *rust_plan
+                            : PlanAggStrokeMatricesCpp(object_to_device);
+  fxge::RecordAggStrokeMatrixPlanForTesting(plan);
+  return plan;
 }
 
 RetainPtr<CFX_DIBitmap> GetClipMaskFromRegion(const CFX_AggClipRgn* r) {
