@@ -101,6 +101,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `0b48bf90e` Phase 6 xref-index slice | 15,631 | 8,820 | 241 | 3,539 | 6,570 | 276,433 | 5.65% | 4.38% | Prior surfaces plus Rust-owned `/Index` start/count validation; C++ retains segment storage and object graph mutation |
 | `1fe71e0eb` Phase 6 xref-range slice | 15,685 | 8,874 | 241 | 3,574 | 6,570 | 276,531 | 5.67% | 4.40% | Prior surfaces plus Rust-owned cross-reference segment byte-range planning; C++ retains spans, iteration, and object graph mutation |
 | `da18dac0c` Phase 6 xref-iteration slice | 15,745 | 8,934 | 241 | 3,590 | 6,570 | 276,644 | 5.69% | 4.43% | Prior surfaces plus Rust-owned ordered cross-reference segment iteration; C++ retains entry processing and object graph mutation |
+| `d8a078a25` Phase 6 xref-width slice | 15,774 | 8,963 | 241 | 3,601 | 6,570 | 276,688 | 5.70% | 4.45% | Prior surfaces plus Rust-owned `/W` signed-to-unsigned field-width conversion; C++ retains array traversal and object graph mutation |
 
 ## Toolchain
 
@@ -735,6 +736,12 @@ narrow synchronous private `CPDF_Parser` callback receives each index and
 stops at PDFium's maximum object number. C++ retains entry decoding,
 cross-reference table mutation, and every parser/object lifetime. The native
 parser test target proves ascending iteration and the callback stop boundary.
+
+The eighth Phase 6 slice moves `/W` field-width conversion into Rust. Rust
+preserves PDFium's signed-to-unsigned cast semantics, including negative
+values, while C++ retains the array traversal, field-width vector, and all
+subsequent segment/object-graph work. Native tests cover zero, ordinary,
+negative, and minimum signed values.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
