@@ -6,6 +6,9 @@
 
 #include <stdint.h>
 
+#include <array>
+
+#include "core/fxcrt/data_vector.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/span.h"
 #include "core/fxge/dib/fx_dib.h"
@@ -295,5 +298,45 @@ TEST(CFXDIBitmapTest, RustColorScaleMatchesCppReferenceAcrossFormats) {
           << "format=" << static_cast<int>(format)
           << " is_white_on_black=" << is_white_on_black;
     }
+  }
+}
+
+TEST(CFXDIBitmapTest, RustExpand1bppMaskMatchesCppReference) {
+  auto reference = CreatePatternedBitmap(FXDIB_Format::k8bppMask, 9, 3);
+  auto candidate = CreatePatternedBitmap(FXDIB_Format::k8bppMask, 9, 3);
+  ASSERT_TRUE(reference);
+  ASSERT_TRUE(candidate);
+  static constexpr uint32_t kSourcePitch = 4;
+  DataVector<uint8_t> source(kSourcePitch * 3);
+  for (size_t index = 0; index < source.size(); ++index) {
+    source[index] = static_cast<uint8_t>(index * 53 + 7);
+  }
+  {
+    fxge::ScopedRustDibImplementationForTesting implementation(false);
+    reference->Populate8bbpMaskFrom1bppSpan(source, kSourcePitch);
+  }
+  candidate->Populate8bbpMaskFrom1bppSpan(source, kSourcePitch);
+  EXPECT_THAT(candidate->GetBuffer(),
+              ElementsAreArray(reference->GetBuffer()));
+}
+
+TEST(CFXDIBitmapTest, RustPopulateFromSpanMatchesCppReference) {
+  for (const uint32_t source_pitch : {19u, 29u}) {
+    auto reference = CreatePatternedBitmap(FXDIB_Format::kBgr, 7, 3);
+    auto candidate = CreatePatternedBitmap(FXDIB_Format::kBgr, 7, 3);
+    ASSERT_TRUE(reference);
+    ASSERT_TRUE(candidate);
+    DataVector<uint8_t> source(source_pitch * 3);
+    for (size_t index = 0; index < source.size(); ++index) {
+      source[index] = static_cast<uint8_t>(index * 31 + 11);
+    }
+    {
+      fxge::ScopedRustDibImplementationForTesting implementation(false);
+      reference->PopulateFromSpan(source, source_pitch);
+    }
+    candidate->PopulateFromSpan(source, source_pitch);
+    EXPECT_THAT(candidate->GetBuffer(),
+                ElementsAreArray(reference->GetBuffer()))
+        << "source_pitch=" << source_pitch;
   }
 }
