@@ -58,6 +58,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `659e766e0` Phase 1 rectangle-composite slice | 10,032 | 3,221 | 241 | 1,253 | 6,570 | 267,006 | 3.76% | 1.66% | Prior surfaces plus solid rectangle compositing across 1-/8-bpp mask/RGB, BGR, BGRx, and BGRA formats |
 | `28c172466` Phase 1 alpha-mask clone slice | 10,089 | 3,278 | 241 | 1,272 | 6,570 | 267,116 | 3.78% | 1.69% | Prior surfaces plus scanline-backed BGRA alpha extraction into 8-bpp masks with untouched destination padding |
 | `c6bc0bb76` Phase 1 bitmap-clip slice | 10,205 | 3,394 | 241 | 1,296 | 6,570 | 267,349 | 3.82% | 1.74% | Prior surfaces plus aligned 1-/8-/24-/32-bpp clipping and native-word shifted 1-bpp clipping |
+| `3708a4ab5` Phase 1 bitmap-copy slice | 10,245 | 3,434 | 241 | 1,310 | 6,570 | 267,457 | 3.83% | 1.76% | Prior surfaces plus complete scanline copies, including source padding, for every retained format |
 
 ## Toolchain
 
@@ -182,6 +183,11 @@ abstract scanline access while Rust owns each aligned byte copy or unaligned
 the optional word beyond the right scanline edge is defined as zero rather than
 read out of bounds. Thirty-six differential cases cover every retained format,
 default and custom palettes, full clips, offsets, and negative intersections.
+
+Whole-bitmap copying likewise retains C++ allocation, palette ownership, and
+abstract source scanlines. Rust copies each complete row, including historical
+padding bytes, through a non-overlapping borrowed-span boundary. Nine focused
+cases cover every retained format plus custom 1-bpp and 8-bpp palettes.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
