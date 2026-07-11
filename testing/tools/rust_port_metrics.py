@@ -35,6 +35,7 @@ ACTIVE_SURFACES = (
     "PNG/TIFF predictor transforms",
     "RunLength encode/decode",
     "BGRA and opaque BGR/BGRx row compositing across retained bitmap formats",
+    "byte and bit mask row compositing",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 

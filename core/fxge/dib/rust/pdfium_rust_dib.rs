@@ -420,6 +420,67 @@ pub unsafe extern "C" fn pdfium_rust_composite_opaque_row(
     }
     true
 }
+
+/// Composites an 8-bit or 1-bit mask row using a constant BGRA mask color.
+///
+/// Target values match `pdfium_rust_composite_opaque_row()`.
+///
+/// # Safety
+///
+/// `source` must cover every addressed byte, `output` must cover
+/// `pixel_count` packed destination pixels, and `clip` must be null or valid
+/// for `pixel_count` bytes. Source and output must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_mask_row(
+    mode: u8,
+    source: *const u8,
+    source_left: usize,
+    source_is_bit_mask: bool,
+    clip: *const u8,
+    mask_blue: u8,
+    mask_green: u8,
+    mask_red: u8,
+    mask_alpha: u8,
+    output: *mut u8,
+    output_components: usize,
+    target: u8,
+    rgb_byte_order: bool,
+    pixel_count: usize,
+) -> bool {
+    if !matches!((target, output_components), (0 | 1, 1) | (2, 3 | 4) | (3, 4)) {
+        return false;
+    }
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees that each addressed source,
+        // clip, and output byte is within its corresponding region.
+        unsafe {
+            let source_value = if source_is_bit_mask {
+                let bit = source_left + pixel;
+                if *source.add(bit / 8) & (1 << (7 - bit % 8)) == 0 {
+                    0
+                } else {
+                    255
+                }
+            } else {
+                *source.add(pixel)
+            };
+            let mut coverage = u32::from(mask_alpha) * u32::from(source_value);
+            if !clip.is_null() {
+                coverage *= u32::from(*clip.add(pixel));
+                coverage /= 255;
+            }
+            coverage /= 255;
+            let input = [mask_blue, mask_green, mask_red, 255];
+            let output =
+                slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
+            if !composite_opaque_pixel(mode, input, coverage as u8, target, rgb_byte_order, output)
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
 // RUST_PORT_METRICS_END abi_thunk
 
 #[cfg(test)]

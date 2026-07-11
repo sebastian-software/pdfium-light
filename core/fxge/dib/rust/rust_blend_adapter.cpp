@@ -43,6 +43,21 @@ extern "C" bool pdfium_rust_composite_opaque_row(
     uint8_t target,
     bool rgb_byte_order,
     size_t pixel_count);
+extern "C" bool pdfium_rust_composite_mask_row(
+    uint8_t mode,
+    const uint8_t* source,
+    size_t source_left,
+    bool source_is_bit_mask,
+    const uint8_t* clip,
+    uint8_t mask_blue,
+    uint8_t mask_green,
+    uint8_t mask_red,
+    uint8_t mask_alpha,
+    uint8_t* output,
+    size_t output_components,
+    uint8_t target,
+    bool rgb_byte_order,
+    size_t pixel_count);
 
 namespace {
 
@@ -174,6 +189,66 @@ bool RustBlendAdapter::CompositeOpaqueRow(
       static_cast<uint8_t>(mode), source.data(), source_components,
       clip.empty() ? nullptr : clip.data(), output.data(), output_components,
       target, rgb_byte_order, source.size() / source_components);
+}
+
+// static
+bool RustBlendAdapter::CompositeMaskRow(
+    BlendMode mode,
+    FXDIB_Format destination_format,
+    pdfium::span<const uint8_t> source,
+    int source_left,
+    bool source_is_bit_mask,
+    pdfium::span<const uint8_t> clip,
+    uint32_t mask_argb,
+    bool rgb_byte_order,
+    pdfium::span<uint8_t> output) {
+  uint8_t target;
+  int output_components;
+  switch (destination_format) {
+    case FXDIB_Format::k8bppRgb:
+      target = 0;
+      output_components = 1;
+      break;
+    case FXDIB_Format::k8bppMask:
+      target = 1;
+      output_components = 1;
+      break;
+    case FXDIB_Format::kBgr:
+      target = 2;
+      output_components = 3;
+      break;
+    case FXDIB_Format::kBgrx:
+      target = 2;
+      output_components = 4;
+      break;
+    case FXDIB_Format::kBgra:
+      target = 3;
+      output_components = 4;
+      break;
+    default:
+      return false;
+  }
+  const size_t pixel_count = output.size() / output_components;
+  if (source_left < 0) {
+    return false;
+  }
+  const size_t required_source_size = source_is_bit_mask
+                                          ? (static_cast<size_t>(source_left) +
+                                             pixel_count + 7) /
+                                                8
+                                          : pixel_count;
+  if (source.size() < required_source_size ||
+      output.size() % output_components != 0 ||
+      (!clip.empty() && clip.size() != pixel_count) ||
+      mode > BlendMode::kLast) {
+    return false;
+  }
+  return pdfium_rust_composite_mask_row(
+      static_cast<uint8_t>(mode), source.data(), source_left,
+      source_is_bit_mask, clip.empty() ? nullptr : clip.data(),
+      FXARGB_B(mask_argb), FXARGB_G(mask_argb), FXARGB_R(mask_argb),
+      FXARGB_A(mask_argb), output.data(), output_components, target,
+      rgb_byte_order, pixel_count);
 }
 
 // static

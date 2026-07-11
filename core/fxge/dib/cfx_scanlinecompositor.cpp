@@ -2356,6 +2356,27 @@ void CFX_ScanlineCompositor::CompositeByteMaskLine(
     int width,
     pdfium::span<const uint8_t> clip_scan) const {
   CHECK_EQ(src_format_, FXDIB_Format::k8bppMask);
+  CHECK_GE(width, 0);
+
+  uint32_t mask_argb;
+  if (dest_format_ == FXDIB_Format::k8bppRgb) {
+    const auto mask = std::get<GrayWithAlpha>(mask_color_);
+    mask_argb = ArgbEncode(mask.alpha, mask.gray, mask.gray, mask.gray);
+  } else if (dest_format_ == FXDIB_Format::k8bppMask) {
+    mask_argb = ArgbEncode(std::get<uint8_t>(mask_color_), 0, 0, 0);
+  } else {
+    const auto mask = std::get<FX_BGRA_STRUCT<uint8_t>>(mask_color_);
+    mask_argb = ArgbEncode(mask.alpha, mask.red, mask.green, mask.blue);
+  }
+  const int dest_Bpp = GetCompsFromFormat(dest_format_);
+  if (RustBlendAdapter::UseCandidate() &&
+      RustBlendAdapter::CompositeMaskRow(
+          blend_type_, dest_format_,
+          src_scan.first(static_cast<size_t>(width)), /*source_left=*/0,
+          /*source_is_bit_mask=*/false, clip_scan, mask_argb, rgb_byte_order_,
+          dest_scan.first(static_cast<size_t>(width) * dest_Bpp))) {
+    return;
+  }
 
   switch (dest_format_) {
     case FXDIB_Format::kInvalid:
@@ -2416,6 +2437,29 @@ void CFX_ScanlineCompositor::CompositeBitMaskLine(
     int width,
     pdfium::span<const uint8_t> clip_scan) const {
   CHECK_EQ(src_format_, FXDIB_Format::k1bppMask);
+  CHECK_GE(src_left, 0);
+  CHECK_GE(width, 0);
+
+  uint32_t mask_argb;
+  if (dest_format_ == FXDIB_Format::k8bppRgb) {
+    const auto mask = std::get<GrayWithAlpha>(mask_color_);
+    mask_argb = ArgbEncode(mask.alpha, mask.gray, mask.gray, mask.gray);
+  } else if (dest_format_ == FXDIB_Format::k8bppMask) {
+    mask_argb = ArgbEncode(std::get<uint8_t>(mask_color_), 0, 0, 0);
+  } else {
+    const auto mask = std::get<FX_BGRA_STRUCT<uint8_t>>(mask_color_);
+    mask_argb = ArgbEncode(mask.alpha, mask.red, mask.green, mask.blue);
+  }
+  const int dest_Bpp = GetCompsFromFormat(dest_format_);
+  const size_t source_size =
+      (static_cast<size_t>(src_left) + static_cast<size_t>(width) + 7) / 8;
+  if (RustBlendAdapter::UseCandidate() &&
+      RustBlendAdapter::CompositeMaskRow(
+          blend_type_, dest_format_, src_scan.first(source_size), src_left,
+          /*source_is_bit_mask=*/true, clip_scan, mask_argb, rgb_byte_order_,
+          dest_scan.first(static_cast<size_t>(width) * dest_Bpp))) {
+    return;
+  }
 
   switch (dest_format_) {
     case FXDIB_Format::kInvalid:
