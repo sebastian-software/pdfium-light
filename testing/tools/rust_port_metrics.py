@@ -60,6 +60,7 @@ ACTIVE_SURFACES = (
     "fixed-matrix bilinear indexed and grayscale image transforms",
     "fixed-matrix bilinear BGR, BGRx, BGRA, and raw CMYK image transforms",
     "1-bpp stretch palette interpolation",
+    "bitmap row flipping across retained pixel widths",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 

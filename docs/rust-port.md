@@ -67,6 +67,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `1eebb71c9` Phase 1 indexed-transform slice | 11,816 | 5,005 | 241 | 1,574 | 6,570 | 269,661 | 4.38% | 2.55% | Prior surfaces plus fixed-matrix bilinear indexed/grayscale sampling and exact ARGB palette resolution |
 | `4cd581a61` Phase 1 color-transform slice | 12,012 | 5,201 | 241 | 1,621 | 6,570 | 269,959 | 4.45% | 2.64% | Prior surfaces plus channel-wise fixed-matrix sampling for opaque BGR/BGRx, BGRA, and retained raw CMYK transforms |
 | `5322e1543` Phase 1 stretch-palette slice | 12,061 | 5,250 | 241 | 1,637 | 6,570 | 270,030 | 4.47% | 2.67% | Prior surfaces plus signed integer interpolation of opaque 1-bpp source colors into 256-entry stretch palettes |
+| `a799e7b4b` Phase 1 bitmap-flip slice | 12,170 | 5,359 | 241 | 1,661 | 6,570 | 270,174 | 4.50% | 2.72% | Prior surfaces plus copy/horizontal flip rows for packed 1-bpp and 8-/24-/32-bpp Windows `FlipImage` behavior |
 
 ## Toolchain
 
@@ -255,6 +256,13 @@ palette in Rust from the two C++-owned endpoint colors. The implementation
 preserves signed integer division toward zero for descending channels, uses no
 Rust allocation, and is covered natively plus through the existing 108-case
 public `StretchTo` differential matrix.
+
+The Windows-only `FlipImage` entry now delegates each copied or horizontally
+reversed row to Rust; C++ still selects the vertically mirrored destination
+row, owns allocation, and propagates palettes. The platform-neutral native
+test covers packed 1-bpp and 8-/24-/32-bpp reversal plus the no-X-flip padding
+copy contract. The Windows public entry remains guarded by its existing build
+flag and retained C++ fallback.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
