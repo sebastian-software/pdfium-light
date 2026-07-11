@@ -57,6 +57,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `66a4f3d15` Phase 1 1-bpp mask-composite slice | 9,781 | 2,970 | 241 | 1,207 | 6,570 | 266,640 | 3.67% | 1.53% | Prior surfaces plus clipped 1-bpp mask OR compositing with preserved surrounding and unset destination bits |
 | `659e766e0` Phase 1 rectangle-composite slice | 10,032 | 3,221 | 241 | 1,253 | 6,570 | 267,006 | 3.76% | 1.66% | Prior surfaces plus solid rectangle compositing across 1-/8-bpp mask/RGB, BGR, BGRx, and BGRA formats |
 | `28c172466` Phase 1 alpha-mask clone slice | 10,089 | 3,278 | 241 | 1,272 | 6,570 | 267,116 | 3.78% | 1.69% | Prior surfaces plus scanline-backed BGRA alpha extraction into 8-bpp masks with untouched destination padding |
+| `c6bc0bb76` Phase 1 bitmap-clip slice | 10,205 | 3,394 | 241 | 1,296 | 6,570 | 267,349 | 3.82% | 1.74% | Prior surfaces plus aligned 1-/8-/24-/32-bpp clipping and native-word shifted 1-bpp clipping |
 
 ## Toolchain
 
@@ -174,6 +175,13 @@ optional clip intersection, coordinate rebasing, and checked `i32` overflow in
 Rust before transfers or compositing begin. A deterministic 1,026-case corpus
 compares normal, negative, clipped, empty, and overflow-near geometry directly
 with the retained C++ helper.
+
+Bitmap clipping retains C++ rectangle intersection, allocation, palette, and
+abstract scanline access while Rust owns each aligned byte copy or unaligned
+1-bpp native-word shift. Before activation, the retained oracle was bounded so
+the optional word beyond the right scanline edge is defined as zero rather than
+read out of bounds. Thirty-six differential cases cover every retained format,
+default and custom palettes, full clips, offsets, and negative intersections.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

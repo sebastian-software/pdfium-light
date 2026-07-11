@@ -50,6 +50,7 @@ ACTIVE_SURFACES = (
     "1-bpp mask OR compositing",
     "solid rectangle compositing across retained bitmap formats",
     "BGRA alpha-mask row extraction",
+    "aligned and shifted bitmap clipping",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 
