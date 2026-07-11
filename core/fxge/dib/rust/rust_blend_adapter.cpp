@@ -114,6 +114,11 @@ extern "C" bool pdfium_rust_clear_bitmap(uint8_t* buffer,
                                           uint8_t red,
                                           uint8_t alpha,
                                           bool fill_padding);
+extern "C" bool pdfium_rust_convert_bgr_color_scale(uint8_t* buffer,
+                                                     size_t width,
+                                                     size_t height,
+                                                     size_t pitch,
+                                                     size_t components);
 
 namespace {
 
@@ -470,6 +475,18 @@ bool RustBlendAdapter::ClearBitmap(pdfium::span<uint8_t> buffer,
          pdfium_rust_clear_bitmap(
              buffer.data(), buffer.size(), width, height, pitch, components,
              pixel[0], pixel[1], pixel[2], pixel[3], fill_padding);
+}
+
+// static
+bool RustBlendAdapter::ConvertBgrColorScale(pdfium::span<uint8_t> buffer,
+                                            int width,
+                                            int height,
+                                            uint32_t pitch,
+                                            size_t components) {
+  return (components == 3 || components == 4) &&
+         IsValidBitmapBuffer(buffer.size(), width, height, pitch, components) &&
+         pdfium_rust_convert_bgr_color_scale(buffer.data(), width, height,
+                                             pitch, components);
 }
 
 // static

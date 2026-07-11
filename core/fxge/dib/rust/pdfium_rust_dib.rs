@@ -454,6 +454,45 @@ pub unsafe extern "C" fn pdfium_rust_clear_bitmap(
     true
 }
 
+/// Converts packed BGR/BGRx/BGRA pixels to PDFium's integer gray value.
+///
+/// # Safety
+///
+/// `buffer` must cover `pitch * height` writable bytes, with at least
+/// `width * components` bytes per row. `components` must be 3 or 4.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_convert_bgr_color_scale(
+    buffer: *mut u8,
+    width: usize,
+    height: usize,
+    pitch: usize,
+    components: usize,
+) -> bool {
+    if buffer.is_null()
+        || !matches!(components, 3 | 4)
+        || !packed_rows_are_valid(width, height, pitch, components)
+    {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee a
+            // complete BGR/BGRx/BGRA pixel at every computed offset.
+            unsafe {
+                let pixel = buffer.add(row * pitch + column * components);
+                let gray = (u16::from(*pixel) * 11
+                    + u16::from(*pixel.add(1)) * 59
+                    + u16::from(*pixel.add(2)) * 30)
+                    / 100;
+                *pixel = gray as u8;
+                *pixel.add(1) = gray as u8;
+                *pixel.add(2) = gray as u8;
+            }
+        }
+    }
+    true
+}
+
 /// Copies each packed BGRA pixel's alpha channel into its red channel.
 ///
 /// # Safety

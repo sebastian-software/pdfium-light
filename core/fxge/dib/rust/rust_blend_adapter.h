@@ -100,6 +100,11 @@ class RustBlendAdapter final {
                           size_t components,
                           std::array<uint8_t, 4> pixel,
                           bool fill_padding);
+  static bool ConvertBgrColorScale(pdfium::span<uint8_t> buffer,
+                                   int width,
+                                   int height,
+                                   uint32_t pitch,
+                                   size_t components);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

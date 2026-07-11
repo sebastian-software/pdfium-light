@@ -476,6 +476,12 @@ void CFX_DIBitmap::ConvertColorScale(bool is_white_on_black) {
     }
     return;
   }
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::ConvertBgrColorScale(
+          GetWritableBuffer(), GetWidth(), GetHeight(), GetPitch(),
+          GetBPP() / 8)) {
+    return;
+  }
   for (int row = 0; row < GetHeight(); ++row) {
     UNSAFE_TODO({
       uint8_t* scanline = GetWritableScanline(row).data();
