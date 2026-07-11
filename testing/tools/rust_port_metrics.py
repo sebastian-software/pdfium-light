@@ -61,6 +61,7 @@ ACTIVE_SURFACES = (
     "fixed-matrix bilinear BGR, BGRx, BGRA, and raw CMYK image transforms",
     "1-bpp stretch palette interpolation",
     "bitmap row flipping across retained pixel widths",
+    "public render flag request planning",
 )
 CANDIDATE_SURFACES = ("render command planning and page rendering orchestration",)
 

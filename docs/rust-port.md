@@ -68,6 +68,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `4cd581a61` Phase 1 color-transform slice | 12,012 | 5,201 | 241 | 1,621 | 6,570 | 269,959 | 4.45% | 2.64% | Prior surfaces plus channel-wise fixed-matrix sampling for opaque BGR/BGRx, BGRA, and retained raw CMYK transforms |
 | `5322e1543` Phase 1 stretch-palette slice | 12,061 | 5,250 | 241 | 1,637 | 6,570 | 270,030 | 4.47% | 2.67% | Prior surfaces plus signed integer interpolation of opaque 1-bpp source colors into 256-entry stretch palettes |
 | `a799e7b4b` Phase 1 bitmap-flip slice | 12,170 | 5,359 | 241 | 1,661 | 6,570 | 270,174 | 4.50% | 2.72% | Prior surfaces plus copy/horizontal flip rows for packed 1-bpp and 8-/24-/32-bpp Windows `FlipImage` behavior |
+| `dc837a462` Phase 2 render-request slice | 12,279 | 5,468 | 241 | 1,755 | 6,570 | 270,440 | 4.54% | 2.77% | Prior surfaces plus Rust planning for public render flags, color mode, print/view usage, annotations, and device restoration |
 
 ## Toolchain
 
@@ -295,6 +296,23 @@ the exact same named baseline set reproduced on `origin/main` (486 of 537).
 All five zero-tolerance same-process Rust/C++ renderer comparisons pass.
 Phase 2 therefore starts at render-command planning and page-rendering
 orchestration rather than reopening DIB pixel behavior.
+
+## Phase 2 render request planning
+
+The production candidate now asks Rust to turn the public render flags,
+color-scheme presence, and restore requirement into a compact request plan.
+Rust owns annotation inclusion, LCD/native-text choices, grayscale versus
+forced color, fill-to-stroke eligibility, image-cache and halftone policy,
+print/view usage, the three smoothing controls, and device restoration. C++
+applies that plan to its existing `CPDF_RenderOptions`, page, annotation,
+device, and render-context objects; the reference path still derives the same
+values directly from flags.
+
+C++ `static_assert`s pin every duplicated public flag value at the FFI
+boundary. Two native Rust tests cover the complete bitset and the rule that
+fill-to-stroke requires a color scheme. Fourteen same-process renderer cases
+exercise each independently observable flag plus text, paths, images,
+transparency, and annotations with exact bitmap parity.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
