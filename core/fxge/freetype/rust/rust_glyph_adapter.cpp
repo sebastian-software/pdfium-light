@@ -4,6 +4,8 @@
 
 #include "core/fxge/freetype/rust/rust_glyph_adapter.h"
 
+#include <bit>
+
 namespace {
 
 extern "C" bool pdfium_rust_fill_glyph_cache_key(int32_t matrix_a,
@@ -37,6 +39,37 @@ extern "C" bool pdfium_rust_plan_glyph_device_origin(float device_x,
 
 thread_local bool g_use_rust_glyph_candidate = true;
 thread_local std::vector<uint8_t>* g_glyph_trace_for_testing = nullptr;
+
+void AppendTraceWord(uint32_t word) {
+  for (int shift = 0; shift < 32; shift += 8) {
+    g_glyph_trace_for_testing->push_back(static_cast<uint8_t>(word >> shift));
+  }
+}
+
+bool GlyphTraceHasEvent(pdfium::span<const uint8_t> trace,
+                        uint8_t expected_marker) {
+  while (!trace.empty()) {
+    const uint8_t marker = trace.front();
+    size_t event_size = 0;
+    if (marker == 0x4b && trace.size() >= 2) {
+      event_size = 2 + static_cast<size_t>(trace[1]) * 4;
+    } else if (marker == 0x4f) {
+      event_size = 10;
+    } else if (marker == 0x44) {
+      event_size = 18;
+    } else {
+      return false;
+    }
+    if (trace.size() < event_size) {
+      return false;
+    }
+    if (marker == expected_marker) {
+      return marker != 0x4f || trace[1] <= 1;
+    }
+    trace = trace.subspan(event_size);
+  }
+  return false;
+}
 
 }  // namespace
 
@@ -113,9 +146,7 @@ void RecordGlyphCacheKeyForTesting(pdfium::span<const uint32_t> key) {
   g_glyph_trace_for_testing->push_back(0x4b);
   g_glyph_trace_for_testing->push_back(static_cast<uint8_t>(key.size()));
   for (uint32_t word : key) {
-    for (int shift = 0; shift < 32; shift += 8) {
-      g_glyph_trace_for_testing->push_back(static_cast<uint8_t>(word >> shift));
-    }
+    AppendTraceWord(word);
   }
 }
 
@@ -126,28 +157,33 @@ void RecordGlyphOriginForTesting(bool valid, int32_t x, int32_t y) {
   g_glyph_trace_for_testing->push_back(0x4f);
   g_glyph_trace_for_testing->push_back(valid);
   for (int32_t coordinate : {x, y}) {
-    const uint32_t bits = static_cast<uint32_t>(coordinate);
-    for (int shift = 0; shift < 32; shift += 8) {
-      g_glyph_trace_for_testing->push_back(static_cast<uint8_t>(bits >> shift));
-    }
+    AppendTraceWord(static_cast<uint32_t>(coordinate));
   }
 }
 
-bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace) {
-  while (!trace.empty()) {
-    if (trace.front() == 0x4f) {
-      return trace.size() >= 10 && trace[1] <= 1;
-    }
-    if (trace.front() != 0x4b || trace.size() < 2) {
-      return false;
-    }
-    const size_t event_size = 2 + static_cast<size_t>(trace[1]) * 4;
-    if (trace.size() < event_size) {
-      return false;
-    }
-    trace = trace.subspan(event_size);
+void RecordGlyphDeviceOriginForTesting(float device_x,
+                                       float device_y,
+                                       bool anti_alias_is_lcd,
+                                       int32_t x,
+                                       int32_t y) {
+  if (!g_glyph_trace_for_testing) {
+    return;
   }
-  return false;
+  g_glyph_trace_for_testing->push_back(0x44);
+  g_glyph_trace_for_testing->push_back(anti_alias_is_lcd);
+  AppendTraceWord(std::bit_cast<uint32_t>(device_x));
+  AppendTraceWord(std::bit_cast<uint32_t>(device_y));
+  AppendTraceWord(static_cast<uint32_t>(x));
+  AppendTraceWord(static_cast<uint32_t>(y));
+}
+
+bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace) {
+  return GlyphTraceHasEvent(trace, 0x4f);
+}
+
+bool GlyphTraceHasDeviceOriginPlansForTesting(
+    pdfium::span<const uint8_t> trace) {
+  return GlyphTraceHasEvent(trace, 0x44);
 }
 
 }  // namespace fxge

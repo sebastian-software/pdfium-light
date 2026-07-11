@@ -111,6 +111,8 @@ TEST_P(RustRendererParityEmbedderTest, CandidateMatchesCppReferenceExactly) {
     EXPECT_FALSE(reference_glyph_trace.empty());
     EXPECT_TRUE(
         fxge::GlyphTraceHasOriginPlansForTesting(reference_glyph_trace));
+    EXPECT_TRUE(
+        fxge::GlyphTraceHasDeviceOriginPlansForTesting(reference_glyph_trace));
   }
 }
 

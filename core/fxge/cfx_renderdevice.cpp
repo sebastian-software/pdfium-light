@@ -1198,6 +1198,9 @@ bool CFX_RenderDevice::DrawNormalText(pdfium::span<const TextCharPos> pCharPos,
       glyph.origin_ = PlanGlyphDeviceOriginCppReference(glyph.device_origin_,
                                                         anti_alias_is_lcd);
     }
+    fxge::RecordGlyphDeviceOriginForTesting(
+        glyph.device_origin_.x, glyph.device_origin_.y, anti_alias_is_lcd,
+        glyph.origin_.x, glyph.origin_.y);
 
     CFX_Matrix matrix = charpos.GetEffectiveMatrix(char2device);
     glyph.glyph_ = font->LoadGlyphBitmap(

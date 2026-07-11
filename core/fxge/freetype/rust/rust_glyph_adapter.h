@@ -65,7 +65,14 @@ class ScopedGlyphTraceForTesting final {
 
 void RecordGlyphCacheKeyForTesting(pdfium::span<const uint32_t> key);
 void RecordGlyphOriginForTesting(bool valid, int32_t x, int32_t y);
+void RecordGlyphDeviceOriginForTesting(float device_x,
+                                       float device_y,
+                                       bool anti_alias_is_lcd,
+                                       int32_t x,
+                                       int32_t y);
 bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace);
+bool GlyphTraceHasDeviceOriginPlansForTesting(
+    pdfium::span<const uint8_t> trace);
 
 }  // namespace fxge
 

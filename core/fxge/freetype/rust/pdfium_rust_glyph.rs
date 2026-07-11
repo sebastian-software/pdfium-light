@@ -359,4 +359,48 @@ mod tests {
         });
         assert_eq!((valid, x, y), (9, 17, 23));
     }
+
+    #[test]
+    fn glyph_device_origin_should_round_non_lcd_like_pdfium() {
+        let cases = [
+            (3.5, -3.5, (4, -4)),
+            (3.49, -3.49, (3, -3)),
+            (f32::NAN, f32::NAN, (0, 0)),
+            (f32::MAX, f32::MIN_POSITIVE, (i32::MAX, 0)),
+            (-f32::MAX, -f32::MIN_POSITIVE, (i32::MIN, 0)),
+        ];
+        for (x, y, expected) in cases {
+            let Some(plan) = plan_glyph_device_origin(x, y, false) else {
+                panic!("non-LCD rounding has a saturated result");
+            };
+            assert_eq!((plan.x, plan.y), expected);
+        }
+    }
+
+    #[test]
+    fn glyph_device_origin_should_floor_lcd_x_and_round_y() {
+        let Some(plan) = plan_glyph_device_origin(-3.1, 8.5, true) else {
+            panic!("finite LCD coordinates must produce an origin");
+        };
+        assert_eq!((plan.x, plan.y), (-4, 9));
+    }
+
+    #[test]
+    fn glyph_device_origin_ffi_should_reject_unsupported_lcd_x_without_mutation() {
+        let mut x = 17;
+        let mut y = 23;
+        // SAFETY: Both outputs are live and writable; the unsupported LCD x
+        // value is rejected before either is mutated.
+        assert!(!unsafe {
+            pdfium_rust_plan_glyph_device_origin(f32::INFINITY, 4.0, true, &mut x, &mut y)
+        });
+        assert_eq!((x, y), (17, 23));
+
+        // SAFETY: A null x output is explicitly rejected before the live y
+        // output is mutated.
+        assert!(!unsafe {
+            pdfium_rust_plan_glyph_device_origin(1.0, 2.0, false, core::ptr::null_mut(), &mut y)
+        });
+        assert_eq!(y, 23);
+    }
 }
