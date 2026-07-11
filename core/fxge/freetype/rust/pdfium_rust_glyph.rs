@@ -53,6 +53,31 @@ type ReadGlyphBounds = unsafe extern "C" fn(
     output_height: *mut i32,
 ) -> bool;
 
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GlyphBitmapLookupAction {
+    Reject = 0,
+    LookupRequestedKey = 1,
+    ReturnNativeCached = 2,
+    LookupNonNativeAndDisableNative = 3,
+}
+
+fn plan_glyph_bitmap_lookup(
+    glyph_is_valid: bool,
+    native_text: bool,
+    native_cache_hit: bool,
+) -> GlyphBitmapLookupAction {
+    if !glyph_is_valid {
+        GlyphBitmapLookupAction::Reject
+    } else if !native_text {
+        GlyphBitmapLookupAction::LookupRequestedKey
+    } else if native_cache_hit {
+        GlyphBitmapLookupAction::ReturnNativeCached
+    } else {
+        GlyphBitmapLookupAction::LookupNonNativeAndDisableNative
+    }
+}
+
 fn include_glyph_bounds(
     mut plan: GlyphBoundsPlan,
     input: GlyphBoundsInput,
@@ -339,6 +364,30 @@ pub unsafe extern "C" fn pdfium_rust_plan_glyph_bounds(
         *output_top = plan.top;
         *output_right = plan.right;
         *output_bottom = plan.bottom;
+    }
+    true
+}
+
+/// Selects the observable bitmap-glyph cache action after an optional native
+/// cache probe.
+///
+/// # Safety
+///
+/// `output_action` must point to one writable `u8` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_plan_glyph_bitmap_lookup(
+    glyph_is_valid: bool,
+    native_text: bool,
+    native_cache_hit: bool,
+    output_action: *mut u8,
+) -> bool {
+    if output_action.is_null() {
+        return false;
+    }
+    let action = plan_glyph_bitmap_lookup(glyph_is_valid, native_text, native_cache_hit);
+    // SAFETY: The caller guarantees one live, writable action byte.
+    unsafe {
+        *output_action = action as u8;
     }
     true
 }

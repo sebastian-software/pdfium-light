@@ -30,6 +30,36 @@ namespace {
 
 constexpr uint32_t kInvalidGlyphIndex = static_cast<uint32_t>(-1);
 
+fxge::GlyphBitmapLookupAction PlanGlyphBitmapLookupCppReference(
+    bool glyph_is_valid,
+    bool native_text,
+    bool native_cache_hit) {
+  if (!glyph_is_valid) {
+    return fxge::GlyphBitmapLookupAction::kReject;
+  }
+  if (!native_text) {
+    return fxge::GlyphBitmapLookupAction::kLookupRequestedKey;
+  }
+  return native_cache_hit
+             ? fxge::GlyphBitmapLookupAction::kReturnNativeCached
+             : fxge::GlyphBitmapLookupAction::kLookupNonNativeAndDisableNative;
+}
+
+fxge::GlyphBitmapLookupAction SelectGlyphBitmapLookupAction(
+    bool glyph_is_valid,
+    bool native_text,
+    bool native_cache_hit) {
+  if (fxge::UseRustGlyphCandidate()) {
+    const auto action = fxge::RustPlanGlyphBitmapLookup(
+        glyph_is_valid, native_text, native_cache_hit);
+    if (action.has_value()) {
+      return *action;
+    }
+  }
+  return PlanGlyphBitmapLookupCppReference(glyph_is_valid, native_text,
+                                           native_cache_hit);
+}
+
 class UniqueKeyGen {
  public:
   UniqueKeyGen(const CFX_Font* font,
@@ -178,7 +208,11 @@ const CFX_GlyphBitmap* CFX_GlyphCache::LoadGlyphBitmap(
     int dest_width,
     FontAntiAliasingMode anti_alias,
     CFX_TextRenderOptions* text_options) {
-  if (glyph_index == kInvalidGlyphIndex) {
+  const bool glyph_is_valid = glyph_index != kInvalidGlyphIndex;
+  if (!glyph_is_valid) {
+    SelectGlyphBitmapLookupAction(/*glyph_is_valid=*/false,
+                                  /*native_text=*/false,
+                                  /*native_cache_hit=*/false);
     return nullptr;
   }
 
@@ -190,33 +224,43 @@ const CFX_GlyphBitmap* CFX_GlyphCache::LoadGlyphBitmap(
   UniqueKeyGen keygen(font, matrix, dest_width, anti_alias, bNative);
   auto FaceGlyphsKey = ByteString(ByteStringView(keygen.span()));
 
+  const CFX_GlyphBitmap* native_cached = nullptr;
 #if BUILDFLAG(IS_APPLE)
-  bool bDoLookUp = !text_options->native_text;
-#else   // BUILDFLAG(IS_APPLE)
-  const bool bDoLookUp = true;
-#endif  // BUILDFLAG(IS_APPLE)
-  if (bDoLookUp) {
-    return LookUpGlyphBitmap(font, matrix, FaceGlyphsKey, glyph_index,
-                             is_cid_font, dest_width, anti_alias);
-  }
-
-#if BUILDFLAG(IS_APPLE)
-
-  auto it = size_map_.find(FaceGlyphsKey);
-  if (it != size_map_.end()) {
-    SizeToGlyphMap& size_glyph_cache = it->second;
-    auto size_glyph_it = size_glyph_cache.find(glyph_index);
-    if (size_glyph_it != size_glyph_cache.end()) {
-      return size_glyph_it->second.get();
+  if (bNative) {
+    auto it = size_map_.find(FaceGlyphsKey);
+    if (it != size_map_.end()) {
+      SizeToGlyphMap& size_glyph_cache = it->second;
+      auto size_glyph_it = size_glyph_cache.find(glyph_index);
+      if (size_glyph_it != size_glyph_cache.end()) {
+        native_cached = size_glyph_it->second.get();
+      }
     }
   }
-  UniqueKeyGen keygen2(font, matrix, dest_width, anti_alias,
-                       /*bNative=*/false);
-  auto FaceGlyphsKey2 = ByteString(ByteStringView(keygen2.span()));
-  text_options->native_text = false;
-  return LookUpGlyphBitmap(font, matrix, FaceGlyphsKey2, glyph_index,
-                           is_cid_font, dest_width, anti_alias);
 #endif  // BUILDFLAG(IS_APPLE)
+
+  const auto action = SelectGlyphBitmapLookupAction(glyph_is_valid, bNative,
+                                                    native_cached != nullptr);
+  switch (action) {
+    case fxge::GlyphBitmapLookupAction::kReject:
+      return nullptr;
+    case fxge::GlyphBitmapLookupAction::kLookupRequestedKey:
+      return LookUpGlyphBitmap(font, matrix, FaceGlyphsKey, glyph_index,
+                               is_cid_font, dest_width, anti_alias);
+    case fxge::GlyphBitmapLookupAction::kReturnNativeCached:
+      return native_cached;
+    case fxge::GlyphBitmapLookupAction::kLookupNonNativeAndDisableNative:
+#if BUILDFLAG(IS_APPLE)
+      UniqueKeyGen non_native_keygen(font, matrix, dest_width, anti_alias,
+                                     /*bNative=*/false);
+      auto non_native_key =
+          ByteString(ByteStringView(non_native_keygen.span()));
+      text_options->native_text = false;
+      return LookUpGlyphBitmap(font, matrix, non_native_key, glyph_index,
+                               is_cid_font, dest_width, anti_alias);
+#else
+      return nullptr;
+#endif
+  }
 }
 
 int CFX_GlyphCache::GetGlyphWidth(const CFX_Font* font,

@@ -42,6 +42,13 @@ struct GlyphBoundsPlan {
   int32_t bottom;
 };
 
+enum class GlyphBitmapLookupAction : uint8_t {
+  kReject = 0,
+  kLookupRequestedKey = 1,
+  kReturnNativeCached = 2,
+  kLookupNonNativeAndDisableNative = 3,
+};
+
 using ReadGlyphBoundsCallback = bool (*)(void* context,
                                          size_t index,
                                          uint8_t* output_valid,
@@ -67,6 +74,10 @@ std::optional<GlyphBoundsPlan> RustPlanGlyphBounds(
     bool anti_alias_is_lcd,
     void* context,
     ReadGlyphBoundsCallback read_bounds);
+std::optional<GlyphBitmapLookupAction> RustPlanGlyphBitmapLookup(
+    bool glyph_is_valid,
+    bool native_text,
+    bool native_cache_hit);
 
 bool UseRustGlyphCandidate();
 bool SetUseRustGlyphCandidateForTesting(bool use_candidate);

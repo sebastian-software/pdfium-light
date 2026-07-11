@@ -45,6 +45,10 @@ extern "C" bool pdfium_rust_plan_glyph_bounds(
     int32_t* output_top,
     int32_t* output_right,
     int32_t* output_bottom);
+extern "C" bool pdfium_rust_plan_glyph_bitmap_lookup(bool glyph_is_valid,
+                                                     bool native_text,
+                                                     bool native_cache_hit,
+                                                     uint8_t* output_action);
 
 thread_local bool g_use_rust_glyph_candidate = true;
 thread_local std::vector<uint8_t>* g_glyph_trace_for_testing = nullptr;
@@ -142,6 +146,20 @@ std::optional<GlyphBoundsPlan> RustPlanGlyphBounds(
     return std::nullopt;
   }
   return plan;
+}
+
+std::optional<GlyphBitmapLookupAction> RustPlanGlyphBitmapLookup(
+    bool glyph_is_valid,
+    bool native_text,
+    bool native_cache_hit) {
+  uint8_t action = 0;
+  if (!pdfium_rust_plan_glyph_bitmap_lookup(glyph_is_valid, native_text,
+                                            native_cache_hit, &action) ||
+      action > static_cast<uint8_t>(
+                   GlyphBitmapLookupAction::kLookupNonNativeAndDisableNative)) {
+    return std::nullopt;
+  }
+  return static_cast<GlyphBitmapLookupAction>(action);
 }
 
 bool UseRustGlyphCandidate() {
