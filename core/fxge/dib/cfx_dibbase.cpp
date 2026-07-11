@@ -552,10 +552,19 @@ void CFX_DIBBase::BuildPalette() {
     return;
   }
 
-  if (GetBPP() == 1) {
-    palette_ = {0xff000000, 0xffffffff};
-  } else if (GetBPP() == 8) {
-    palette_.resize(256);
+  const int bits_per_pixel = GetBPP();
+  if (bits_per_pixel != 1 && bits_per_pixel != 8) {
+    return;
+  }
+  palette_.resize(bits_per_pixel == 1 ? 2 : 256);
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::BuildDefaultPalette(bits_per_pixel, palette_)) {
+    return;
+  }
+  if (bits_per_pixel == 1) {
+    palette_[0] = 0xff000000;
+    palette_[1] = 0xffffffff;
+  } else {
     for (int i = 0; i < 256; ++i) {
       palette_[i] = ArgbEncode(0xff, i, i, i);
     }
@@ -583,6 +592,14 @@ uint32_t CFX_DIBBase::GetPaletteArgb(int index) const {
     return GetPaletteSpan()[index];
   }
 
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const auto candidate =
+        fxge::RustBlendAdapter::GetDefaultPaletteArgb(GetBPP(), index);
+    if (candidate.has_value()) {
+      return candidate.value();
+    }
+  }
+
   if (GetBPP() == 1) {
     return index ? 0xffffffff : 0xff000000;
   }
@@ -598,6 +615,13 @@ void CFX_DIBBase::SetPaletteArgb(int index, uint32_t color) {
 
 int CFX_DIBBase::FindPalette(uint32_t color) const {
   DCHECK((GetBPP() == 1 || GetBPP() == 8) && !IsMaskFormat());
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const auto candidate = fxge::RustBlendAdapter::FindPalette(
+        GetBPP(), GetPaletteSpan(), color);
+    if (candidate.has_value()) {
+      return candidate.value();
+    }
+  }
   if (HasPalette()) {
     int palsize = (1 << GetBPP());
     pdfium::span<const uint32_t> palette = GetPaletteSpan();

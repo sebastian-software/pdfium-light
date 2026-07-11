@@ -906,6 +906,109 @@ pub unsafe extern "C" fn pdfium_rust_get_overlap_rect(
     true
 }
 
+fn default_palette_argb(bits_per_pixel: u8, index: usize) -> Option<u32> {
+    match bits_per_pixel {
+        1 if index < 2 => Some(if index == 0 { 0xff00_0000 } else { 0xffff_ffff }),
+        8 if index < 256 => Some(0xff00_0000 | ((index as u32) * 0x0001_0101)),
+        _ => None,
+    }
+}
+
+/// Fills PDFium's default 1-bpp or 8-bpp ARGB palette.
+///
+/// # Safety
+///
+/// `output` must point to `output_len` writable `u32` values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_default_palette(
+    bits_per_pixel: u8,
+    output: *mut u32,
+    output_len: usize,
+) -> bool {
+    let required_len = match bits_per_pixel {
+        1 => 2,
+        8 => 256,
+        _ => return false,
+    };
+    if output.is_null() || output_len < required_len {
+        return false;
+    }
+    for index in 0..required_len {
+        let Some(argb) = default_palette_argb(bits_per_pixel, index) else {
+            return false;
+        };
+        // SAFETY: The caller contract and length check cover every output.
+        unsafe {
+            *output.add(index) = argb;
+        }
+    }
+    true
+}
+
+/// Returns a default palette entry for a 1-bpp or 8-bpp bitmap.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u32` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_get_default_palette_argb(
+    bits_per_pixel: u8,
+    index: usize,
+    output: *mut u32,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let Some(argb) = default_palette_argb(bits_per_pixel, index) else {
+        return false;
+    };
+    // SAFETY: The caller contract guarantees one writable output value.
+    unsafe {
+        *output = argb;
+    }
+    true
+}
+
+/// Finds an exact ARGB color in an explicit or default palette.
+///
+/// # Safety
+///
+/// When `palette_len` is non-zero, `palette` must cover that many `u32`
+/// entries. `output` must point to one writable `i32` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_find_palette(
+    bits_per_pixel: u8,
+    palette: *const u32,
+    palette_len: usize,
+    color: u32,
+    output: *mut i32,
+) -> bool {
+    if output.is_null() || !matches!(bits_per_pixel, 1 | 8) {
+        return false;
+    }
+    let result = if palette_len == 0 {
+        if bits_per_pixel == 1 {
+            i32::from(color as u8 == 255)
+        } else {
+            i32::from(color as u8)
+        }
+    } else {
+        let required_len = 1usize << bits_per_pixel;
+        if palette.is_null() || palette_len < required_len {
+            return false;
+        }
+        // SAFETY: The caller contract and length check cover the required
+        // palette entries.
+        let palette = unsafe { slice::from_raw_parts(palette, required_len) };
+        palette.iter().position(|entry| *entry == color).map_or(-1, |index| index as i32)
+    };
+    // SAFETY: The caller contract guarantees one writable output value.
+    unsafe {
+        *output = result;
+    }
+    true
+}
+
 /// Copies each packed BGRA pixel's alpha channel into its red channel.
 ///
 /// # Safety
@@ -1568,5 +1671,12 @@ mod tests {
             Some([0, 30, 50, 60, 15, 20]),
             overlap_rect(400, 300, -10, 20, 100, 80, 200, 200, 5, 10, Some(clip))
         );
+    }
+
+    #[test]
+    fn default_palette_should_preserve_pdfium_argb_values() {
+        assert_eq!(Some(0xff00_0000), default_palette_argb(1, 0));
+        assert_eq!(Some(0xffff_ffff), default_palette_argb(1, 1));
+        assert_eq!(Some(0xffad_adad), default_palette_argb(8, 0xad));
     }
 }

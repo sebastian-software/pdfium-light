@@ -148,6 +148,13 @@ class RustBlendAdapter final {
       int clip_top,
       int clip_right,
       int clip_bottom);
+  static bool BuildDefaultPalette(int bits_per_pixel,
+                                  pdfium::span<uint32_t> output);
+  static std::optional<uint32_t> GetDefaultPaletteArgb(int bits_per_pixel,
+                                                       int index);
+  static std::optional<int> FindPalette(int bits_per_pixel,
+                                        pdfium::span<const uint32_t> palette,
+                                        uint32_t color);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

@@ -172,6 +172,17 @@ extern "C" bool pdfium_rust_get_overlap_rect(
     int32_t clip_right,
     int32_t clip_bottom,
     int32_t* output);
+extern "C" bool pdfium_rust_build_default_palette(uint8_t bits_per_pixel,
+                                                   uint32_t* output,
+                                                   size_t output_len);
+extern "C" bool pdfium_rust_get_default_palette_argb(uint8_t bits_per_pixel,
+                                                      size_t index,
+                                                      uint32_t* output);
+extern "C" bool pdfium_rust_find_palette(uint8_t bits_per_pixel,
+                                          const uint32_t* palette,
+                                          size_t palette_len,
+                                          uint32_t color,
+                                          int32_t* output);
 
 namespace {
 
@@ -634,6 +645,44 @@ std::optional<std::array<int32_t, 6>> RustBlendAdapter::GetOverlapRect(
           destination_top, width, height, source_width, source_height,
           source_left, source_top, has_clip, clip_left, clip_top, clip_right,
           clip_bottom, output.data())) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+// static
+bool RustBlendAdapter::BuildDefaultPalette(int bits_per_pixel,
+                                           pdfium::span<uint32_t> output) {
+  return (bits_per_pixel == 1 || bits_per_pixel == 8) &&
+         pdfium_rust_build_default_palette(bits_per_pixel, output.data(),
+                                           output.size());
+}
+
+// static
+std::optional<uint32_t> RustBlendAdapter::GetDefaultPaletteArgb(
+    int bits_per_pixel,
+    int index) {
+  if ((bits_per_pixel != 1 && bits_per_pixel != 8) || index < 0) {
+    return std::nullopt;
+  }
+  uint32_t output;
+  if (!pdfium_rust_get_default_palette_argb(bits_per_pixel, index, &output)) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+// static
+std::optional<int> RustBlendAdapter::FindPalette(
+    int bits_per_pixel,
+    pdfium::span<const uint32_t> palette,
+    uint32_t color) {
+  if (bits_per_pixel != 1 && bits_per_pixel != 8) {
+    return std::nullopt;
+  }
+  int32_t output;
+  if (!pdfium_rust_find_palette(bits_per_pixel, palette.data(), palette.size(),
+                                color, &output)) {
     return std::nullopt;
   }
   return output;
