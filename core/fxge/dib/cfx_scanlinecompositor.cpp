@@ -2340,8 +2340,7 @@ void CFX_ScanlineCompositor::CompositePalBitmapLineSrcBpp8(
   if (RustBlendAdapter::UseCandidate() &&
       RustBlendAdapter::CompositePaletteRow(
           blend_type_, dest_format_,
-          src_scan.subspan(static_cast<size_t>(src_left),
-                           static_cast<size_t>(width)),
+          src_scan.first(static_cast<size_t>(width)),
           /*source_left=*/0, /*source_is_bit=*/false, gray_palette,
           argb_palette, clip_scan, rgb_byte_order_,
           dest_scan.first(static_cast<size_t>(width) * dest_Bpp))) {

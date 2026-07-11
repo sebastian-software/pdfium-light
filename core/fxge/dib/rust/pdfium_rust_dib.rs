@@ -508,6 +508,20 @@ pub unsafe extern "C" fn pdfium_rust_composite_opaque_row(
     {
         return false;
     }
+    if target == 2
+        && mode == BlendMode::Normal as u8
+        && clip.is_null()
+        && !rgb_byte_order
+        && source_components == output_components
+    {
+        // SAFETY: The caller contract guarantees complete, non-overlapping
+        // source/output rows. This preserves the C++ fast path, including the
+        // unused fourth byte in BGRx pixels.
+        unsafe {
+            std::ptr::copy_nonoverlapping(source, output, pixel_count * source_components);
+        }
+        return true;
+    }
     for pixel in 0..pixel_count {
         // SAFETY: The caller contract guarantees complete, non-overlapping
         // source/output rows and an optional complete clip row.
@@ -577,8 +591,15 @@ pub unsafe extern "C" fn pdfium_rust_composite_mask_row(
             let input = [mask_blue, mask_green, mask_red, 255];
             let output =
                 slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
-            if !composite_opaque_pixel(mode, input, coverage as u8, target, rgb_byte_order, output)
-            {
+            let effective_mode = if target <= 1 { BlendMode::Normal as u8 } else { mode };
+            if !composite_opaque_pixel(
+                effective_mode,
+                input,
+                coverage as u8,
+                target,
+                rgb_byte_order,
+                output,
+            ) {
                 return false;
             }
         }
