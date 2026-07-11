@@ -41,6 +41,7 @@ ACTIVE_SURFACES = (
     "BGRA bitmap alpha mutations",
     "bitmap clearing across retained formats",
     "BGR/BGRx/BGRA bitmap color scaling",
+    "bitmap pitch and allocation-size calculation",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 
