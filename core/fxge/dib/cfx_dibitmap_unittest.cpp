@@ -210,3 +210,30 @@ TEST(CFXDIBitmapTest, RustMultiplyAlphaMatchesCppReference) {
   EXPECT_THAT(candidate->GetBuffer(),
               ElementsAreArray(reference->GetBuffer()));
 }
+
+TEST(CFXDIBitmapTest, RustClearMatchesCppReferenceAcrossFormats) {
+  static constexpr std::array<FXDIB_Format, 7> kFormats = {
+      FXDIB_Format::k1bppMask, FXDIB_Format::k1bppRgb,
+      FXDIB_Format::k8bppMask, FXDIB_Format::k8bppRgb,
+      FXDIB_Format::kBgr,      FXDIB_Format::kBgrx,
+      FXDIB_Format::kBgra,
+  };
+  static constexpr std::array<uint32_t, 3> kColors = {
+      0x00000000, 0xff5a5a5a, 0x8012a7e4};
+  for (const FXDIB_Format format : kFormats) {
+    for (const uint32_t color : kColors) {
+      auto reference = CreatePatternedBitmap(format);
+      auto candidate = CreatePatternedBitmap(format);
+      ASSERT_TRUE(reference);
+      ASSERT_TRUE(candidate);
+      {
+        fxge::ScopedRustDibImplementationForTesting implementation(false);
+        reference->Clear(color);
+      }
+      candidate->Clear(color);
+      EXPECT_THAT(candidate->GetBuffer(),
+                  ElementsAreArray(reference->GetBuffer()))
+          << "format=" << static_cast<int>(format) << " color=" << color;
+    }
+  }
+}
