@@ -1575,6 +1575,107 @@ fn transform_bilinear_indexed(
     true
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the helper validates source and destination color geometries"
+)]
+fn transform_bilinear_color(
+    matrix: &[i32; 6],
+    source: &[u8],
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    source_components: usize,
+    transform_mode: u8,
+    destination: &mut [u8],
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    let (Ok(source_width), Ok(source_height), Ok(destination_width), Ok(destination_height)) = (
+        usize::try_from(source_width),
+        usize::try_from(source_height),
+        usize::try_from(destination_width),
+        usize::try_from(destination_height),
+    ) else {
+        return false;
+    };
+    if source_width == 0
+        || source_height == 0
+        || destination_width == 0
+        || destination_height == 0
+        || !matches!((source_components, transform_mode), (3 | 4, 0) | (4, 1 | 2))
+    {
+        return false;
+    }
+    let Some(source_row_bytes) = source_width.checked_mul(source_components) else {
+        return false;
+    };
+    let Some(source_required) = source_height.checked_mul(source_pitch) else {
+        return false;
+    };
+    let Some(destination_row_bytes) = destination_width.checked_mul(4) else {
+        return false;
+    };
+    let Some(destination_required) = destination_height.checked_mul(destination_pitch) else {
+        return false;
+    };
+    if source.len() < source_required
+        || destination.len() < destination_required
+        || source_pitch < source_row_bytes
+        || destination_pitch < destination_row_bytes
+    {
+        return false;
+    }
+    for row in 0..destination_height {
+        for column in 0..destination_width {
+            let (source_x, source_y, residual_x, residual_y) =
+                bilinear_coordinate(matrix, column, row);
+            let mut pixel = [0; 4];
+            let channel_count = if transform_mode == 0 { 3 } else { 4 };
+            let mut sampled = true;
+            for (channel, output) in pixel.iter_mut().enumerate().take(channel_count) {
+                let Some(value) = bilinear_sample(
+                    source,
+                    source_pitch,
+                    source_width,
+                    source_height,
+                    source_components,
+                    channel,
+                    source_x,
+                    source_y,
+                    residual_x,
+                    residual_y,
+                ) else {
+                    sampled = false;
+                    break;
+                };
+                *output = value;
+            }
+            if !sampled {
+                continue;
+            }
+            if transform_mode == 0 {
+                pixel[3] = 255;
+            }
+            let Some(destination_offset) = row.checked_mul(destination_pitch).and_then(|offset| {
+                column.checked_mul(4).and_then(|column| offset.checked_add(column))
+            }) else {
+                return false;
+            };
+            let Some(destination_end) = destination_offset.checked_add(4) else {
+                return false;
+            };
+            let Some(destination_pixel) = destination.get_mut(destination_offset..destination_end)
+            else {
+                return false;
+            };
+            destination_pixel.copy_from_slice(&pixel);
+        }
+    }
+    true
+}
+
 /// Applies the retained fixed-matrix bilinear transform to an alpha bitmap.
 ///
 /// # Safety
@@ -1669,6 +1770,59 @@ pub unsafe extern "C" fn pdfium_rust_transform_bilinear_indexed(
         source_width,
         source_height,
         palette,
+        destination,
+        destination_pitch,
+        destination_width,
+        destination_height,
+    )
+}
+
+/// Applies the retained fixed-matrix bilinear transform to color pixels.
+///
+/// `transform_mode` selects opaque BGR (`0`), BGRA (`1`), or four-channel raw
+/// CMYK (`2`) output.
+///
+/// # Safety
+///
+/// All pointers must cover their supplied lengths. Destination must not
+/// overlap either input region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_transform_bilinear_color(
+    matrix: *const i32,
+    matrix_len: usize,
+    source: *const u8,
+    source_len: usize,
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    source_components: usize,
+    transform_mode: u8,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    if matrix.is_null() || matrix_len != 6 || source.is_null() || destination.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees disjoint regions covering the
+    // supplied lengths, and the matrix length was checked above.
+    let (matrix, source, destination) = unsafe {
+        (
+            &*matrix.cast::<[i32; 6]>(),
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    transform_bilinear_color(
+        matrix,
+        source,
+        source_pitch,
+        source_width,
+        source_height,
+        source_components,
+        transform_mode,
         destination,
         destination_pitch,
         destination_width,

@@ -133,6 +133,18 @@ class RustBlendAdapter final {
       size_t destination_pitch,
       int destination_width,
       int destination_height);
+  static bool TransformBilinearColor(
+      const std::array<int32_t, 6>& matrix,
+      pdfium::span<const uint8_t> source,
+      size_t source_pitch,
+      int source_width,
+      int source_height,
+      size_t source_components,
+      uint8_t transform_mode,
+      pdfium::span<uint8_t> destination,
+      size_t destination_pitch,
+      int destination_width,
+      int destination_height);
   static std::optional<std::array<size_t, 2>> CalculateStretchWeights(
       int destination_length,
       int destination_minimum,

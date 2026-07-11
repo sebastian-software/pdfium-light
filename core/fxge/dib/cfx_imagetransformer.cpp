@@ -346,7 +346,20 @@ void CFX_ImageTransformer::CalcColor(const CalcData& calc_data,
   DCHECK(dest_format == FXDIB_Format::k8bppMask ||
          dest_format == FXDIB_Format::kBgra);
   const int dest_bytes_per_pixel = calc_data.bitmap->GetBPP() / 8;
-  if (!storer_.GetBitmap()->IsAlphaFormat()) {
+  const bool source_has_alpha = storer_.GetBitmap()->IsAlphaFormat();
+  const uint8_t transform_mode =
+      !source_has_alpha ? 0 : dest_format == FXDIB_Format::kBgra ? 1 : 2;
+  CFX_BilinearMatrix matrix_fix(calc_data.matrix);
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::TransformBilinearColor(
+          matrix_fix.GetValuesForRust(), storer_.GetBitmap()->GetBuffer(),
+          calc_data.pitch, stretch_clip_.Width(), stretch_clip_.Height(),
+          src_bytes_per_pixel, transform_mode,
+          calc_data.bitmap->GetWritableBuffer(), calc_data.bitmap->GetPitch(),
+          result_.Width(), result_.Height())) {
+    return;
+  }
+  if (!source_has_alpha) {
     auto func = [&calc_data, src_bytes_per_pixel](const BilinearData& data,
                                                   uint8_t* dest) {
       uint8_t b =
