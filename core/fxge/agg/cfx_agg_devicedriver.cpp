@@ -304,37 +304,65 @@ void RasterizeStroke(agg::rasterizer_scanline_aa* rasterizer,
                      const CFX_GraphStateData* pGraphState,
                      float scale,
                      bool bTextMode) {
-  agg::line_cap_e cap;
-  switch (pGraphState->line_cap()) {
-    case CFX_GraphStateData::LineCap::kRound:
-      cap = agg::round_cap;
-      break;
-    case CFX_GraphStateData::LineCap::kSquare:
-      cap = agg::square_cap;
-      break;
-    default:
-      cap = agg::butt_cap;
-      break;
-  }
-  agg::line_join_e join;
-  switch (pGraphState->line_join()) {
-    case CFX_GraphStateData::LineJoin::kRound:
-      join = agg::round_join;
-      break;
-    case CFX_GraphStateData::LineJoin::kBevel:
-      join = agg::bevel_join;
-      break;
-    default:
-      join = agg::miter_join_revert;
-      break;
-  }
-  float width = pGraphState->line_width() * scale;
-  float unit = 1.0f;
-  if (pObject2Device) {
-    unit =
-        1.0f / ((pObject2Device->GetXUnit() + pObject2Device->GetYUnit()) / 2);
-  }
-  width = std::max(width, unit);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineCap::kButt) == 0);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineCap::kRound) == 1);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineCap::kSquare) ==
+                2);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineJoin::kMiter) ==
+                0);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineJoin::kRound) ==
+                1);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineJoin::kBevel) ==
+                2);
+  const auto plan_stroke_cpp = [&]() {
+    fxge::AggLineCap cap = fxge::AggLineCap::kButt;
+    if (pGraphState->line_cap() == CFX_GraphStateData::LineCap::kRound) {
+      cap = fxge::AggLineCap::kRound;
+    } else if (pGraphState->line_cap() ==
+               CFX_GraphStateData::LineCap::kSquare) {
+      cap = fxge::AggLineCap::kSquare;
+    }
+    fxge::AggLineJoin join = fxge::AggLineJoin::kMiter;
+    if (pGraphState->line_join() == CFX_GraphStateData::LineJoin::kRound) {
+      join = fxge::AggLineJoin::kRound;
+    } else if (pGraphState->line_join() ==
+               CFX_GraphStateData::LineJoin::kBevel) {
+      join = fxge::AggLineJoin::kBevel;
+    }
+    float width = pGraphState->line_width() * scale;
+    float unit = 1.0f;
+    if (pObject2Device) {
+      unit = 1.0f /
+             ((pObject2Device->GetXUnit() + pObject2Device->GetYUnit()) / 2);
+    }
+    return fxge::AggStrokePlan{
+        .line_cap = cap,
+        .line_join = join,
+        .width = std::max(width, unit),
+        .miter_limit = pGraphState->miter_limit(),
+    };
+  };
+  const auto rust_stroke_plan =
+      fxge::UseRustAggCandidate()
+          ? fxge::RustPlanAggStroke(
+                static_cast<uint8_t>(pGraphState->line_cap()),
+                static_cast<uint8_t>(pGraphState->line_join()),
+                pGraphState->line_width(), scale, !!pObject2Device,
+                pObject2Device ? pObject2Device->GetXUnit() : 0.0f,
+                pObject2Device ? pObject2Device->GetYUnit() : 0.0f,
+                pGraphState->miter_limit())
+          : std::nullopt;
+  const fxge::AggStrokePlan stroke_plan =
+      rust_stroke_plan.has_value() ? *rust_stroke_plan : plan_stroke_cpp();
+  const agg::line_cap_e cap =
+      stroke_plan.line_cap == fxge::AggLineCap::kRound    ? agg::round_cap
+      : stroke_plan.line_cap == fxge::AggLineCap::kSquare ? agg::square_cap
+                                                          : agg::butt_cap;
+  const agg::line_join_e join =
+      stroke_plan.line_join == fxge::AggLineJoin::kRound ? agg::round_join
+      : stroke_plan.line_join == fxge::AggLineJoin::kBevel
+          ? agg::bevel_join
+          : agg::miter_join_revert;
   const std::vector<float>& dash_array = pGraphState->dash_array();
 
   auto should_apply_dash_pattern_cpp = [&dash_array, scale]() {
@@ -374,16 +402,16 @@ void RasterizeStroke(agg::rasterizer_scanline_aa* rasterizer,
     DashStroke stroke(dash);
     stroke.line_join(join);
     stroke.line_cap(cap);
-    stroke.miter_limit(pGraphState->miter_limit());
-    stroke.width(width);
+    stroke.miter_limit(stroke_plan.miter_limit);
+    stroke.width(stroke_plan.width);
     rasterizer->add_path_transformed(stroke, pObject2Device);
     return;
   }
   agg::conv_stroke<agg::path_storage> stroke(*path_data);
   stroke.line_join(join);
   stroke.line_cap(cap);
-  stroke.miter_limit(pGraphState->miter_limit());
-  stroke.width(width);
+  stroke.miter_limit(stroke_plan.miter_limit);
+  stroke.width(stroke_plan.width);
   rasterizer->add_path_transformed(stroke, pObject2Device);
 }
 

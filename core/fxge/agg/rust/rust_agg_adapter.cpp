@@ -6,11 +6,31 @@
 
 namespace {
 
+struct RustAggStrokePlan {
+  uint8_t line_cap;
+  uint8_t line_join;
+  uint8_t reserved[2];
+  float width;
+  float miter_limit;
+};
+
+static_assert(sizeof(RustAggStrokePlan) == 12);
+
 extern "C" bool pdfium_rust_should_apply_agg_dash_pattern(
     const float* dash_values,
     size_t dash_count,
     float scale,
     bool* output);
+
+extern "C" bool pdfium_rust_plan_agg_stroke(uint8_t line_cap,
+                                            uint8_t line_join,
+                                            float line_width,
+                                            float scale,
+                                            bool has_object_to_device,
+                                            float object_x_unit,
+                                            float object_y_unit,
+                                            float miter_limit,
+                                            RustAggStrokePlan* output);
 
 thread_local bool g_use_rust_agg_candidate = true;
 thread_local std::vector<uint8_t>* g_agg_trace_for_testing = nullptr;
@@ -28,6 +48,30 @@ std::optional<bool> RustShouldApplyAggDashPattern(
     return std::nullopt;
   }
   return should_apply;
+}
+
+std::optional<AggStrokePlan> RustPlanAggStroke(uint8_t line_cap,
+                                               uint8_t line_join,
+                                               float line_width,
+                                               float scale,
+                                               bool has_object_to_device,
+                                               float object_x_unit,
+                                               float object_y_unit,
+                                               float miter_limit) {
+  RustAggStrokePlan plan{};
+  if (!pdfium_rust_plan_agg_stroke(line_cap, line_join, line_width, scale,
+                                   has_object_to_device, object_x_unit,
+                                   object_y_unit, miter_limit, &plan) ||
+      plan.line_cap > static_cast<uint8_t>(AggLineCap::kSquare) ||
+      plan.line_join > static_cast<uint8_t>(AggLineJoin::kBevel)) {
+    return std::nullopt;
+  }
+  return AggStrokePlan{
+      .line_cap = static_cast<AggLineCap>(plan.line_cap),
+      .line_join = static_cast<AggLineJoin>(plan.line_join),
+      .width = plan.width,
+      .miter_limit = plan.miter_limit,
+  };
 }
 
 bool UseRustAggCandidate() {

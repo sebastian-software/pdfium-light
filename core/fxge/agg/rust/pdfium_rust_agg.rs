@@ -4,6 +4,62 @@
 
 const MIN_DASH_CYCLE_DEVICE_PIXELS: f32 = 0.1;
 
+const LINE_CAP_BUTT: u8 = 0;
+const LINE_CAP_ROUND: u8 = 1;
+const LINE_CAP_SQUARE: u8 = 2;
+const LINE_JOIN_MITER: u8 = 0;
+const LINE_JOIN_ROUND: u8 = 1;
+const LINE_JOIN_BEVEL: u8 = 2;
+
+/// Plain-data stroke settings returned to the AGG adapter.
+#[repr(C)]
+pub struct RustAggStrokePlan {
+    line_cap: u8,
+    line_join: u8,
+    reserved: [u8; 2],
+    width: f32,
+    miter_limit: f32,
+}
+
+struct StrokeInputs {
+    line_cap: u8,
+    line_join: u8,
+    line_width: f32,
+    scale: f32,
+    has_object_to_device: bool,
+    object_x_unit: f32,
+    object_y_unit: f32,
+    miter_limit: f32,
+}
+
+fn plan_stroke(inputs: StrokeInputs) -> RustAggStrokePlan {
+    let line_cap = match inputs.line_cap {
+        LINE_CAP_ROUND => LINE_CAP_ROUND,
+        LINE_CAP_SQUARE => LINE_CAP_SQUARE,
+        _ => LINE_CAP_BUTT,
+    };
+    let line_join = match inputs.line_join {
+        LINE_JOIN_ROUND => LINE_JOIN_ROUND,
+        LINE_JOIN_BEVEL => LINE_JOIN_BEVEL,
+        _ => LINE_JOIN_MITER,
+    };
+    let width = inputs.line_width * inputs.scale;
+    let unit = if inputs.has_object_to_device {
+        1.0 / ((inputs.object_x_unit + inputs.object_y_unit) / 2.0)
+    } else {
+        1.0
+    };
+    // Preserve `std::max(width, unit)`: a NaN width remains the first operand.
+    let width = if width < unit { unit } else { width };
+    RustAggStrokePlan {
+        line_cap,
+        line_join,
+        reserved: [0; 2],
+        width,
+        miter_limit: inputs.miter_limit,
+    }
+}
+
 fn should_apply_dash_pattern(dash_array: &[f32], scale: f32) -> bool {
     if dash_array.is_empty() {
         return false;
@@ -46,6 +102,42 @@ pub unsafe extern "C" fn pdfium_rust_should_apply_agg_dash_pattern(
     // SAFETY: The caller guarantees one writable output value.
     unsafe {
         *output = should_apply_dash_pattern(dash_array, scale);
+    }
+    true
+}
+
+/// Plans the scalar AGG stroke settings without taking ownership of inputs.
+///
+/// # Safety
+///
+/// `output` must point to one writable `RustAggStrokePlan` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_plan_agg_stroke(
+    line_cap: u8,
+    line_join: u8,
+    line_width: f32,
+    scale: f32,
+    has_object_to_device: bool,
+    object_x_unit: f32,
+    object_y_unit: f32,
+    miter_limit: f32,
+    output: *mut RustAggStrokePlan,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller guarantees one writable output value.
+    unsafe {
+        *output = plan_stroke(StrokeInputs {
+            line_cap,
+            line_join,
+            line_width,
+            scale,
+            has_object_to_device,
+            object_x_unit,
+            object_y_unit,
+            miter_limit,
+        });
     }
     true
 }
