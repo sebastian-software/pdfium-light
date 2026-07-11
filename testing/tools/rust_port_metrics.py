@@ -52,6 +52,7 @@ ACTIVE_SURFACES = (
     "BGRA alpha-mask row extraction",
     "aligned and shifted bitmap clipping",
     "complete bitmap scanline copies",
+    "stretch-engine weight-table layout and fixed-point weights",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 

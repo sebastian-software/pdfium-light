@@ -59,6 +59,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `28c172466` Phase 1 alpha-mask clone slice | 10,089 | 3,278 | 241 | 1,272 | 6,570 | 267,116 | 3.78% | 1.69% | Prior surfaces plus scanline-backed BGRA alpha extraction into 8-bpp masks with untouched destination padding |
 | `c6bc0bb76` Phase 1 bitmap-clip slice | 10,205 | 3,394 | 241 | 1,296 | 6,570 | 267,349 | 3.82% | 1.74% | Prior surfaces plus aligned 1-/8-/24-/32-bpp clipping and native-word shifted 1-bpp clipping |
 | `3708a4ab5` Phase 1 bitmap-copy slice | 10,245 | 3,434 | 241 | 1,310 | 6,570 | 267,457 | 3.83% | 1.76% | Prior surfaces plus complete scanline copies, including source padding, for every retained format |
+| `64b671193` Phase 1 stretch-weight slice | 10,594 | 3,783 | 241 | 1,355 | 6,570 | 267,944 | 3.95% | 1.94% | Prior surfaces plus bounded stretch-table layout and exact nearest, bilinear, area, clipped, and mirrored fixed-point weights |
 
 ## Toolchain
 
@@ -188,6 +189,13 @@ Whole-bitmap copying likewise retains C++ allocation, palette ownership, and
 abstract source scanlines. Rust copies each complete row, including historical
 padding bytes, through a non-overlapping borrowed-span boundary. Nine focused
 cases cover every retained format plus custom 1-bpp and 8-bpp palettes.
+
+The stretch engine still owns its variable-sized table storage in C++, while
+Rust now calculates the layout, enforces the 512 MiB cap, and fills every
+source interval and 16.16 weight. The two-pass FFI first sizes and then fills
+the caller-owned byte table without Rust allocation. Forty exact differential
+configurations cover nearest, bilinear, area, no-smoothing, clipped-source,
+negative-destination mirror, zero-length, and invalid-range behavior.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
