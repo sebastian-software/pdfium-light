@@ -769,6 +769,14 @@ bool CFX_DIBitmap::CompositeRect(int left,
     return true;
   }
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::CompositeRect(
+          GetWritableBuffer(), GetWidth(), GetHeight(), GetPitch(), GetFormat(),
+          GetPaletteSpan(), rect.left, rect.top, rect.right, rect.bottom,
+          color)) {
+    return true;
+  }
+
   CHECK_GE(rect.left, 0);
   width = rect.Width();
   uint32_t dst_color = color;

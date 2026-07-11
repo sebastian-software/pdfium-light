@@ -100,6 +100,17 @@ class RustBlendAdapter final {
                           size_t components,
                           std::array<uint8_t, 4> pixel,
                           bool fill_padding);
+  static bool CompositeRect(pdfium::span<uint8_t> buffer,
+                            int bitmap_width,
+                            int bitmap_height,
+                            uint32_t pitch,
+                            FXDIB_Format format,
+                            pdfium::span<const uint32_t> palette,
+                            int left,
+                            int top,
+                            int right,
+                            int bottom,
+                            uint32_t color);
   static bool ConvertBgrColorScale(pdfium::span<uint8_t> buffer,
                                    int width,
                                    int height,

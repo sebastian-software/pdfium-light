@@ -454,6 +454,212 @@ pub unsafe extern "C" fn pdfium_rust_clear_bitmap(
     true
 }
 
+#[derive(Clone, Copy)]
+struct BitmapRect {
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the helper models one complete allocation-free bitmap operation"
+)]
+fn composite_rect(
+    buffer: &mut [u8],
+    bitmap_width: usize,
+    bitmap_height: usize,
+    pitch: usize,
+    format: u16,
+    palette: &[u32],
+    rect: BitmapRect,
+    color: u32,
+) -> bool {
+    if rect.left >= rect.right
+        || rect.top >= rect.bottom
+        || rect.right > bitmap_width
+        || rect.bottom > bitmap_height
+    {
+        return false;
+    }
+    let Some(required_len) = pitch.checked_mul(bitmap_height) else {
+        return false;
+    };
+    if buffer.len() < required_len {
+        return false;
+    }
+    let alpha = (color >> 24) as u8;
+    if alpha == 0 {
+        return true;
+    }
+    let blue = color as u8;
+    let green = (color >> 8) as u8;
+    let red = (color >> 16) as u8;
+    let width = rect.right - rect.left;
+
+    if matches!(format, 0x001 | 0x101) {
+        let index = if palette.is_empty() {
+            if blue == 0xff {
+                1
+            } else {
+                0
+            }
+        } else {
+            if palette.len() < 2 {
+                return false;
+            }
+            palette.iter().take(2).rposition(|entry| *entry == color).unwrap_or(0)
+        };
+        for row in rect.top..rect.bottom {
+            let Some(row_start) = row.checked_mul(pitch) else {
+                return false;
+            };
+            let Some(row_end) = row_start.checked_add(pitch) else {
+                return false;
+            };
+            let Some(scanline) = buffer.get_mut(row_start..row_end) else {
+                return false;
+            };
+            for column in rect.left..rect.right {
+                let Some(byte) = scanline.get_mut(column / 8) else {
+                    return false;
+                };
+                let mask = 1 << (7 - column % 8);
+                if index == 0 {
+                    *byte &= !mask;
+                } else {
+                    *byte |= mask;
+                }
+            }
+        }
+        return true;
+    }
+
+    if matches!(format, 0x008 | 0x108) {
+        let gray_value = if format == 0x108 { 255 } else { gray([blue, green, red, 255]) };
+        for row in rect.top..rect.bottom {
+            let Some(row_start) =
+                row.checked_mul(pitch).and_then(|offset| offset.checked_add(rect.left))
+            else {
+                return false;
+            };
+            let Some(row_end) = row_start.checked_add(width) else {
+                return false;
+            };
+            let Some(destination) = buffer.get_mut(row_start..row_end) else {
+                return false;
+            };
+            if alpha == 255 {
+                destination.fill(gray_value);
+            } else {
+                for pixel in destination {
+                    *pixel = alpha_merge(*pixel, gray_value, alpha);
+                }
+            }
+        }
+        return true;
+    }
+
+    let components = match format {
+        0x018 => 3,
+        0x020 | 0x220 => 4,
+        _ => return false,
+    };
+    let Some(row_bytes) = width.checked_mul(components) else {
+        return false;
+    };
+    for row in rect.top..rect.bottom {
+        let Some(row_start) = row.checked_mul(pitch).and_then(|offset| {
+            rect.left.checked_mul(components).and_then(|left| offset.checked_add(left))
+        }) else {
+            return false;
+        };
+        let Some(row_end) = row_start.checked_add(row_bytes) else {
+            return false;
+        };
+        let Some(destination) = buffer.get_mut(row_start..row_end) else {
+            return false;
+        };
+        for pixel in destination.chunks_exact_mut(components) {
+            if alpha == 255 {
+                pixel[..3].copy_from_slice(&[blue, green, red]);
+                if components == 4 {
+                    pixel[3] = 255;
+                }
+                continue;
+            }
+            if format == 0x220 {
+                let backdrop_alpha = pixel[3];
+                if backdrop_alpha == 0 {
+                    pixel.copy_from_slice(&[blue, green, red, alpha]);
+                    continue;
+                }
+                let destination_alpha = u16::from(backdrop_alpha) + u16::from(alpha)
+                    - u16::from(backdrop_alpha) * u16::from(alpha) / 255;
+                let alpha_ratio = u16::from(alpha) * 255 / destination_alpha;
+                pixel[0] = alpha_merge(pixel[0], blue, alpha_ratio as u8);
+                pixel[1] = alpha_merge(pixel[1], green, alpha_ratio as u8);
+                pixel[2] = alpha_merge(pixel[2], red, alpha_ratio as u8);
+                pixel[3] = destination_alpha as u8;
+            } else {
+                pixel[0] = alpha_merge(pixel[0], blue, alpha);
+                pixel[1] = alpha_merge(pixel[1], green, alpha);
+                pixel[2] = alpha_merge(pixel[2], red, alpha);
+                if components == 4 {
+                    pixel[3] = 255;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Composites a solid ARGB color into a clipped bitmap rectangle.
+///
+/// # Safety
+///
+/// Buffer and palette pointers must cover their supplied lengths. The regions
+/// must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_rect(
+    buffer: *mut u8,
+    buffer_len: usize,
+    bitmap_width: usize,
+    bitmap_height: usize,
+    pitch: usize,
+    format: u16,
+    palette: *const u32,
+    palette_len: usize,
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+    color: u32,
+) -> bool {
+    if buffer.is_null() || (palette_len != 0 && palette.is_null()) {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees both regions for their supplied
+    // lengths and forbids overlap.
+    let (buffer, palette) = unsafe {
+        (
+            slice::from_raw_parts_mut(buffer, buffer_len),
+            if palette_len == 0 { &[] } else { slice::from_raw_parts(palette, palette_len) },
+        )
+    };
+    composite_rect(
+        buffer,
+        bitmap_width,
+        bitmap_height,
+        pitch,
+        format,
+        palette,
+        BitmapRect { left, top, right, bottom },
+        color,
+    )
+}
+
 /// Converts packed BGR/BGRx/BGRA pixels to PDFium's integer gray value.
 ///
 /// # Safety

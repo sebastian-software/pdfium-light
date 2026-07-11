@@ -114,6 +114,19 @@ extern "C" bool pdfium_rust_clear_bitmap(uint8_t* buffer,
                                           uint8_t red,
                                           uint8_t alpha,
                                           bool fill_padding);
+extern "C" bool pdfium_rust_composite_rect(uint8_t* buffer,
+                                            size_t buffer_len,
+                                            size_t bitmap_width,
+                                            size_t bitmap_height,
+                                            size_t pitch,
+                                            uint16_t format,
+                                            const uint32_t* palette,
+                                            size_t palette_len,
+                                            size_t left,
+                                            size_t top,
+                                            size_t right,
+                                            size_t bottom,
+                                            uint32_t color);
 extern "C" bool pdfium_rust_convert_bgr_color_scale(uint8_t* buffer,
                                                      size_t width,
                                                      size_t height,
@@ -558,6 +571,28 @@ bool RustBlendAdapter::ClearBitmap(pdfium::span<uint8_t> buffer,
          pdfium_rust_clear_bitmap(
              buffer.data(), buffer.size(), width, height, pitch, components,
              pixel[0], pixel[1], pixel[2], pixel[3], fill_padding);
+}
+
+// static
+bool RustBlendAdapter::CompositeRect(
+    pdfium::span<uint8_t> buffer,
+    int bitmap_width,
+    int bitmap_height,
+    uint32_t pitch,
+    FXDIB_Format format,
+    pdfium::span<const uint32_t> palette,
+    int left,
+    int top,
+    int right,
+    int bottom,
+    uint32_t color) {
+  return bitmap_width > 0 && bitmap_height > 0 && left >= 0 && top >= 0 &&
+         right > left && bottom > top && right <= bitmap_width &&
+         bottom <= bitmap_height &&
+         pdfium_rust_composite_rect(
+             buffer.data(), buffer.size(), bitmap_width, bitmap_height, pitch,
+             static_cast<uint16_t>(format), palette.data(), palette.size(),
+             left, top, right, bottom, color);
 }
 
 // static
