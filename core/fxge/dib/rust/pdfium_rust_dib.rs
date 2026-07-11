@@ -2743,6 +2743,45 @@ pub unsafe extern "C" fn pdfium_rust_build_default_palette(
     true
 }
 
+fn build_1bpp_stretch_palette(first: u32, second: u32, output: &mut [u32]) -> bool {
+    if output.len() < 256 || (first >> 24) != 255 || (second >> 24) != 255 {
+        return false;
+    }
+    let first = [((first >> 16) & 255) as i32, ((first >> 8) & 255) as i32, (first & 255) as i32];
+    let second =
+        [((second >> 16) & 255) as i32, ((second >> 8) & 255) as i32, (second & 255) as i32];
+    for (index, entry) in output.iter_mut().take(256).enumerate() {
+        let index = index as i32;
+        let channels = [0, 1, 2]
+            .map(|channel| first[channel] + (second[channel] - first[channel]) * index / 255);
+        *entry = 0xff00_0000
+            | (channels[0] as u32) << 16
+            | (channels[1] as u32) << 8
+            | channels[2] as u32;
+    }
+    true
+}
+
+/// Builds the opaque 256-entry interpolation palette for 1-bpp stretching.
+///
+/// # Safety
+///
+/// `output` must cover `output_len` writable entries.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_1bpp_stretch_palette(
+    first: u32,
+    second: u32,
+    output: *mut u32,
+    output_len: usize,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees the writable output extent.
+    let output = unsafe { slice::from_raw_parts_mut(output, output_len) };
+    build_1bpp_stretch_palette(first, second, output)
+}
+
 /// Returns a default palette entry for a 1-bpp or 8-bpp bitmap.
 ///
 /// # Safety

@@ -311,6 +311,10 @@ extern "C" bool pdfium_rust_get_overlap_rect(
 extern "C" bool pdfium_rust_build_default_palette(uint8_t bits_per_pixel,
                                                    uint32_t* output,
                                                    size_t output_len);
+extern "C" bool pdfium_rust_build_1bpp_stretch_palette(uint32_t first,
+                                                        uint32_t second,
+                                                        uint32_t* output,
+                                                        size_t output_len);
 extern "C" bool pdfium_rust_get_default_palette_argb(uint8_t bits_per_pixel,
                                                       size_t index,
                                                       uint32_t* output);
@@ -1004,6 +1008,15 @@ bool RustBlendAdapter::BuildDefaultPalette(int bits_per_pixel,
   return (bits_per_pixel == 1 || bits_per_pixel == 8) &&
          pdfium_rust_build_default_palette(bits_per_pixel, output.data(),
                                            output.size());
+}
+
+// static
+bool RustBlendAdapter::Build1bppStretchPalette(
+    uint32_t first,
+    uint32_t second,
+    pdfium::span<uint32_t> output) {
+  return pdfium_rust_build_1bpp_stretch_palette(
+      first, second, output.data(), output.size());
 }
 
 // static
