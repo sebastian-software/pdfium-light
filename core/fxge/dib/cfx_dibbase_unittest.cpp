@@ -618,3 +618,56 @@ TEST(CFXDIBBaseTest, RustAlphaTransformMatchesCppReference) {
     EXPECT_EQ(reference->GetBuffer(), candidate->GetBuffer());
   }
 }
+
+TEST(CFXDIBBaseTest, RustIndexedTransformMatchesCppReference) {
+  struct SourceCase {
+    FXDIB_Format format;
+    bool custom_palette;
+  };
+  static constexpr std::array<SourceCase, 4> kSources = {
+      SourceCase{FXDIB_Format::k1bppRgb, false},
+      SourceCase{FXDIB_Format::k1bppRgb, true},
+      SourceCase{FXDIB_Format::k8bppRgb, false},
+      SourceCase{FXDIB_Format::k8bppRgb, true},
+  };
+  static constexpr std::array<CFX_Matrix, 4> kMatrices = {
+      CFX_Matrix(5.0f, 1.25f, 1.75f, -4.5f, 0.3f, 5.1f),
+      CFX_Matrix(-4.25f, 1.5f, 2.0f, 3.75f, 4.2f, -1.3f),
+      CFX_Matrix(2.5f, -3.25f, 4.0f, 1.5f, -2.2f, 3.6f),
+      CFX_Matrix(-3.5f, -1.0f, -1.75f, 4.25f, 5.4f, 2.7f),
+  };
+  for (const auto& source_case : kSources) {
+    auto source =
+        CreateConversionBitmap(source_case.format, source_case.custom_palette);
+    ASSERT_TRUE(source);
+    if (source_case.format == FXDIB_Format::k1bppRgb &&
+        source_case.custom_palette) {
+      source->SetPaletteArgb(1, 0xff42a7e1);
+    }
+    for (const auto& matrix : kMatrices) {
+      int reference_left = 0;
+      int reference_top = 0;
+      RetainPtr<CFX_DIBitmap> reference;
+      {
+        fxge::ScopedRustDibImplementationForTesting implementation(false);
+        reference =
+            source->TransformTo(matrix, &reference_left, &reference_top);
+      }
+      int candidate_left = 0;
+      int candidate_top = 0;
+      auto candidate =
+          source->TransformTo(matrix, &candidate_left, &candidate_top);
+      ASSERT_EQ(static_cast<bool>(reference), static_cast<bool>(candidate));
+      ASSERT_TRUE(reference);
+      EXPECT_EQ(reference_left, candidate_left);
+      EXPECT_EQ(reference_top, candidate_top);
+      EXPECT_EQ(reference->GetFormat(), candidate->GetFormat());
+      EXPECT_EQ(reference->GetWidth(), candidate->GetWidth());
+      EXPECT_EQ(reference->GetHeight(), candidate->GetHeight());
+      EXPECT_EQ(reference->GetPitch(), candidate->GetPitch());
+      EXPECT_EQ(reference->GetBuffer(), candidate->GetBuffer())
+          << "source_format=" << static_cast<int>(source_case.format)
+          << " custom_palette=" << source_case.custom_palette;
+    }
+  }
+}

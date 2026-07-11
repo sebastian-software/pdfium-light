@@ -3948,6 +3948,28 @@ mod tests {
     }
 
     #[test]
+    fn transform_bilinear_indexed_should_resolve_interpolated_palette_entries() {
+        let palette: Vec<u32> = (0_u32..=255).map(|value| value * 0x0101_0101).collect();
+        let mut destination = [9; 16];
+        assert!(transform_bilinear_indexed(
+            &[256, 0, 0, 256, -128, -128],
+            &[0, 64, 128, 255],
+            2,
+            2,
+            2,
+            &palette,
+            &mut destination,
+            8,
+            2,
+            2,
+        ));
+        assert_eq!(&[0; 4], &destination[..4]);
+        assert_eq!(&[62; 4], &destination[4..8]);
+        assert_eq!(&[126; 4], &destination[8..12]);
+        assert_eq!(&[253; 4], &destination[12..]);
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(
