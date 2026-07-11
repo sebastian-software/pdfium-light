@@ -89,6 +89,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `b8ba94e27` Phase 4 path/width cache slice | 14,984 | 8,173 | 241 | 3,209 | 6,570 | 275,308 | 5.44% | 4.07% | Prior surfaces plus Rust-owned glyph-path and glyph-width cache key planning; C++ retains cache maps, font calls, and path ownership |
 | `23789239e` Phase 4 FreeType load slice | 15,109 | 8,298 | 241 | 3,269 | 6,570 | 275,531 | 5.48% | 4.13% | Prior surfaces plus Rust-owned render/path load-flag and retry planning; C++ retains face state and FreeType calls |
 | `803cdc455` Phase 5 text-dispatch slice | 15,219 | 8,408 | 241 | 3,330 | 6,570 | 275,724 | 5.52% | 4.19% | Prior surfaces plus Rust-owned PDF text skip, Type 3, fill, stroke, and clip dispatch; C++ retains colors, matrices, fonts, and drawing |
+| `85f0e3191` Phase 5 text-pattern slice | 15,260 | 8,449 | 241 | 3,351 | 6,570 | 275,791 | 5.53% | 4.20% | Prior surfaces plus Rust-owned active fill/stroke pattern-path selection; C++ retains ARGB resolution and drawing |
 
 ## Toolchain
 
@@ -641,6 +642,13 @@ The native Rust render test target has 23 tests covering every observable
 dispatch shape and FFI rejection without output mutation. The common local
 gate passes. The full GN renderer corpus remains the required exact-bitmap
 evidence before this slice can be released from the complete checkout.
+
+The second Phase 5 slice moves the active text-pattern decision into Rust.
+Only an active fill or stroke color may force the existing pattern route;
+inactive pattern colors are ignored exactly as before. C++ continues to
+resolve concrete ARGB values and invokes `DrawTextPathWithPattern()`. The
+native test target now covers that active-paint invariant, while the common
+local gate remains green.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

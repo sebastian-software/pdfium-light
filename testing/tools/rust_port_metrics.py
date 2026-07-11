@@ -82,9 +82,10 @@ ACTIVE_SURFACES = (
     "glyph path and width cache key planning",
     "FreeType glyph load-flag planning",
     "PDF text render dispatch planning",
+    "PDF text pattern-path planning",
 )
 CANDIDATE_SURFACES = (
-    "PDF text color, matrix, and backend invocation boundaries",
+    "PDF text matrix and backend invocation boundaries",
 )
 
 
