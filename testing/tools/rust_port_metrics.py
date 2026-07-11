@@ -20,9 +20,14 @@ from pathlib import Path
 
 PRODUCT_DIRS = ("core", "fpdfsdk", "public")
 NATIVE_SUFFIXES = (".c", ".cc", ".cpp", ".h", ".rs")
+IMPLEMENTATION_SUFFIXES = (".c", ".cc", ".cpp")
 RUST_SUFFIX = ".rs"
 ADAPTER_DIR = "core/fxcodec/rust"
 ADAPTER_SUFFIXES = (".cpp", ".h")
+MAPPING_DATA_DIR = "core/fpdfapi/cmaps"
+ABI_BEGIN = "// RUST_PORT_METRICS_BEGIN abi_thunk"
+ABI_END = "// RUST_PORT_METRICS_END abi_thunk"
+GENERATED_MARKER = "@generated"
 ACTIVE_SURFACES = (
     "ASCII85 encode/decode",
     "ASCIIHex decode",
@@ -62,20 +67,84 @@ def count_physical_lines(paths: tuple[Path, ...]) -> int:
     )
 
 
+def count_abi_thunk_lines(paths: tuple[Path, ...]) -> int:
+    count = 0
+    for path in paths:
+        in_abi_thunk = False
+        for line in path.read_text(encoding="utf-8").splitlines():
+            marker = line.strip()
+            if marker == ABI_BEGIN:
+                if in_abi_thunk:
+                    raise ValueError(f"nested ABI metric region in {path}")
+                in_abi_thunk = True
+                count += 1
+                continue
+            if marker == ABI_END:
+                if not in_abi_thunk:
+                    raise ValueError(f"unmatched ABI metric region end in {path}")
+                in_abi_thunk = False
+                count += 1
+                continue
+            if in_abi_thunk:
+                count += 1
+        if in_abi_thunk:
+            raise ValueError(f"unterminated ABI metric region in {path}")
+    return count
+
+
+def is_generated_rust(path: Path) -> bool:
+    with path.open(encoding="utf-8") as source:
+        return any(GENERATED_MARKER in line for _, line in zip(range(20), source))
+
+
 def collect_metrics(root: Path) -> dict[str, int | tuple[str, ...]]:
     paths = tracked_paths(root)
     product_sources = tuple(path for path in paths if is_product_source(path, root))
     rust_sources = tuple(path for path in product_sources if path.suffix == RUST_SUFFIX)
+    generated_rust_sources = tuple(
+        path for path in rust_sources if is_generated_rust(path)
+    )
+    authored_rust_sources = tuple(
+        path for path in rust_sources if path not in generated_rust_sources
+    )
+    generated_rust_loc = count_physical_lines(generated_rust_sources)
+    rust_abi_thunk_loc = count_abi_thunk_lines(authored_rust_sources)
+    rust_loc = count_physical_lines(rust_sources)
+    rust_authored_behavior_loc = rust_loc - generated_rust_loc - rust_abi_thunk_loc
     adapter_sources = tuple(
         path
         for path in paths
         if path.relative_to(root).parent.as_posix() == ADAPTER_DIR
         and path.suffix in ADAPTER_SUFFIXES
     )
+    cxx_behavior_sources = tuple(
+        path
+        for path in product_sources
+        if path.suffix in IMPLEMENTATION_SUFFIXES
+        and path not in adapter_sources
+        and not path.relative_to(root).as_posix().startswith(f"{MAPPING_DATA_DIR}/")
+    )
+    cxx_behavior_loc = count_physical_lines(cxx_behavior_sources)
+    behavior_implementation_loc = cxx_behavior_loc + rust_authored_behavior_loc
+    declaration_sources = tuple(
+        path for path in product_sources if path.suffix == ".h"
+    )
+    mapping_data_sources = tuple(
+        path
+        for path in product_sources
+        if path.relative_to(root).as_posix().startswith(f"{MAPPING_DATA_DIR}/")
+    )
     return {
         "product_native_loc": count_physical_lines(product_sources),
-        "rust_loc": count_physical_lines(rust_sources),
+        "rust_loc": rust_loc,
+        "rust_authored_behavior_loc": rust_authored_behavior_loc,
+        "rust_abi_thunk_loc": rust_abi_thunk_loc,
+        "generated_rust_loc": generated_rust_loc,
         "adapter_loc": count_physical_lines(adapter_sources),
+        "declaration_loc": count_physical_lines(declaration_sources),
+        "mapping_data_loc": count_physical_lines(mapping_data_sources),
+        "behavior_implementation_loc": behavior_implementation_loc,
+        "cxx_behavior_loc": cxx_behavior_loc,
         "active_surfaces": ACTIVE_SURFACES,
     }
 
@@ -83,16 +152,34 @@ def collect_metrics(root: Path) -> dict[str, int | tuple[str, ...]]:
 def format_report(metrics: dict[str, int | tuple[str, ...]]) -> str:
     product_native_loc = int(metrics["product_native_loc"])
     rust_loc = int(metrics["rust_loc"])
+    rust_authored_behavior_loc = int(metrics["rust_authored_behavior_loc"])
+    rust_abi_thunk_loc = int(metrics["rust_abi_thunk_loc"])
+    generated_rust_loc = int(metrics["generated_rust_loc"])
     adapter_loc = int(metrics["adapter_loc"])
+    declaration_loc = int(metrics["declaration_loc"])
+    mapping_data_loc = int(metrics["mapping_data_loc"])
+    behavior_implementation_loc = int(metrics["behavior_implementation_loc"])
+    cxx_behavior_loc = int(metrics["cxx_behavior_loc"])
     rust_percentage = 100 * rust_loc / product_native_loc
+    behavior_rust_percentage = (
+        100 * rust_authored_behavior_loc / behavior_implementation_loc
+    )
     active_surfaces = ", ".join(metrics["active_surfaces"])
     return "\n".join(
         (
             f"product_native_loc: {product_native_loc}",
             f"rust_loc: {rust_loc}",
+            f"rust_authored_behavior_loc: {rust_authored_behavior_loc}",
+            f"rust_abi_thunk_loc: {rust_abi_thunk_loc}",
+            f"generated_rust_loc: {generated_rust_loc}",
             f"cxx_adapter_loc: {adapter_loc}",
+            f"declaration_loc: {declaration_loc}",
+            f"mapping_data_loc: {mapping_data_loc}",
+            f"behavior_implementation_loc: {behavior_implementation_loc}",
+            f"cxx_behavior_loc: {cxx_behavior_loc}",
             f"rust_owned_boundary_loc: {rust_loc + adapter_loc}",
-            f"rust_percentage: {rust_percentage:.2f}%",
+            f"physical_rust_percentage: {rust_percentage:.2f}%",
+            f"behavior_rust_percentage: {behavior_rust_percentage:.2f}%",
             f"active_surfaces: {active_surfaces}",
         )
     )
@@ -113,14 +200,28 @@ def main(argv: list[str]) -> int:
     root = Path(__file__).resolve().parents[2]
     try:
         metrics = collect_metrics(root)
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (OSError, subprocess.CalledProcessError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
     if args.check and (
         not metrics["product_native_loc"]
         or not metrics["rust_loc"]
+        or not metrics["rust_authored_behavior_loc"]
+        or not metrics["behavior_implementation_loc"]
         or not metrics["active_surfaces"]
+        or any(
+            int(metrics[name]) < 0
+            for name in (
+                "rust_authored_behavior_loc",
+                "rust_abi_thunk_loc",
+                "generated_rust_loc",
+            )
+        )
+        or metrics["rust_loc"]
+        != metrics["rust_authored_behavior_loc"]
+        + metrics["rust_abi_thunk_loc"]
+        + metrics["generated_rust_loc"]
     ):
         print("error: Rust migration metrics are incomplete", file=sys.stderr)
         return 1
