@@ -2240,6 +2240,27 @@ mod tests {
     }
 
     #[test]
+    fn clone_alpha_mask_should_leave_destination_padding_untouched() {
+        let source: Vec<u8> = (0..24).collect();
+        let mut destination = [0xaa; 8];
+        // SAFETY: The source and destination arrays are distinct and cover
+        // the exact lengths supplied to the FFI function.
+        assert!(unsafe {
+            pdfium_rust_clone_alpha_mask(
+                source.as_ptr(),
+                source.len(),
+                12,
+                destination.as_mut_ptr(),
+                destination.len(),
+                4,
+                2,
+                2,
+            )
+        });
+        assert_eq!([3, 7, 0xaa, 0xaa, 15, 19, 0xaa, 0xaa], destination);
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(

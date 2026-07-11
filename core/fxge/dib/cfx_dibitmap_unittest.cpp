@@ -514,3 +514,26 @@ TEST(CFXDIBitmapTest, RustCompositeRectMatchesCppReferenceAcrossFormats) {
     }
   }
 }
+
+TEST(CFXDIBitmapTest, RustCloneAlphaMaskMatchesCppReference) {
+  auto source = CreatePatternedBitmap(FXDIB_Format::kBgra, 7, 3);
+  ASSERT_TRUE(source);
+  RetainPtr<CFX_DIBitmap> reference;
+  {
+    fxge::ScopedRustDibImplementationForTesting implementation(false);
+    reference = source->CloneAlphaMask();
+  }
+  auto candidate = source->CloneAlphaMask();
+  ASSERT_TRUE(reference);
+  ASSERT_TRUE(candidate);
+  ASSERT_EQ(reference->GetFormat(), candidate->GetFormat());
+  ASSERT_EQ(reference->GetWidth(), candidate->GetWidth());
+  ASSERT_EQ(reference->GetHeight(), candidate->GetHeight());
+  for (int row = 0; row < reference->GetHeight(); ++row) {
+    for (int column = 0; column < reference->GetWidth(); ++column) {
+      EXPECT_EQ(reference->GetScanline(row)[column],
+                candidate->GetScanline(row)[column])
+          << "row=" << row << " column=" << column;
+    }
+  }
+}
