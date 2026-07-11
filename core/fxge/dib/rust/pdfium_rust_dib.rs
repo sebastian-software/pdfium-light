@@ -493,6 +493,63 @@ pub unsafe extern "C" fn pdfium_rust_convert_bgr_color_scale(
     true
 }
 
+fn calculate_pitch_and_size(
+    width: i32,
+    height: i32,
+    format: u16,
+    requested_pitch: u32,
+) -> Option<(u32, u32)> {
+    let width = u32::try_from(width).ok().filter(|width| *width > 0)?;
+    let height = u32::try_from(height).ok().filter(|height| *height > 0)?;
+    let bits_per_pixel = u32::from(format & 0xff);
+    if bits_per_pixel == 0 {
+        return None;
+    }
+
+    let unaligned_bits = bits_per_pixel.checked_mul(width)?;
+    let pitch = if requested_pitch == 0 {
+        unaligned_bits.checked_add(31)?.checked_div(32)?.checked_mul(4)?
+    } else {
+        let minimum_pitch = unaligned_bits.checked_add(7)?.checked_div(8)?;
+        if requested_pitch < minimum_pitch {
+            return None;
+        }
+        requested_pitch
+    };
+    Some((pitch, pitch.checked_mul(height)?))
+}
+
+/// Calculates PDFium's bitmap pitch and allocation size with checked u32 math.
+///
+/// # Safety
+///
+/// `output_pitch` and `output_size` must be valid, non-overlapping writable
+/// pointers to one `u32` each.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_calculate_pitch_and_size(
+    width: i32,
+    height: i32,
+    format: u16,
+    requested_pitch: u32,
+    output_pitch: *mut u32,
+    output_size: *mut u32,
+) -> bool {
+    if output_pitch.is_null() || output_size.is_null() {
+        return false;
+    }
+    let Some((pitch, size)) = calculate_pitch_and_size(width, height, format, requested_pitch)
+    else {
+        return false;
+    };
+    // SAFETY: The caller contract guarantees two valid, non-overlapping
+    // output locations.
+    unsafe {
+        *output_pitch = pitch;
+        *output_size = size;
+    }
+    true
+}
+
 /// Copies each packed BGRA pixel's alpha channel into its red channel.
 ///
 /// # Safety
@@ -1093,5 +1150,17 @@ mod tests {
     fn cmyk_should_preserve_reference_endpoints() {
         assert_eq!([255, 255, 255], adobe_cmyk_to_standard_rgb(0, 0, 0, 0));
         assert_eq!([0, 0, 0], adobe_cmyk_to_standard_rgb(255, 255, 255, 255));
+    }
+
+    #[test]
+    fn pitch_and_size_should_align_rows_to_four_bytes() {
+        assert_eq!(Some((4, 12)), calculate_pitch_and_size(3, 3, 0x008, 0));
+        assert_eq!(Some((12, 36)), calculate_pitch_and_size(3, 3, 0x018, 0));
+    }
+
+    #[test]
+    fn pitch_and_size_should_reject_overflow_and_short_pitch() {
+        assert_eq!(None, calculate_pitch_and_size(101, 200, 0x220, 400));
+        assert_eq!(None, calculate_pitch_and_size(1_073_747_000, 1, 0x220, 0));
     }
 }

@@ -503,6 +503,13 @@ std::optional<CFX_DIBitmap::PitchAndSize> CFX_DIBitmap::CalculatePitchAndSize(
     int height,
     FXDIB_Format format,
     uint32_t pitch) {
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const auto candidate = fxge::RustBlendAdapter::CalculatePitchAndSize(
+        width, height, format, pitch);
+    if (candidate.has_value()) {
+      return PitchAndSize{(*candidate)[0], (*candidate)[1]};
+    }
+  }
   if (width <= 0 || height <= 0) {
     return std::nullopt;
   }

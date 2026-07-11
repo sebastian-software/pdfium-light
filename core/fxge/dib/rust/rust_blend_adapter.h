@@ -105,6 +105,11 @@ class RustBlendAdapter final {
                                    int height,
                                    uint32_t pitch,
                                    size_t components);
+  static std::optional<std::array<uint32_t, 2>> CalculatePitchAndSize(
+      int width,
+      int height,
+      FXDIB_Format format,
+      uint32_t requested_pitch);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

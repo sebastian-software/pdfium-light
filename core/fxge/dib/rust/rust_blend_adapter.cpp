@@ -119,6 +119,12 @@ extern "C" bool pdfium_rust_convert_bgr_color_scale(uint8_t* buffer,
                                                      size_t height,
                                                      size_t pitch,
                                                      size_t components);
+extern "C" bool pdfium_rust_calculate_pitch_and_size(int32_t width,
+                                                      int32_t height,
+                                                      uint16_t format,
+                                                      uint32_t requested_pitch,
+                                                      uint32_t* output_pitch,
+                                                      uint32_t* output_size);
 
 namespace {
 
@@ -487,6 +493,21 @@ bool RustBlendAdapter::ConvertBgrColorScale(pdfium::span<uint8_t> buffer,
          IsValidBitmapBuffer(buffer.size(), width, height, pitch, components) &&
          pdfium_rust_convert_bgr_color_scale(buffer.data(), width, height,
                                              pitch, components);
+}
+
+// static
+std::optional<std::array<uint32_t, 2>>
+RustBlendAdapter::CalculatePitchAndSize(int width,
+                                        int height,
+                                        FXDIB_Format format,
+                                        uint32_t requested_pitch) {
+  std::array<uint32_t, 2> output;
+  if (!pdfium_rust_calculate_pitch_and_size(
+          width, height, static_cast<uint16_t>(format), requested_pitch,
+          &output[0], &output[1])) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 // static
