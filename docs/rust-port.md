@@ -54,6 +54,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `32153fe46` Phase 1 overlap-geometry slice | 9,378 | 2,567 | 241 | 1,090 | 6,570 | 265,843 | 3.53% | 1.33% | Prior surfaces plus checked source/destination overlap and optional clip normalization |
 | `bf269cbd2` Phase 1 palette-primitives slice | 9,488 | 2,677 | 241 | 1,146 | 6,570 | 266,099 | 3.57% | 1.38% | Prior surfaces plus default palette generation, default ARGB lookup, and exact custom-palette search |
 | `c5999179d` Phase 1 buffer-conversion slice | 9,697 | 2,886 | 241 | 1,181 | 6,570 | 266,479 | 3.64% | 1.49% | Prior surfaces plus mask, indexed, grayscale, BGR, BGRx, and BGRA row conversion with default and custom palettes |
+| `66a4f3d15` Phase 1 1-bpp mask-composite slice | 9,781 | 2,970 | 241 | 1,207 | 6,570 | 266,640 | 3.67% | 1.53% | Prior surfaces plus clipped 1-bpp mask OR compositing with preserved surrounding and unset destination bits |
 
 ## Toolchain
 
@@ -147,6 +148,12 @@ non-overlap contract; 1-bpp rows retain arbitrary source/destination bit
 offsets, surrounding bits, and left-to-right alias order. Fourteen focused
 cases cover seven formats and both positive and clipped negative source
 offsets.
+
+One-bit mask compositing now crosses the same row boundary after C++ normalizes
+source and destination overlap. Rust ORs only set source bits into arbitrary
+destination offsets, preserving unset pixels, surrounding bits, and exact
+left-to-right alias order. Three same-process cases cover ordinary and clipped
+negative source and destination coordinates.
 
 The shared overlap helper now performs source bounds, destination bounds,
 optional clip intersection, coordinate rebasing, and checked `i32` overflow in

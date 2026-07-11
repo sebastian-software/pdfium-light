@@ -47,6 +47,7 @@ ACTIVE_SURFACES = (
     "source/destination overlap and clip geometry",
     "default and custom palette primitives",
     "mask, indexed, grayscale, and RGB buffer conversion matrix",
+    "1-bpp mask OR compositing",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 
