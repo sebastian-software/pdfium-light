@@ -88,6 +88,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `8d94db0fa` Phase 4 bitmap-lookup slice | 14,740 | 7,929 | 241 | 3,131 | 6,570 | 274,956 | 5.36% | 3.96% | Prior surfaces plus Rust-owned invalid-glyph rejection, requested-key lookup, native-cache return, and non-native fallback/option-update planning |
 | `b8ba94e27` Phase 4 path/width cache slice | 14,984 | 8,173 | 241 | 3,209 | 6,570 | 275,308 | 5.44% | 4.07% | Prior surfaces plus Rust-owned glyph-path and glyph-width cache key planning; C++ retains cache maps, font calls, and path ownership |
 | `23789239e` Phase 4 FreeType load slice | 15,109 | 8,298 | 241 | 3,269 | 6,570 | 275,531 | 5.48% | 4.13% | Prior surfaces plus Rust-owned render/path load-flag and retry planning; C++ retains face state and FreeType calls |
+| `803cdc455` Phase 5 text-dispatch slice | 15,219 | 8,408 | 241 | 3,330 | 6,570 | 275,724 | 5.52% | 4.19% | Prior surfaces plus Rust-owned PDF text skip, Type 3, fill, stroke, and clip dispatch; C++ retains colors, matrices, fonts, and drawing |
 
 ## Toolchain
 
@@ -625,6 +626,21 @@ combination and the FFI's no-mutation rejection behavior; the exact renderer
 corpus asserts that a real glyph render reaches the new trace event. Phase 4
 is complete. Phase 5 begins with page/render and font-facing PDF logic while
 the C++ parser and object graph remain the oracle.
+
+## Phase 5 PDF page/render and font-facing logic
+
+The first Phase 5 slice moves PDF text dispatch into Rust. Rust receives only
+the presence of character codes, the PDF rendering mode, Type 3 and face
+availability, and whether a clipping path is already supplied. It selects the
+unchanged empty/invisible and clip exits, Type 3 dispatch, and normal
+fill/stroke/clip behavior. C++ retains color/pattern resolution, text and
+device matrices, font objects, graph state, and the concrete normal- and
+path-text backend calls. Unsupported modes leave the C++ path in control.
+
+The native Rust render test target has 23 tests covering every observable
+dispatch shape and FFI rejection without output mutation. The common local
+gate passes. The full GN renderer corpus remains the required exact-bitmap
+evidence before this slice can be released from the complete checkout.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
