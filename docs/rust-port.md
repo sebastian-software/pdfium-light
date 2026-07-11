@@ -85,6 +85,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `d9705f514` Phase 4 glyph-origin slice | 14,307 | 7,496 | 241 | 2,943 | 6,570 | 274,199 | 5.22% | 3.75% | Prior surfaces plus checked Rust-owned glyph bitmap origin placement for bounding-box and draw composition offsets |
 | `026b3cd97` Phase 4 device-origin slice | 14,411 | 7,600 | 241 | 3,008 | 6,570 | 274,388 | 5.25% | 3.80% | Prior surfaces plus Rust-owned LCD-floor and saturated half-away-from-zero device-origin rounding before glyph bitmap loading |
 | `074c9b1b5` Phase 4 glyph-bounds slice | 14,657 | 7,846 | 241 | 3,075 | 6,570 | 274,766 | 5.33% | 3.92% | Prior surfaces plus Rust-owned borrowed glyph iteration, LCD width adjustment, checked edge construction, skip behavior, and bounding-box min/max aggregation |
+| `8d94db0fa` Phase 4 bitmap-lookup slice | 14,740 | 7,929 | 241 | 3,131 | 6,570 | 274,956 | 5.36% | 3.96% | Prior surfaces plus Rust-owned invalid-glyph rejection, requested-key lookup, native-cache return, and non-native fallback/option-update planning |
 
 ## Toolchain
 
@@ -584,6 +585,20 @@ no-mutation outputs in addition to all prior contracts. The structured trace
 records the final rectangle and `HelloWorldNoNativeText` proves reachability;
 all 19 bitmap-plus-trace renderer cases pass. Cache lookup/action planning and
 the FreeType boundary remain the next Phase 4 work.
+
+The fifth slice moves bitmap-glyph cache action selection into Rust. After the
+optional C++ native-cache probe, Rust selects invalid-glyph rejection, lookup
+with the requested key, return of the native cached bitmap, or regeneration of
+the non-native key with `native_text` disabled. C++ retains key/container and
+bitmap ownership, performs map operations, and executes the selected action;
+the original decision function remains the test oracle and boundary fallback.
+
+Fifteen native glyph tests cover all four actions and null-output rejection in
+addition to the existing placement and bounds contracts. The structured trace
+records validity, native mode, probe result, and selected action;
+`HelloWorldNoNativeText` proves the ordinary lookup route is active, and all 19
+exact renderer cases pass. Path/width cache planning and the narrow FreeType
+adapter boundary remain next.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
