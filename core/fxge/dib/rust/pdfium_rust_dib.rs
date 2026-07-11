@@ -1217,6 +1217,140 @@ pub unsafe extern "C" fn pdfium_rust_stretch_vertical_row(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the row helper preserves the retained transpose geometry"
+)]
+fn swap_xy_row(
+    source: &[u8],
+    source_width: i32,
+    source_height: i32,
+    source_row: i32,
+    components: usize,
+    flip_x: bool,
+    flip_y: bool,
+    destination: &mut [u8],
+    destination_pitch: usize,
+) -> bool {
+    let (Ok(source_width), Ok(source_height), Ok(source_row)) = (
+        usize::try_from(source_width),
+        usize::try_from(source_height),
+        usize::try_from(source_row),
+    ) else {
+        return false;
+    };
+    if source_width == 0
+        || source_height == 0
+        || source_row >= source_height
+        || !matches!(components, 0 | 1 | 3 | 4)
+    {
+        return false;
+    }
+    let source_required = if components == 0 {
+        source_width.checked_add(7).map(|bits| bits / 8)
+    } else {
+        source_width.checked_mul(components)
+    };
+    let Some(source_required) = source_required else {
+        return false;
+    };
+    let Some(destination_required) = source_width.checked_mul(destination_pitch) else {
+        return false;
+    };
+    if source.len() < source_required || destination.len() < destination_required {
+        return false;
+    }
+    let destination_column = if flip_x { source_height - source_row - 1 } else { source_row };
+    for source_column in 0..source_width {
+        let destination_row = if flip_y { source_width - source_column - 1 } else { source_column };
+        let Some(destination_row_offset) = destination_row.checked_mul(destination_pitch) else {
+            return false;
+        };
+        if components == 0 {
+            let source_mask = 1 << (7 - source_column % 8);
+            if source[source_column / 8] & source_mask == 0 {
+                let Some(destination_byte) = destination_row_offset
+                    .checked_add(destination_column / 8)
+                    .and_then(|offset| destination.get_mut(offset))
+                else {
+                    return false;
+                };
+                *destination_byte &= !(1 << (7 - destination_column % 8));
+            }
+            continue;
+        }
+        let Some(source_offset) = source_column.checked_mul(components) else {
+            return false;
+        };
+        let Some(source_end) = source_offset.checked_add(components) else {
+            return false;
+        };
+        let Some(destination_offset) = destination_column
+            .checked_mul(components)
+            .and_then(|offset| destination_row_offset.checked_add(offset))
+        else {
+            return false;
+        };
+        let Some(destination_end) = destination_offset.checked_add(components) else {
+            return false;
+        };
+        let Some(source_pixel) = source.get(source_offset..source_end) else {
+            return false;
+        };
+        let Some(destination_pixel) = destination.get_mut(destination_offset..destination_end)
+        else {
+            return false;
+        };
+        destination_pixel.copy_from_slice(source_pixel);
+    }
+    true
+}
+
+/// Transposes one source row into the C++-owned destination bitmap.
+///
+/// `components == 0` denotes packed 1-bpp pixels.
+///
+/// # Safety
+///
+/// Both pointers must cover their supplied lengths and must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_swap_xy_row(
+    source: *const u8,
+    source_len: usize,
+    source_width: i32,
+    source_height: i32,
+    source_row: i32,
+    components: usize,
+    flip_x: bool,
+    flip_y: bool,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees disjoint regions covering the
+    // supplied lengths.
+    let (source, destination) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    swap_xy_row(
+        source,
+        source_width,
+        source_height,
+        source_row,
+        components,
+        flip_x,
+        flip_y,
+        destination,
+        destination_pitch,
+    )
+}
+
 /// Copies one clipped bitmap row, including PDFium's unaligned 1-bpp shift.
 ///
 /// # Safety

@@ -119,6 +119,17 @@ extern "C" bool pdfium_rust_copy_bitmap_row(const uint8_t* source,
                                              size_t source_len,
                                              uint8_t* destination,
                                              size_t destination_len);
+extern "C" bool pdfium_rust_swap_xy_row(const uint8_t* source,
+                                         size_t source_len,
+                                         int32_t source_width,
+                                         int32_t source_height,
+                                         int32_t source_row,
+                                         size_t components,
+                                         bool flip_x,
+                                         bool flip_y,
+                                         uint8_t* destination,
+                                         size_t destination_len,
+                                         size_t destination_pitch);
 extern "C" bool pdfium_rust_calculate_stretch_weights(
     int32_t destination_length,
     int32_t destination_minimum,
@@ -645,6 +656,22 @@ bool RustBlendAdapter::CopyBitmapRow(pdfium::span<const uint8_t> source,
   return source.data() != destination.data() &&
          pdfium_rust_copy_bitmap_row(source.data(), source.size(),
                                      destination.data(), destination.size());
+}
+
+// static
+bool RustBlendAdapter::SwapXYRow(pdfium::span<const uint8_t> source,
+                                 int source_width,
+                                 int source_height,
+                                 int source_row,
+                                 size_t components,
+                                 bool flip_x,
+                                 bool flip_y,
+                                 pdfium::span<uint8_t> destination,
+                                 size_t destination_pitch) {
+  return pdfium_rust_swap_xy_row(
+      source.data(), source.size(), source_width, source_height, source_row,
+      components, flip_x, flip_y, destination.data(), destination.size(),
+      destination_pitch);
 }
 
 // static

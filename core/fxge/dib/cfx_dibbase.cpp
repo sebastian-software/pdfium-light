@@ -961,6 +961,21 @@ RetainPtr<CFX_DIBitmap> CFX_DIBBase::SwapXY(bool bXFlip, bool bYFlip) const {
   const int row_end = bXFlip ? GetHeight() - dest_clip.left : dest_clip.right;
   const int col_start = bYFlip ? GetWidth() - dest_clip.bottom : dest_clip.top;
   const int col_end = bYFlip ? GetWidth() - dest_clip.top : dest_clip.bottom;
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const size_t components = GetBPP() == 1 ? 0 : GetBPP() / 8;
+    if (GetBPP() == 1) {
+      std::ranges::fill(dest_span, 0xff);
+    }
+    bool swapped = true;
+    for (int row = 0; swapped && row < GetHeight(); ++row) {
+      swapped = fxge::RustBlendAdapter::SwapXYRow(
+          GetScanline(row), GetWidth(), GetHeight(), row, components, bXFlip,
+          bYFlip, dest_span, dest_pitch);
+    }
+    if (swapped) {
+      return pTransBitmap;
+    }
+  }
   if (GetBPP() == 1) {
     std::ranges::fill(dest_span, 0xff);
     if (bYFlip) {

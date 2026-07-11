@@ -103,6 +103,15 @@ class RustBlendAdapter final {
                             int destination_width);
   static bool CopyBitmapRow(pdfium::span<const uint8_t> source,
                             pdfium::span<uint8_t> destination);
+  static bool SwapXYRow(pdfium::span<const uint8_t> source,
+                        int source_width,
+                        int source_height,
+                        int source_row,
+                        size_t components,
+                        bool flip_x,
+                        bool flip_y,
+                        pdfium::span<uint8_t> destination,
+                        size_t destination_pitch);
   static std::optional<std::array<size_t, 2>> CalculateStretchWeights(
       int destination_length,
       int destination_minimum,
