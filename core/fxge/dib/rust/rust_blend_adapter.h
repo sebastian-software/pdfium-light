@@ -121,6 +121,17 @@ class RustBlendAdapter final {
                              pdfium::span<uint8_t> destination,
                              uint32_t destination_pitch,
                              int height);
+  static bool TransferBitmapRow(pdfium::span<const uint8_t> source,
+                                int source_left,
+                                pdfium::span<uint8_t> destination,
+                                int destination_left,
+                                int width,
+                                size_t components);
+  static bool Transfer1bppRow(pdfium::span<const uint8_t> source,
+                              int source_left,
+                              pdfium::span<uint8_t> destination,
+                              int destination_left,
+                              int width);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

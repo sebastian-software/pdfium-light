@@ -648,6 +648,109 @@ pub unsafe extern "C" fn pdfium_rust_populate_bitmap(
     true
 }
 
+/// Copies one equal-format multi-byte bitmap row.
+///
+/// # Safety
+///
+/// Source and destination must cover their supplied lengths and must not
+/// overlap. Offsets and width are expressed in pixels.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_transfer_bitmap_row(
+    source: *const u8,
+    source_len: usize,
+    source_left: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_left: usize,
+    width: usize,
+    components: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() || components == 0 {
+        return false;
+    }
+    let Some(source_offset) = source_left.checked_mul(components) else {
+        return false;
+    };
+    let Some(destination_offset) = destination_left.checked_mul(components) else {
+        return false;
+    };
+    let Some(copy_len) = width.checked_mul(components) else {
+        return false;
+    };
+    let Some(source_end) = source_offset.checked_add(copy_len) else {
+        return false;
+    };
+    let Some(destination_end) = destination_offset.checked_add(copy_len) else {
+        return false;
+    };
+    if source_end > source_len || destination_end > destination_len {
+        return false;
+    }
+    // SAFETY: The caller contract and checked ranges guarantee two complete,
+    // non-overlapping row regions.
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            source.add(source_offset),
+            destination.add(destination_offset),
+            copy_len,
+        );
+    }
+    true
+}
+
+/// Copies one equal-format 1-bpp bitmap row at arbitrary bit offsets.
+///
+/// # Safety
+///
+/// Source and destination must cover their supplied lengths. Exact aliasing is
+/// permitted and follows the C++ loop's left-to-right bit update order.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_transfer_1bpp_row(
+    source: *const u8,
+    source_len: usize,
+    source_left: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_left: usize,
+    width: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() {
+        return false;
+    }
+    let Some(source_end) = source_left.checked_add(width) else {
+        return false;
+    };
+    let Some(destination_end) = destination_left.checked_add(width) else {
+        return false;
+    };
+    let Some(source_rounded_end) = source_end.checked_add(7) else {
+        return false;
+    };
+    let Some(destination_rounded_end) = destination_end.checked_add(7) else {
+        return false;
+    };
+    if source_rounded_end / 8 > source_len || destination_rounded_end / 8 > destination_len {
+        return false;
+    }
+    for column in 0..width {
+        let source_bit = source_left + column;
+        let destination_bit = destination_left + column;
+        // SAFETY: The checked bit ranges cover both addressed bytes. Raw
+        // pointer reads/writes preserve the reference loop's alias order.
+        unsafe {
+            let source_is_set = *source.add(source_bit / 8) & (1 << (7 - source_bit % 8)) != 0;
+            let destination_byte = destination.add(destination_bit / 8);
+            let mask = 1 << (7 - destination_bit % 8);
+            if source_is_set {
+                *destination_byte |= mask;
+            } else {
+                *destination_byte &= !mask;
+            }
+        }
+    }
+    true
+}
+
 /// Copies each packed BGRA pixel's alpha channel into its red channel.
 ///
 /// # Safety
@@ -1260,5 +1363,46 @@ mod tests {
     fn pitch_and_size_should_reject_overflow_and_short_pitch() {
         assert_eq!(None, calculate_pitch_and_size(101, 200, 0x220, 400));
         assert_eq!(None, calculate_pitch_and_size(1_073_747_000, 1, 0x220, 0));
+    }
+
+    #[test]
+    fn transfer_bitmap_row_should_respect_pixel_offsets() {
+        let source = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        let mut destination = [99; 12];
+        // SAFETY: The stack arrays are valid, distinct regions with the exact
+        // lengths supplied to the FFI function.
+        assert!(unsafe {
+            pdfium_rust_transfer_bitmap_row(
+                source.as_ptr(),
+                source.len(),
+                1,
+                destination.as_mut_ptr(),
+                destination.len(),
+                2,
+                2,
+                3,
+            )
+        });
+        assert_eq!([99, 99, 99, 99, 99, 99, 3, 4, 5, 6, 7, 8], destination);
+    }
+
+    #[test]
+    fn transfer_1bpp_row_should_preserve_surrounding_bits() {
+        let source = [0b1011_0110];
+        let mut destination = [0b0100_0001];
+        // SAFETY: The stack arrays cover the single-byte source/destination
+        // regions supplied to the FFI function.
+        assert!(unsafe {
+            pdfium_rust_transfer_1bpp_row(
+                source.as_ptr(),
+                source.len(),
+                2,
+                destination.as_mut_ptr(),
+                destination.len(),
+                1,
+                4,
+            )
+        });
+        assert_eq!([0b0110_1001], destination);
     }
 }

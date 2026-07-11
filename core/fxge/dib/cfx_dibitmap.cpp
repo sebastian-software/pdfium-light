@@ -296,11 +296,16 @@ void CFX_DIBitmap::TransferWithMultipleBPP(int dest_left,
   const size_t src_row_offset = static_cast<size_t>(src_left) * bytes_per_pixel;
   const size_t bytes_to_copy = static_cast<size_t>(width) * bytes_per_pixel;
   for (int row = 0; row < height; ++row) {
-    pdfium::span<uint8_t> dest_span =
-        GetWritableScanline(dest_top + row).subspan(dest_row_offset);
+    pdfium::span<uint8_t> dest_row = GetWritableScanline(dest_top + row);
+    pdfium::span<const uint8_t> src_row = source->GetScanline(src_top + row);
+    if (fxge::RustBlendAdapter::UseCandidate() &&
+        fxge::RustBlendAdapter::TransferBitmapRow(
+            src_row, src_left, dest_row, dest_left, width, bytes_per_pixel)) {
+      continue;
+    }
+    pdfium::span<uint8_t> dest_span = dest_row.subspan(dest_row_offset);
     pdfium::span<const uint8_t> src_span =
-        source->GetScanline(src_top + row)
-            .subspan(src_row_offset, bytes_to_copy);
+        src_row.subspan(src_row_offset, bytes_to_copy);
     fxcrt::spancpy(dest_span, src_span);
   }
 }
@@ -313,10 +318,17 @@ void CFX_DIBitmap::TransferEqualFormatsOneBPP(
     RetainPtr<const CFX_DIBBase> source,
     int src_left,
     int src_top) {
-  UNSAFE_TODO({
-    for (int row = 0; row < height; ++row) {
-      uint8_t* dest_scan = GetWritableScanline(dest_top + row).data();
-      const uint8_t* src_scan = source->GetScanline(src_top + row).data();
+  for (int row = 0; row < height; ++row) {
+    pdfium::span<uint8_t> dest_row = GetWritableScanline(dest_top + row);
+    pdfium::span<const uint8_t> src_row = source->GetScanline(src_top + row);
+    if (fxge::RustBlendAdapter::UseCandidate() &&
+        fxge::RustBlendAdapter::Transfer1bppRow(
+            src_row, src_left, dest_row, dest_left, width)) {
+      continue;
+    }
+    UNSAFE_TODO({
+      uint8_t* dest_scan = dest_row.data();
+      const uint8_t* src_scan = src_row.data();
       for (int col = 0; col < width; ++col) {
         int src_idx = src_left + col;
         int dest_idx = dest_left + col;
@@ -326,8 +338,8 @@ void CFX_DIBitmap::TransferEqualFormatsOneBPP(
           dest_scan[(dest_idx) / 8] &= ~(1 << (7 - (dest_idx) % 8));
         }
       }
-    }
-  });
+    });
+  }
 }
 
 void CFX_DIBitmap::SetRedFromAlpha() {

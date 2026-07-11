@@ -140,6 +140,21 @@ extern "C" bool pdfium_rust_populate_bitmap(const uint8_t* source,
                                              size_t destination_len,
                                              size_t destination_pitch,
                                              size_t height);
+extern "C" bool pdfium_rust_transfer_bitmap_row(const uint8_t* source,
+                                                 size_t source_len,
+                                                 size_t source_left,
+                                                 uint8_t* destination,
+                                                 size_t destination_len,
+                                                 size_t destination_left,
+                                                 size_t width,
+                                                 size_t components);
+extern "C" bool pdfium_rust_transfer_1bpp_row(const uint8_t* source,
+                                               size_t source_len,
+                                               size_t source_left,
+                                               uint8_t* destination,
+                                               size_t destination_len,
+                                               size_t destination_left,
+                                               size_t width);
 
 namespace {
 
@@ -549,6 +564,34 @@ bool RustBlendAdapter::PopulateBitmap(pdfium::span<const uint8_t> source,
                            source.data(), source.size(), source_pitch,
                            destination.data(), destination.size(),
                            destination_pitch, height);
+}
+
+// static
+bool RustBlendAdapter::TransferBitmapRow(
+    pdfium::span<const uint8_t> source,
+    int source_left,
+    pdfium::span<uint8_t> destination,
+    int destination_left,
+    int width,
+    size_t components) {
+  return source_left >= 0 && destination_left >= 0 && width > 0 &&
+         components > 0 && pdfium_rust_transfer_bitmap_row(
+                               source.data(), source.size(), source_left,
+                               destination.data(), destination.size(),
+                               destination_left, width, components);
+}
+
+// static
+bool RustBlendAdapter::Transfer1bppRow(
+    pdfium::span<const uint8_t> source,
+    int source_left,
+    pdfium::span<uint8_t> destination,
+    int destination_left,
+    int width) {
+  return source_left >= 0 && destination_left >= 0 && width > 0 &&
+         pdfium_rust_transfer_1bpp_row(
+             source.data(), source.size(), source_left, destination.data(),
+             destination.size(), destination_left, width);
 }
 
 // static
