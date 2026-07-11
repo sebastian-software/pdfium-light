@@ -103,6 +103,39 @@ fn blend(mode: BlendMode, backdrop: u8, source: u8) -> u8 {
     result as u8
 }
 
+fn alpha_merge(backdrop: u8, source: u8, source_alpha: u8) -> u8 {
+    let backdrop = u32::from(backdrop);
+    let source = u32::from(source);
+    let source_alpha = u32::from(source_alpha);
+    ((backdrop * (255 - source_alpha) + source * source_alpha) / 255) as u8
+}
+
+fn composite_bgra_pixel(mode: BlendMode, input: [u8; 4], clip: u8, output: &mut [u8; 4]) {
+    let source_alpha = (u16::from(input[3]) * u16::from(clip) / 255) as u8;
+    if output[3] == 0 {
+        output[..3].copy_from_slice(&input[..3]);
+        output[3] = source_alpha;
+        return;
+    }
+    if source_alpha == 0 {
+        return;
+    }
+
+    let destination_alpha = (u16::from(output[3]) + u16::from(source_alpha)
+        - u16::from(output[3]) * u16::from(source_alpha) / 255) as u8;
+    let alpha_ratio = (u16::from(source_alpha) * 255 / u16::from(destination_alpha)) as u8;
+    for channel in 0..3 {
+        let candidate = if mode == BlendMode::Normal {
+            input[channel]
+        } else {
+            let blended = blend(mode, output[channel], input[channel]);
+            alpha_merge(input[channel], blended, output[3])
+        };
+        output[channel] = alpha_merge(output[channel], candidate, alpha_ratio);
+    }
+    output[3] = destination_alpha;
+}
+
 // RUST_PORT_METRICS_BEGIN abi_thunk
 /// Applies one separable blend mode to equally sized channel arrays.
 ///
@@ -140,6 +173,40 @@ pub unsafe extern "C" fn pdfium_rust_blend_channels(
     }
     true
 }
+
+/// Composites a packed BGRA source row into a packed BGRA destination row.
+///
+/// # Safety
+///
+/// `source` and `output` must each be valid for `pixel_count * 4` bytes.
+/// `clip` must be null or valid for `pixel_count` bytes. Source and output may
+/// alias exactly, but otherwise their regions must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_bgra_row(
+    mode: u8,
+    source: *const u8,
+    clip: *const u8,
+    output: *mut u8,
+    pixel_count: usize,
+) -> bool {
+    let Ok(mode) = BlendMode::try_from(mode) else {
+        return false;
+    };
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees complete packed pixels at
+        // each computed offset. Reading both values before writing supports
+        // exact in-place operation without creating aliased references.
+        unsafe {
+            let offset = pixel * 4;
+            let input = (source.add(offset) as *const [u8; 4]).read_unaligned();
+            let mut destination = (output.add(offset) as *const [u8; 4]).read_unaligned();
+            let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
+            composite_bgra_pixel(mode, input, clip, &mut destination);
+            (output.add(offset) as *mut [u8; 4]).write_unaligned(destination);
+        }
+    }
+    true
+}
 // RUST_PORT_METRICS_END abi_thunk
 
 #[cfg(test)]
@@ -172,5 +239,21 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn composite_bgra_pixel_should_preserve_alpha_boundaries() {
+        let mut transparent_destination = [255, 100, 0, 0];
+        composite_bgra_pixel(
+            BlendMode::Normal,
+            [100, 0, 255, 100],
+            255,
+            &mut transparent_destination,
+        );
+        assert_eq!([100, 0, 255, 100], transparent_destination);
+
+        let mut clipped_destination = [255, 100, 0, 200];
+        composite_bgra_pixel(BlendMode::Darken, [100, 0, 255, 200], 0, &mut clipped_destination);
+        assert_eq!([255, 100, 0, 200], clipped_destination);
     }
 }

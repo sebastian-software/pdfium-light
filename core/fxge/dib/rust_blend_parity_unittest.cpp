@@ -7,6 +7,8 @@
 
 #include <array>
 
+#include "core/fxcrt/data_vector.h"
+#include "core/fxge/dib/cfx_scanlinecompositor.h"
 #include "core/fxge/dib/blend.h"
 #include "core/fxge/dib/fx_dib.h"
 #include "core/fxge/dib/rust/rust_blend_adapter.h"
@@ -52,6 +54,55 @@ TEST(RustBlendParityTest, RejectsNonSeparableModes) {
   const std::array<uint8_t, 1> channel = {0};
   EXPECT_FALSE(RustBlendAdapter::BlendChannels(BlendMode::kHue, channel, channel)
                    .has_value());
+}
+
+TEST(RustBlendParityTest, BgraRowsMatchCppReferenceWithAndWithoutClip) {
+  constexpr size_t kPixelCount = 257;
+  DataVector<uint8_t> source(kPixelCount * 4);
+  DataVector<uint8_t> initial_destination(kPixelCount * 4);
+  DataVector<uint8_t> clip(kPixelCount);
+  for (size_t pixel = 0; pixel < kPixelCount; ++pixel) {
+    for (size_t channel = 0; channel < 4; ++channel) {
+      source[pixel * 4 + channel] =
+          static_cast<uint8_t>((pixel * 67 + channel * 43) % 256);
+      initial_destination[pixel * 4 + channel] =
+          static_cast<uint8_t>((pixel * 29 + channel * 97) % 256);
+    }
+    clip[pixel] = static_cast<uint8_t>((pixel * 53) % 256);
+  }
+
+  for (int mode_value = static_cast<int>(BlendMode::kNormal);
+       mode_value <= static_cast<int>(BlendMode::kExclusion); ++mode_value) {
+    const auto mode = static_cast<BlendMode>(mode_value);
+    for (bool rgb_byte_order : {false, true}) {
+      for (bool use_clip : {false, true}) {
+        CFX_ScanlineCompositor compositor;
+        ASSERT_TRUE(compositor.Init(FXDIB_Format::kBgra, FXDIB_Format::kBgra,
+                                    /*src_palette=*/{}, /*mask_color=*/0, mode,
+                                    rgb_byte_order));
+        const pdfium::span<const uint8_t> clip_span =
+            use_clip ? pdfium::span<const uint8_t>(clip)
+                     : pdfium::span<const uint8_t>();
+        DataVector<uint8_t> reference = initial_destination;
+        {
+          ScopedRustDibImplementationForTesting implementation(
+              /*use_candidate=*/false);
+          compositor.CompositeRgbBitmapLine(
+              reference, source, static_cast<int>(kPixelCount), clip_span);
+        }
+        DataVector<uint8_t> candidate = initial_destination;
+        {
+          ScopedRustDibImplementationForTesting implementation(
+              /*use_candidate=*/true);
+          compositor.CompositeRgbBitmapLine(
+              candidate, source, static_cast<int>(kPixelCount), clip_span);
+        }
+        EXPECT_EQ(reference, candidate)
+            << "mode=" << mode_value << " rgb_byte_order=" << rgb_byte_order
+            << " use_clip=" << use_clip;
+      }
+    }
+  }
 }
 
 }  // namespace

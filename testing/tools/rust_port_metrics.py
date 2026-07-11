@@ -34,8 +34,9 @@ ACTIVE_SURFACES = (
     "CCITT Fax Group 4 and scanline decode",
     "PNG/TIFF predictor transforms",
     "RunLength encode/decode",
+    "BGRA-to-BGRA row compositing (normal and separable blend modes)",
 )
-CANDIDATE_SURFACES = ("separable blend primitives (batch parity only)",)
+CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 
 
 def tracked_paths(root: Path) -> tuple[Path, ...]:

@@ -18,8 +18,10 @@
 #include "core/fxcrt/zip.h"
 #include "core/fxge/dib/blend.h"
 #include "core/fxge/dib/fx_dib.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 
 using fxge::Blend;
+using fxge::RustBlendAdapter;
 using GrayWithAlpha = CFX_ScanlineCompositor::GrayWithAlpha;
 
 namespace {
@@ -2058,6 +2060,12 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgrx(
       return;
     }
     case FXDIB_Format::kBgra: {
+      if (RustBlendAdapter::UseCandidate() &&
+          RustBlendAdapter::CompositeBgraRow(
+              blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
+              clip_scan, dest_scan.first(static_cast<size_t>(width) * 4))) {
+        return;
+      }
       if (rgb_byte_order_) {
         if (blend_type_ == BlendMode::kNormal) {
           if (!clip_scan.empty()) {
@@ -2117,6 +2125,7 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgra(
     int width,
     pdfium::span<const uint8_t> clip_scan) const {
   CHECK_EQ(src_format_, FXDIB_Format::kBgra);
+  CHECK_GE(width, 0);
 
   auto src_span =
       fxcrt::reinterpret_span<const FX_BGRA_STRUCT<uint8_t>>(src_scan).first(

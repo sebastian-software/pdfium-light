@@ -23,8 +23,26 @@ class RustBlendAdapter final {
       BlendMode mode,
       pdfium::span<const uint8_t> backdrop,
       pdfium::span<const uint8_t> source);
+  static bool CompositeBgraRow(BlendMode mode,
+                               pdfium::span<const uint8_t> source,
+                               pdfium::span<const uint8_t> clip,
+                               pdfium::span<uint8_t> output);
+  static bool UseCandidate();
 
   RustBlendAdapter() = delete;
+};
+
+class ScopedRustDibImplementationForTesting final {
+ public:
+  explicit ScopedRustDibImplementationForTesting(bool use_candidate);
+  ScopedRustDibImplementationForTesting(
+      const ScopedRustDibImplementationForTesting&) = delete;
+  ScopedRustDibImplementationForTesting& operator=(
+      const ScopedRustDibImplementationForTesting&) = delete;
+  ~ScopedRustDibImplementationForTesting();
+
+ private:
+  bool previous_;
 };
 
 }  // namespace fxge
