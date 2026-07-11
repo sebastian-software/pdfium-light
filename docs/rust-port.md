@@ -103,6 +103,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `da18dac0c` Phase 6 xref-iteration slice | 15,745 | 8,934 | 241 | 3,590 | 6,570 | 276,644 | 5.69% | 4.43% | Prior surfaces plus Rust-owned ordered cross-reference segment iteration; C++ retains entry processing and object graph mutation |
 | `d8a078a25` Phase 6 xref-width slice | 15,774 | 8,963 | 241 | 3,601 | 6,570 | 276,688 | 5.70% | 4.45% | Prior surfaces plus Rust-owned `/W` signed-to-unsigned field-width conversion; C++ retains array traversal and object graph mutation |
 | `cb1fb95a7` Phase 6 simple-token scan slice | 15,885 | 9,074 | 241 | 3,628 | 6,570 | 276,831 | 5.74% | 4.50% | Prior surfaces plus Rust-owned simple-PDF-token whitespace and comment scanning; C++ retains the borrowed buffer and token handling |
+| `50bf3eb82` Phase 6 xref-field collection slice | 15,972 | 9,161 | 241 | 3,661 | 6,570 | 276,966 | 5.77% | 4.54% | Prior surfaces plus Rust-owned complete three-field cross-reference entry collection; C++ retains table mutation and object graph ownership |
 
 ## Toolchain
 
@@ -752,6 +753,14 @@ still advances the same consumed position, including after an unterminated
 comment, before returning no byte. The native parser tests cover every PDFium
 whitespace byte, comment line endings, chained comments, and the no-mutation
 byte-output failure contract.
+
+The tenth Phase 6 slice moves complete three-field cross-reference entry
+collection into Rust. Rust reads all ISO table-18 field widths from the same
+borrowed entry and preserves PDFium's zero-width and 32-bit wrapping rules.
+C++ retains type interpretation fallback, range policy, and every
+`CPDF_CrossRefTable` mutation. The native parser tests cover zero-width fields,
+over-wide wrapping fields, short-entry rejection, and the no-output-mutation
+failure contract.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
