@@ -671,3 +671,45 @@ TEST(CFXDIBBaseTest, RustIndexedTransformMatchesCppReference) {
     }
   }
 }
+
+TEST(CFXDIBBaseTest, RustColorTransformMatchesCppReference) {
+  static constexpr std::array<FXDIB_Format, 3> kFormats = {
+      FXDIB_Format::kBgr,
+      FXDIB_Format::kBgrx,
+      FXDIB_Format::kBgra,
+  };
+  static constexpr std::array<CFX_Matrix, 4> kMatrices = {
+      CFX_Matrix(5.0f, 1.25f, 1.75f, -4.5f, 0.3f, 5.1f),
+      CFX_Matrix(-4.25f, 1.5f, 2.0f, 3.75f, 4.2f, -1.3f),
+      CFX_Matrix(2.5f, -3.25f, 4.0f, 1.5f, -2.2f, 3.6f),
+      CFX_Matrix(-3.5f, -1.0f, -1.75f, 4.25f, 5.4f, 2.7f),
+  };
+  for (FXDIB_Format format : kFormats) {
+    auto source = CreateConversionBitmap(format, false);
+    ASSERT_TRUE(source);
+    for (const auto& matrix : kMatrices) {
+      int reference_left = 0;
+      int reference_top = 0;
+      RetainPtr<CFX_DIBitmap> reference;
+      {
+        fxge::ScopedRustDibImplementationForTesting implementation(false);
+        reference =
+            source->TransformTo(matrix, &reference_left, &reference_top);
+      }
+      int candidate_left = 0;
+      int candidate_top = 0;
+      auto candidate =
+          source->TransformTo(matrix, &candidate_left, &candidate_top);
+      ASSERT_EQ(static_cast<bool>(reference), static_cast<bool>(candidate));
+      ASSERT_TRUE(reference);
+      EXPECT_EQ(reference_left, candidate_left);
+      EXPECT_EQ(reference_top, candidate_top);
+      EXPECT_EQ(reference->GetFormat(), candidate->GetFormat());
+      EXPECT_EQ(reference->GetWidth(), candidate->GetWidth());
+      EXPECT_EQ(reference->GetHeight(), candidate->GetHeight());
+      EXPECT_EQ(reference->GetPitch(), candidate->GetPitch());
+      EXPECT_EQ(reference->GetBuffer(), candidate->GetBuffer())
+          << "source_format=" << static_cast<int>(format);
+    }
+  }
+}

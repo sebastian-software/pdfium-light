@@ -4124,6 +4124,48 @@ mod tests {
     }
 
     #[test]
+    fn transform_bilinear_color_should_preserve_channel_and_alpha_modes() {
+        let source = [0, 10, 20, 64, 74, 84, 128, 138, 148, 255, 245, 235];
+        let mut destination = [9; 16];
+        assert!(transform_bilinear_color(
+            &[256, 0, 0, 256, -128, -128],
+            &source,
+            6,
+            2,
+            2,
+            3,
+            0,
+            &mut destination,
+            8,
+            2,
+            2,
+        ));
+        assert_eq!(
+            [0, 8, 18, 255, 62, 72, 82, 255, 126, 136, 146, 255, 253, 243, 233, 255],
+            destination,
+        );
+
+        let alpha_source = [255, 128, 64, 32].repeat(4);
+        destination = [9; 16];
+        assert!(transform_bilinear_color(
+            &[256, 0, 0, 256, -128, -128],
+            &alpha_source,
+            8,
+            2,
+            2,
+            4,
+            1,
+            &mut destination,
+            8,
+            2,
+            2,
+        ));
+        for pixel in destination.chunks_exact(4) {
+            assert_eq!([253, 126, 62, 30], pixel);
+        }
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(
