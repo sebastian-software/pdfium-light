@@ -72,6 +72,8 @@ bool GlyphTraceHasEvent(pdfium::span<const uint8_t> trace,
       event_size = 18;
     } else if (marker == 0x42) {
       event_size = 17;
+    } else if (marker == 0x4c) {
+      event_size = 5;
     } else {
       return false;
     }
@@ -233,6 +235,20 @@ void RecordGlyphBoundsForTesting(int32_t left,
   }
 }
 
+void RecordGlyphBitmapLookupForTesting(bool glyph_is_valid,
+                                       bool native_text,
+                                       bool native_cache_hit,
+                                       GlyphBitmapLookupAction action) {
+  if (!g_glyph_trace_for_testing) {
+    return;
+  }
+  g_glyph_trace_for_testing->push_back(0x4c);
+  g_glyph_trace_for_testing->push_back(glyph_is_valid);
+  g_glyph_trace_for_testing->push_back(native_text);
+  g_glyph_trace_for_testing->push_back(native_cache_hit);
+  g_glyph_trace_for_testing->push_back(static_cast<uint8_t>(action));
+}
+
 bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace) {
   return GlyphTraceHasEvent(trace, 0x4f);
 }
@@ -244,6 +260,11 @@ bool GlyphTraceHasDeviceOriginPlansForTesting(
 
 bool GlyphTraceHasBoundsPlansForTesting(pdfium::span<const uint8_t> trace) {
   return GlyphTraceHasEvent(trace, 0x42);
+}
+
+bool GlyphTraceHasBitmapLookupPlansForTesting(
+    pdfium::span<const uint8_t> trace) {
+  return GlyphTraceHasEvent(trace, 0x4c);
 }
 
 }  // namespace fxge

@@ -53,11 +53,16 @@ fxge::GlyphBitmapLookupAction SelectGlyphBitmapLookupAction(
     const auto action = fxge::RustPlanGlyphBitmapLookup(
         glyph_is_valid, native_text, native_cache_hit);
     if (action.has_value()) {
+      fxge::RecordGlyphBitmapLookupForTesting(glyph_is_valid, native_text,
+                                              native_cache_hit, *action);
       return *action;
     }
   }
-  return PlanGlyphBitmapLookupCppReference(glyph_is_valid, native_text,
-                                           native_cache_hit);
+  const auto action = PlanGlyphBitmapLookupCppReference(
+      glyph_is_valid, native_text, native_cache_hit);
+  fxge::RecordGlyphBitmapLookupForTesting(glyph_is_valid, native_text,
+                                          native_cache_hit, action);
+  return action;
 }
 
 class UniqueKeyGen {

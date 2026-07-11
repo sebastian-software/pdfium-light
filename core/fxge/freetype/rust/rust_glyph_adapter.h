@@ -105,10 +105,16 @@ void RecordGlyphBoundsForTesting(int32_t left,
                                  int32_t top,
                                  int32_t right,
                                  int32_t bottom);
+void RecordGlyphBitmapLookupForTesting(bool glyph_is_valid,
+                                       bool native_text,
+                                       bool native_cache_hit,
+                                       GlyphBitmapLookupAction action);
 bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace);
 bool GlyphTraceHasDeviceOriginPlansForTesting(
     pdfium::span<const uint8_t> trace);
 bool GlyphTraceHasBoundsPlansForTesting(pdfium::span<const uint8_t> trace);
+bool GlyphTraceHasBitmapLookupPlansForTesting(
+    pdfium::span<const uint8_t> trace);
 
 }  // namespace fxge
 

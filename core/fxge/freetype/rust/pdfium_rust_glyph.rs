@@ -54,7 +54,7 @@ type ReadGlyphBounds = unsafe extern "C" fn(
 ) -> bool;
 
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GlyphBitmapLookupAction {
     Reject = 0,
     LookupRequestedKey = 1,
@@ -697,5 +697,39 @@ mod tests {
             )
         });
         assert_eq!((left, top, right, bottom), (91, 92, 93, 94));
+    }
+
+    #[test]
+    fn glyph_bitmap_lookup_should_select_each_observable_action() {
+        let actions = [
+            plan_glyph_bitmap_lookup(false, false, false),
+            plan_glyph_bitmap_lookup(true, false, false),
+            plan_glyph_bitmap_lookup(true, true, true),
+            plan_glyph_bitmap_lookup(true, true, false),
+        ];
+        assert_eq!(
+            actions,
+            [
+                GlyphBitmapLookupAction::Reject,
+                GlyphBitmapLookupAction::LookupRequestedKey,
+                GlyphBitmapLookupAction::ReturnNativeCached,
+                GlyphBitmapLookupAction::LookupNonNativeAndDisableNative,
+            ]
+        );
+    }
+
+    #[test]
+    fn glyph_bitmap_lookup_ffi_should_reject_null_output_without_mutation() {
+        let mut action = 99_u8;
+        // SAFETY: A null output is explicitly rejected without any memory
+        // access.
+        assert!(!unsafe {
+            pdfium_rust_plan_glyph_bitmap_lookup(true, false, false, core::ptr::null_mut())
+        });
+        assert_eq!(action, 99);
+
+        // SAFETY: The output byte is live and writable for one action.
+        assert!(unsafe { pdfium_rust_plan_glyph_bitmap_lookup(true, true, false, &mut action) });
+        assert_eq!(action, GlyphBitmapLookupAction::LookupNonNativeAndDisableNative as u8);
     }
 }
