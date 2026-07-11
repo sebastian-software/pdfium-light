@@ -49,6 +49,7 @@ ACTIVE_SURFACES = (
     "mask, indexed, grayscale, and RGB buffer conversion matrix",
     "1-bpp mask OR compositing",
     "solid rectangle compositing across retained bitmap formats",
+    "BGRA alpha-mask row extraction",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 

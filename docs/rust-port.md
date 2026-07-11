@@ -56,6 +56,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `c5999179d` Phase 1 buffer-conversion slice | 9,697 | 2,886 | 241 | 1,181 | 6,570 | 266,479 | 3.64% | 1.49% | Prior surfaces plus mask, indexed, grayscale, BGR, BGRx, and BGRA row conversion with default and custom palettes |
 | `66a4f3d15` Phase 1 1-bpp mask-composite slice | 9,781 | 2,970 | 241 | 1,207 | 6,570 | 266,640 | 3.67% | 1.53% | Prior surfaces plus clipped 1-bpp mask OR compositing with preserved surrounding and unset destination bits |
 | `659e766e0` Phase 1 rectangle-composite slice | 10,032 | 3,221 | 241 | 1,253 | 6,570 | 267,006 | 3.76% | 1.66% | Prior surfaces plus solid rectangle compositing across 1-/8-bpp mask/RGB, BGR, BGRx, and BGRA formats |
+| `28c172466` Phase 1 alpha-mask clone slice | 10,089 | 3,278 | 241 | 1,272 | 6,570 | 267,116 | 3.78% | 1.69% | Prior surfaces plus scanline-backed BGRA alpha extraction into 8-bpp masks with untouched destination padding |
 
 ## Toolchain
 
@@ -121,6 +122,11 @@ Rust walks explicit width, height, and pitch values without allocating and
 leaves row padding untouched. Same-process tests compare red-from-alpha,
 opaque-alpha, mask multiplication for BGRA and converted BGRx input, and
 constant-alpha multiplication against the retained C++ loops.
+
+Alpha-mask cloning retains C++ allocation and the abstract `CFX_DIBBase`
+scanline source while Rust extracts every active BGRA alpha byte once per row.
+The row boundary supports lazy or otherwise non-contiguous DIB sources and
+intentionally leaves the newly allocated 8-bpp destination padding untouched.
 
 Whole-bitmap clearing preserves the format-specific treatment of row padding:
 1-/8-bpp images and equal-channel BGR fill padding, while non-gray BGR and
