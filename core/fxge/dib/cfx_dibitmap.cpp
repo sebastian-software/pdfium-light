@@ -141,25 +141,55 @@ void CFX_DIBitmap::Clear(uint32_t color) {
   if (buffer.empty()) {
     return;
   }
+  const auto clear_with_rust = [&](size_t components,
+                                   std::array<uint8_t, 4> pixel,
+                                   bool fill_padding) {
+    return fxge::RustBlendAdapter::UseCandidate() &&
+           fxge::RustBlendAdapter::ClearBitmap(
+               buffer, GetWidth(), GetHeight(), GetPitch(), components, pixel,
+               fill_padding);
+  };
 
   switch (GetFormat()) {
     case FXDIB_Format::kInvalid:
       break;
-    case FXDIB_Format::k1bppMask:
-      std::ranges::fill(buffer, (color & 0xff000000) ? 0xff : 0);
+    case FXDIB_Format::k1bppMask: {
+      const uint8_t value = (color & 0xff000000) ? 0xff : 0;
+      if (!clear_with_rust(1, {value, 0, 0, 0}, /*fill_padding=*/true)) {
+        std::ranges::fill(buffer, value);
+      }
       break;
-    case FXDIB_Format::k1bppRgb:
-      std::ranges::fill(buffer, FindPalette(color) ? 0xff : 0);
+    }
+    case FXDIB_Format::k1bppRgb: {
+      const uint8_t value = FindPalette(color) ? 0xff : 0;
+      if (!clear_with_rust(1, {value, 0, 0, 0}, /*fill_padding=*/true)) {
+        std::ranges::fill(buffer, value);
+      }
       break;
-    case FXDIB_Format::k8bppMask:
-      std::ranges::fill(buffer, color >> 24);
+    }
+    case FXDIB_Format::k8bppMask: {
+      const uint8_t value = static_cast<uint8_t>(color >> 24);
+      if (!clear_with_rust(1, {value, 0, 0, 0}, /*fill_padding=*/true)) {
+        std::ranges::fill(buffer, value);
+      }
       break;
-    case FXDIB_Format::k8bppRgb:
-      std::ranges::fill(buffer, FindPalette(color));
+    }
+    case FXDIB_Format::k8bppRgb: {
+      const uint8_t value = static_cast<uint8_t>(FindPalette(color));
+      if (!clear_with_rust(1, {value, 0, 0, 0}, /*fill_padding=*/true)) {
+        std::ranges::fill(buffer, value);
+      }
       break;
+    }
     case FXDIB_Format::kBgr: {
       const FX_BGR_STRUCT<uint8_t> bgr = ArgbToBGRStruct(color);
-      if (bgr.red == bgr.green && bgr.green == bgr.blue) {
+      const bool fill_padding =
+          bgr.red == bgr.green && bgr.green == bgr.blue;
+      if (clear_with_rust(3, {bgr.blue, bgr.green, bgr.red, 0},
+                          fill_padding)) {
+        break;
+      }
+      if (fill_padding) {
         std::ranges::fill(buffer, bgr.red);
       } else {
         for (int row = 0; row < GetHeight(); row++) {
@@ -171,11 +201,17 @@ void CFX_DIBitmap::Clear(uint32_t color) {
     }
     case FXDIB_Format::kBgrx:
       [[fallthrough]];
-    case FXDIB_Format::kBgra:
+    case FXDIB_Format::kBgra: {
+      const auto bgra = ArgbToBGRAStruct(color);
+      if (clear_with_rust(4, {bgra.blue, bgra.green, bgra.red, bgra.alpha},
+                          /*fill_padding=*/false)) {
+        break;
+      }
       for (int row = 0; row < GetHeight(); row++) {
         std::ranges::fill(GetWritableScanlineAs<uint32_t>(row), color);
       }
       break;
+    }
   }
 }
 

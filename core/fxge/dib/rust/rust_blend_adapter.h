@@ -93,6 +93,13 @@ class RustBlendAdapter final {
                                 int height,
                                 uint32_t pitch,
                                 uint8_t alpha);
+  static bool ClearBitmap(pdfium::span<uint8_t> buffer,
+                          int width,
+                          int height,
+                          uint32_t pitch,
+                          size_t components,
+                          std::array<uint8_t, 4> pixel,
+                          bool fill_padding);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

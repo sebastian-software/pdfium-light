@@ -397,6 +397,63 @@ fn packed_rows_are_valid(width: usize, height: usize, pitch: usize, components: 
         && pitch.checked_mul(height).is_some()
 }
 
+/// Clears a packed bitmap with one pixel value.
+///
+/// When `fill_padding` is set, the first pixel byte is written across the
+/// entire buffer to preserve PDFium's 1-/8-bpp and gray-BGR padding behavior.
+///
+/// # Safety
+///
+/// `buffer` must be valid for `buffer_len` writable bytes. For packed-pixel
+/// operation it must contain `pitch * height` bytes with at least
+/// `width * components` bytes per row. `components` must be in `1..=4`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_clear_bitmap(
+    buffer: *mut u8,
+    buffer_len: usize,
+    width: usize,
+    height: usize,
+    pitch: usize,
+    components: usize,
+    blue: u8,
+    green: u8,
+    red: u8,
+    alpha: u8,
+    fill_padding: bool,
+) -> bool {
+    if buffer.is_null() || !(1..=4).contains(&components) {
+        return false;
+    }
+    if fill_padding {
+        // SAFETY: The caller contract guarantees `buffer_len` writable bytes.
+        unsafe {
+            std::ptr::write_bytes(buffer, blue, buffer_len);
+        }
+        return true;
+    }
+    let Some(required_len) = pitch.checked_mul(height) else {
+        return false;
+    };
+    if !packed_rows_are_valid(width, height, pitch, components) || required_len > buffer_len {
+        return false;
+    }
+    let pixel = [blue, green, red, alpha];
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee a
+            // complete packed pixel at every computed offset.
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    pixel.as_ptr(),
+                    buffer.add(row * pitch + column * components),
+                    components,
+                );
+            }
+        }
+    }
+    true
+}
+
 /// Copies each packed BGRA pixel's alpha channel into its red channel.
 ///
 /// # Safety

@@ -103,6 +103,17 @@ extern "C" bool pdfium_rust_bgra_multiply_alpha(uint8_t* buffer,
                                                  size_t height,
                                                  size_t pitch,
                                                  uint8_t alpha);
+extern "C" bool pdfium_rust_clear_bitmap(uint8_t* buffer,
+                                          size_t buffer_len,
+                                          size_t width,
+                                          size_t height,
+                                          size_t pitch,
+                                          size_t components,
+                                          uint8_t blue,
+                                          uint8_t green,
+                                          uint8_t red,
+                                          uint8_t alpha,
+                                          bool fill_padding);
 
 namespace {
 
@@ -441,6 +452,24 @@ bool RustBlendAdapter::MultiplyBgraAlpha(pdfium::span<uint8_t> buffer,
   return IsValidBitmapBuffer(buffer.size(), width, height, pitch, 4) &&
          pdfium_rust_bgra_multiply_alpha(buffer.data(), width, height, pitch,
                                          alpha);
+}
+
+// static
+bool RustBlendAdapter::ClearBitmap(pdfium::span<uint8_t> buffer,
+                                   int width,
+                                   int height,
+                                   uint32_t pitch,
+                                   size_t components,
+                                   std::array<uint8_t, 4> pixel,
+                                   bool fill_padding) {
+  return components > 0 && components <= pixel.size() &&
+         (fill_padding
+              ? IsValidBitmapBuffer(buffer.size(), 1, height, pitch, 1)
+              : IsValidBitmapBuffer(buffer.size(), width, height, pitch,
+                                    components)) &&
+         pdfium_rust_clear_bitmap(
+             buffer.data(), buffer.size(), width, height, pitch, components,
+             pixel[0], pixel[1], pixel[2], pixel[3], fill_padding);
 }
 
 // static
