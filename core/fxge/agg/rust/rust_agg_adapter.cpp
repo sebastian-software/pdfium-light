@@ -23,8 +23,15 @@ struct RustAggPathDrawPlan {
   uint8_t reserved;
 };
 
+struct RustAggStrokeMatrixPlan {
+  float path_matrix[6];
+  float stroke_matrix[6];
+  float scale;
+};
+
 static_assert(sizeof(RustAggStrokePlan) == 12);
 static_assert(sizeof(RustAggPathDrawPlan) == 4);
+static_assert(sizeof(RustAggStrokeMatrixPlan) == 52);
 static_assert(sizeof(fxge::AggPathPoint) == 12);
 
 extern "C" bool pdfium_rust_should_apply_agg_dash_pattern(
@@ -49,6 +56,16 @@ extern "C" bool pdfium_rust_plan_agg_path_draw(uint8_t fill_type,
                                                uint32_t stroke_color,
                                                bool zero_area,
                                                RustAggPathDrawPlan* output);
+
+extern "C" bool pdfium_rust_plan_agg_stroke_matrices(
+    bool has_matrix,
+    float matrix_a,
+    float matrix_b,
+    float matrix_c,
+    float matrix_d,
+    float matrix_e,
+    float matrix_f,
+    RustAggStrokeMatrixPlan* output);
 
 extern "C" bool pdfium_rust_emit_agg_dash_pattern(
     const float* dash_values,
@@ -178,6 +195,28 @@ std::optional<AggPathDrawPlan> RustPlanAggPathDraw(uint8_t fill_type,
       .stroke_mode = static_cast<AggStrokeMode>(plan.stroke_mode),
       .fill_rule = static_cast<AggFillRule>(plan.fill_rule),
   };
+}
+
+std::optional<AggStrokeMatrixPlan> RustPlanAggStrokeMatrices(bool has_matrix,
+                                                             float matrix_a,
+                                                             float matrix_b,
+                                                             float matrix_c,
+                                                             float matrix_d,
+                                                             float matrix_e,
+                                                             float matrix_f) {
+  RustAggStrokeMatrixPlan plan{};
+  if (!pdfium_rust_plan_agg_stroke_matrices(has_matrix, matrix_a, matrix_b,
+                                            matrix_c, matrix_d, matrix_e,
+                                            matrix_f, &plan)) {
+    return std::nullopt;
+  }
+  AggStrokeMatrixPlan result{};
+  for (size_t index = 0; index < result.path_matrix.size(); ++index) {
+    result.path_matrix[index] = plan.path_matrix[index];
+    result.stroke_matrix[index] = plan.stroke_matrix[index];
+  }
+  result.scale = plan.scale;
+  return result;
 }
 
 std::optional<float> RustEmitAggDashPattern(

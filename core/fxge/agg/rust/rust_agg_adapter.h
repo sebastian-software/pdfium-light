@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <array>
 #include <optional>
 #include <vector>
 
@@ -41,6 +42,12 @@ struct AggPathDrawPlan {
   AggFillRule fill_rule;
 };
 
+struct AggStrokeMatrixPlan {
+  std::array<float, 6> path_matrix;
+  std::array<float, 6> stroke_matrix;
+  float scale;
+};
+
 using AggDashValueCallback = void (*)(void* context, float value);
 using AggPathPointCallback = void (*)(void* context,
                                       size_t index,
@@ -68,6 +75,14 @@ std::optional<AggPathDrawPlan> RustPlanAggPathDraw(uint8_t fill_type,
                                                    bool has_graph_state,
                                                    uint32_t stroke_color,
                                                    bool zero_area);
+
+std::optional<AggStrokeMatrixPlan> RustPlanAggStrokeMatrices(bool has_matrix,
+                                                             float matrix_a,
+                                                             float matrix_b,
+                                                             float matrix_c,
+                                                             float matrix_d,
+                                                             float matrix_e,
+                                                             float matrix_f);
 
 std::optional<float> RustEmitAggDashPattern(
     pdfium::span<const float> dash_array,

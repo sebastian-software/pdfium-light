@@ -58,6 +58,14 @@ pub struct RustAggPathDrawPlan {
     reserved: u8,
 }
 
+/// Plain-data matrix decomposition returned to the AGG stroke adapter.
+#[repr(C)]
+pub struct RustAggStrokeMatrixPlan {
+    path_matrix: [f32; 6],
+    stroke_matrix: [f32; 6],
+    scale: f32,
+}
+
 #[derive(Clone, Copy)]
 struct Matrix {
     a: f32,
@@ -66,6 +74,41 @@ struct Matrix {
     d: f32,
     e: f32,
     f: f32,
+}
+
+impl Matrix {
+    const IDENTITY: Self = Self { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0 };
+
+    fn inverse(self) -> Self {
+        let determinant = self.a * self.d - self.b * self.c;
+        if determinant.abs() == 0.0 {
+            return Self::IDENTITY;
+        }
+        let negative_determinant = -determinant;
+        Self {
+            a: self.d / determinant,
+            b: self.b / negative_determinant,
+            c: self.c / negative_determinant,
+            d: self.a / determinant,
+            e: (self.c * self.f - self.d * self.e) / determinant,
+            f: (self.a * self.f - self.b * self.e) / negative_determinant,
+        }
+    }
+
+    fn multiply(self, right: Self) -> Self {
+        Self {
+            a: self.a * right.a + self.b * right.c,
+            b: self.a * right.b + self.b * right.d,
+            c: self.c * right.a + self.d * right.c,
+            d: self.c * right.b + self.d * right.d,
+            e: self.e * right.a + self.f * right.c + right.e,
+            f: self.e * right.b + self.f * right.d + right.f,
+        }
+    }
+
+    fn as_array(self) -> [f32; 6] {
+        [self.a, self.b, self.c, self.d, self.e, self.f]
+    }
 }
 
 fn hard_clip(value: f32) -> f32 {
@@ -101,6 +144,34 @@ fn plan_path_draw(
     let fill_rule =
         if fill_type == FILL_TYPE_WINDING { AGG_FILL_NON_ZERO } else { AGG_FILL_EVEN_ODD };
     RustAggPathDrawPlan { draw_fill, stroke_mode, fill_rule, reserved: 0 }
+}
+
+fn plan_stroke_matrices(matrix: Option<Matrix>) -> RustAggStrokeMatrixPlan {
+    let Some(object_to_device) = matrix else {
+        return RustAggStrokeMatrixPlan {
+            path_matrix: Matrix::IDENTITY.as_array(),
+            stroke_matrix: Matrix::IDENTITY.as_array(),
+            scale: 1.0,
+        };
+    };
+    let absolute_a = object_to_device.a.abs();
+    let absolute_b = object_to_device.b.abs();
+    // Preserve `std::max(abs(a), abs(b))`, including first-operand NaN.
+    let scale = if absolute_a < absolute_b { absolute_b } else { absolute_a };
+    let stroke_matrix = Matrix {
+        a: object_to_device.a / scale,
+        b: object_to_device.b / scale,
+        c: object_to_device.c / scale,
+        d: object_to_device.d / scale,
+        e: 0.0,
+        f: 0.0,
+    };
+    let path_matrix = object_to_device.multiply(stroke_matrix.inverse());
+    RustAggStrokeMatrixPlan {
+        path_matrix: path_matrix.as_array(),
+        stroke_matrix: stroke_matrix.as_array(),
+        scale,
+    }
 }
 
 struct StrokeInputs {
@@ -249,6 +320,40 @@ pub unsafe extern "C" fn pdfium_rust_plan_agg_path_draw(
     // SAFETY: The caller guarantees one writable output value.
     unsafe {
         *output = plan_path_draw(fill_type, fill_color, has_graph_state, stroke_color, zero_area);
+    }
+    true
+}
+
+/// Decomposes the object-to-device matrix for AGG stroke rasterization.
+///
+/// # Safety
+///
+/// `output` must point to one writable `RustAggStrokeMatrixPlan` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_plan_agg_stroke_matrices(
+    has_matrix: bool,
+    matrix_a: f32,
+    matrix_b: f32,
+    matrix_c: f32,
+    matrix_d: f32,
+    matrix_e: f32,
+    matrix_f: f32,
+    output: *mut RustAggStrokeMatrixPlan,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let matrix = has_matrix.then_some(Matrix {
+        a: matrix_a,
+        b: matrix_b,
+        c: matrix_c,
+        d: matrix_d,
+        e: matrix_e,
+        f: matrix_f,
+    });
+    // SAFETY: The caller guarantees one writable output value.
+    unsafe {
+        *output = plan_stroke_matrices(matrix);
     }
     true
 }

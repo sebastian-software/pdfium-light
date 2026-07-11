@@ -486,6 +486,52 @@ agg::filling_rule_e ToAggFillRule(fxge::AggFillRule fill_rule) {
                                                   : agg::fill_even_odd;
 }
 
+std::array<float, 6> MatrixToArray(const CFX_Matrix& matrix) {
+  return {matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f};
+}
+
+CFX_Matrix MatrixFromArray(const std::array<float, 6>& matrix) {
+  return CFX_Matrix(matrix[0], matrix[1], matrix[2], matrix[3], matrix[4],
+                    matrix[5]);
+}
+
+fxge::AggStrokeMatrixPlan PlanAggStrokeMatricesCpp(
+    const CFX_Matrix* object_to_device) {
+  CFX_Matrix path_matrix;
+  CFX_Matrix stroke_matrix;
+  if (object_to_device) {
+    path_matrix.a =
+        std::max(fabs(object_to_device->a), fabs(object_to_device->b));
+    path_matrix.d = path_matrix.a;
+    stroke_matrix = CFX_Matrix(object_to_device->a / path_matrix.a,
+                               object_to_device->b / path_matrix.a,
+                               object_to_device->c / path_matrix.d,
+                               object_to_device->d / path_matrix.d, 0, 0);
+    path_matrix = *object_to_device * stroke_matrix.GetInverse();
+  }
+  return fxge::AggStrokeMatrixPlan{
+      .path_matrix = MatrixToArray(path_matrix),
+      .stroke_matrix = MatrixToArray(stroke_matrix),
+      .scale = path_matrix.a,
+  };
+}
+
+fxge::AggStrokeMatrixPlan PlanAggStrokeMatrices(
+    const CFX_Matrix* object_to_device) {
+  const auto rust_plan =
+      fxge::UseRustAggCandidate()
+          ? fxge::RustPlanAggStrokeMatrices(
+                !!object_to_device, object_to_device ? object_to_device->a : 0,
+                object_to_device ? object_to_device->b : 0,
+                object_to_device ? object_to_device->c : 0,
+                object_to_device ? object_to_device->d : 0,
+                object_to_device ? object_to_device->e : 0,
+                object_to_device ? object_to_device->f : 0)
+          : std::nullopt;
+  return rust_plan.has_value() ? *rust_plan
+                               : PlanAggStrokeMatricesCpp(object_to_device);
+}
+
 RetainPtr<CFX_DIBitmap> GetClipMaskFromRegion(const CFX_AggClipRgn* r) {
   return r ? r->GetMask() : nullptr;
 }
@@ -1419,24 +1465,17 @@ bool CFX_AggDeviceDriver::DrawPath(const CFX_Path& path,
                      group_knockout_);
     return true;
   }
-  CFX_Matrix matrix1;
-  CFX_Matrix matrix2;
-  if (pObject2Device) {
-    matrix1.a = std::max(fabs(pObject2Device->a), fabs(pObject2Device->b));
-    matrix1.d = matrix1.a;
-    matrix2 = CFX_Matrix(
-        pObject2Device->a / matrix1.a, pObject2Device->b / matrix1.a,
-        pObject2Device->c / matrix1.d, pObject2Device->d / matrix1.d, 0, 0);
-
-    matrix1 = *pObject2Device * matrix2.GetInverse();
-  }
+  const fxge::AggStrokeMatrixPlan matrix_plan =
+      PlanAggStrokeMatrices(pObject2Device);
+  const CFX_Matrix matrix1 = MatrixFromArray(matrix_plan.path_matrix);
+  const CFX_Matrix matrix2 = MatrixFromArray(matrix_plan.stroke_matrix);
 
   agg::path_storage path_data = BuildAggPath(path, &matrix1);
   agg::rasterizer_scanline_aa rasterizer;
   rasterizer.clip_box(0.0f, 0.0f, static_cast<float>(GetPixelWidth()),
                       static_cast<float>(GetPixelHeight()));
-  RasterizeStroke(&rasterizer, &path_data, &matrix2, pGraphState, matrix1.a,
-                  fill_options.stroke_text_mode);
+  RasterizeStroke(&rasterizer, &path_data, &matrix2, pGraphState,
+                  matrix_plan.scale, fill_options.stroke_text_mode);
   RenderRasterizer(rasterizer, stroke_color, fill_options.full_cover,
                    group_knockout_);
   return true;
