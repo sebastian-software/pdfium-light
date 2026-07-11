@@ -78,6 +78,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `b2613c9f5` Phase 3 AGG dash slice | 13,111 | 6,300 | 241 | 2,339 | 6,570 | 272,075 | 4.82% | 3.18% | Prior surfaces plus Rust-owned dash-pattern applicability at the AGG stroke boundary, including exact threshold and non-finite semantics |
 | `3b1aa7950` Phase 3 AGG stroke-plan slice | 13,301 | 6,490 | 241 | 2,423 | 6,570 | 272,378 | 4.88% | 3.27% | Prior surfaces plus Rust-owned line-cap, line-join, effective-width, and miter-limit planning at the AGG stroke boundary |
 | `2220a8c1b` Phase 3 AGG dash-normalization slice | 13,425 | 6,614 | 241 | 2,499 | 6,570 | 272,601 | 4.92% | 3.33% | Prior surfaces plus Rust-owned dash replacement, absolute scaling, and dash-phase normalization through an allocation-free callback boundary |
+| `44b0aa456` Phase 3 AGG path-emission slice | 13,749 | 6,938 | 241 | 2,595 | 6,570 | 273,129 | 5.03% | 3.49% | Prior surfaces plus Rust-owned path iteration, matrix transformation, hard clipping, degenerate-line repair, Bezier grouping, and Move/Line/Bezier/Close emission |
 
 ## Toolchain
 
@@ -450,6 +451,20 @@ C++ temporary vector. Boundary rejection occurs before any callback, allowing
 the untouched converter to use the complete C++ fallback. A dedicated dashed-
 line fixture exercises the active route, and the exact AGG trace includes each
 normalized value and phase. All 9 native AGG tests, all 21 native render/path
+tests, and all 19 zero-tolerance bitmap-plus-core-and-AGG-trace corpus cases
+pass.
+
+`BuildAggPath()` now delegates path iteration and command formation to Rust.
+Rust borrows points individually from their C++ owner, applies the optional
+matrix and the retained `[-32000, 32000]` hard clip, preserves the degenerate
+single-point line adjustment, groups complete cubic Bezier quartets, and emits
+Move, Line, Bezier, and Close commands through a second borrowed callback.
+Neither side creates an intermediate point or command vector. C++ retains the
+`CFX_Path`, `agg::path_storage`, `agg::curve4`, and a complete isolated oracle;
+an invalid command discards the separate candidate storage before fallback.
+Native tests cover command ordering, transforms, clipping, Bezier grouping,
+close behavior, and missing callbacks. The exact command stream and float bits
+are part of the AGG trace. All 12 native AGG tests, all 21 native render/path
 tests, and all 19 zero-tolerance bitmap-plus-core-and-AGG-trace corpus cases
 pass.
 
