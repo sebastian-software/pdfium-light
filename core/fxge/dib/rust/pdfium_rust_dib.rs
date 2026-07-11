@@ -535,6 +535,16 @@ fn set_stretch_weight(
     write_native_u32(output, offset, weight)
 }
 
+fn stretch_intermediate_offset(
+    source_row: i32,
+    source_top: i32,
+    intermediate_pitch: usize,
+    column_offset: usize,
+) -> Option<usize> {
+    let relative_row = usize::try_from(source_row.checked_sub(source_top)?).ok()?;
+    relative_row.checked_mul(intermediate_pitch)?.checked_add(column_offset)
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "the function mirrors the complete retained weight-table contract"
@@ -1004,6 +1014,205 @@ pub unsafe extern "C" fn pdfium_rust_stretch_horizontal_row(
         destination_minimum,
         destination_left,
         destination_right,
+        output,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the row helper mirrors the retained vertical stretch state"
+)]
+fn stretch_vertical_row(
+    transform_method: u8,
+    components: usize,
+    intermediate: &[u8],
+    intermediate_pitch: usize,
+    source_top: i32,
+    destination_left: i32,
+    destination_right: i32,
+    weight_table: &[u8],
+    item_size: usize,
+    destination_minimum: i32,
+    destination_row: i32,
+    output: &mut [u8],
+) -> bool {
+    if !matches!(components, 1 | 3 | 4) || intermediate_pitch == 0 {
+        return false;
+    }
+    let Some(destination_width) = destination_right.checked_sub(destination_left) else {
+        return false;
+    };
+    let Ok(destination_width) = usize::try_from(destination_width) else {
+        return false;
+    };
+    let Some(required_output) = destination_width.checked_mul(components) else {
+        return false;
+    };
+    if output.len() < required_output {
+        return false;
+    }
+    let Some(weights) =
+        stretch_pixel_weights(weight_table, item_size, destination_minimum, destination_row)
+    else {
+        return false;
+    };
+
+    let mut output_index = 0;
+    for column in 0..destination_width {
+        let Some(column_offset) = column.checked_mul(components) else {
+            return false;
+        };
+        match transform_method {
+            0..=2 => {
+                let mut destination_alpha = 0_u32;
+                for source_row in weights.source_start..=weights.source_end {
+                    let Some(source_offset) = stretch_intermediate_offset(
+                        source_row,
+                        source_top,
+                        intermediate_pitch,
+                        column_offset,
+                    ) else {
+                        return false;
+                    };
+                    let Some(source_value) = intermediate.get(source_offset) else {
+                        return false;
+                    };
+                    let Some(weight) = weights.weight(source_row) else {
+                        return false;
+                    };
+                    destination_alpha += weight * u32::from(*source_value);
+                }
+                output[output_index] = pixel_from_fixed(destination_alpha);
+            }
+            3 | 4 => {
+                if components < 3 {
+                    return false;
+                }
+                let mut destination_red = 0_u32;
+                let mut destination_green = 0_u32;
+                let mut destination_blue = 0_u32;
+                for source_row in weights.source_start..=weights.source_end {
+                    let Some(source_offset) = stretch_intermediate_offset(
+                        source_row,
+                        source_top,
+                        intermediate_pitch,
+                        column_offset,
+                    ) else {
+                        return false;
+                    };
+                    let Some(source_end) = source_offset.checked_add(3) else {
+                        return false;
+                    };
+                    let Some(source_pixel) = intermediate.get(source_offset..source_end) else {
+                        return false;
+                    };
+                    let Some(weight) = weights.weight(source_row) else {
+                        return false;
+                    };
+                    destination_blue += weight * u32::from(source_pixel[0]);
+                    destination_green += weight * u32::from(source_pixel[1]);
+                    destination_red += weight * u32::from(source_pixel[2]);
+                }
+                output[output_index] = pixel_from_fixed(destination_blue);
+                output[output_index + 1] = pixel_from_fixed(destination_green);
+                output[output_index + 2] = pixel_from_fixed(destination_red);
+            }
+            5 => {
+                if components != 4 {
+                    return false;
+                }
+                let mut destination_alpha = 0_u32;
+                let mut destination_red = 0_u32;
+                let mut destination_green = 0_u32;
+                let mut destination_blue = 0_u32;
+                for source_row in weights.source_start..=weights.source_end {
+                    let Some(source_offset) = stretch_intermediate_offset(
+                        source_row,
+                        source_top,
+                        intermediate_pitch,
+                        column_offset,
+                    ) else {
+                        return false;
+                    };
+                    let Some(source_end) = source_offset.checked_add(4) else {
+                        return false;
+                    };
+                    let Some(source_pixel) = intermediate.get(source_offset..source_end) else {
+                        return false;
+                    };
+                    let Some(weight) = weights.weight(source_row) else {
+                        return false;
+                    };
+                    destination_blue += weight * u32::from(source_pixel[0]);
+                    destination_green += weight * u32::from(source_pixel[1]);
+                    destination_red += weight * u32::from(source_pixel[2]);
+                    destination_alpha += weight * u32::from(source_pixel[3]);
+                }
+                let blue = destination_blue.wrapping_mul(255).checked_div(destination_alpha);
+                let green = destination_green.wrapping_mul(255).checked_div(destination_alpha);
+                let red = destination_red.wrapping_mul(255).checked_div(destination_alpha);
+                if let (Some(blue), Some(green), Some(red)) = (blue, green, red) {
+                    output[output_index] = blue.min(255) as u8;
+                    output[output_index + 1] = green.min(255) as u8;
+                    output[output_index + 2] = red.min(255) as u8;
+                }
+                output[output_index + 3] = pixel_from_fixed(destination_alpha);
+            }
+            _ => return false,
+        }
+        output_index += components;
+    }
+    true
+}
+
+/// Vertically stretches one intermediate row into the C++-owned output row.
+///
+/// # Safety
+///
+/// All pointers must cover their supplied lengths. Output must not overlap any
+/// input region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_stretch_vertical_row(
+    transform_method: u8,
+    components: usize,
+    intermediate: *const u8,
+    intermediate_len: usize,
+    intermediate_pitch: usize,
+    source_top: i32,
+    destination_left: i32,
+    destination_right: i32,
+    weight_table: *const u8,
+    weight_table_len: usize,
+    item_size: usize,
+    destination_minimum: i32,
+    destination_row: i32,
+    output: *mut u8,
+    output_len: usize,
+) -> bool {
+    if intermediate.is_null() || weight_table.is_null() || output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees each region for its supplied
+    // length and forbids output/input overlap.
+    let (intermediate, weight_table, output) = unsafe {
+        (
+            slice::from_raw_parts(intermediate, intermediate_len),
+            slice::from_raw_parts(weight_table, weight_table_len),
+            slice::from_raw_parts_mut(output, output_len),
+        )
+    };
+    stretch_vertical_row(
+        transform_method,
+        components,
+        intermediate,
+        intermediate_pitch,
+        source_top,
+        destination_left,
+        destination_right,
+        weight_table,
+        item_size,
+        destination_minimum,
+        destination_row,
         output,
     )
 }

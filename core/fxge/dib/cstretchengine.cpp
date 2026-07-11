@@ -498,6 +498,15 @@ void CStretchEngine::StretchVert() {
   for (int row = dest_clip_.top; row < dest_clip_.bottom; ++row) {
     unsigned char* dest_scan = dest_scanline_.data();
     const PixelWeight* pWeights = table.GetPixelWeight(row);
+    if (fxge::RustBlendAdapter::UseCandidate() &&
+        fxge::RustBlendAdapter::StretchVerticalRow(
+            static_cast<uint8_t>(trans_method_), DestBpp, inter_buf_,
+            inter_pitch_, src_clip_.top, dest_clip_.left, dest_clip_.right,
+            table.GetRawTableForRust(), table.GetItemSizeForRust(),
+            table.GetDestinationMinimumForRust(), row, dest_scanline_)) {
+      dest_bitmap_->ComposeScanline(row - dest_clip_.top, dest_scanline_);
+      continue;
+    }
     switch (trans_method_) {
       case TransformMethod::k1BppTo8Bpp:
       case TransformMethod::k1BppToManyBpp:
