@@ -84,6 +84,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `17c6e369b` Phase 4 glyph cache-key slice | 14,211 | 7,400 | 241 | 2,872 | 6,570 | 274,001 | 5.19% | 3.71% | Prior surfaces plus Rust-owned 6-, 7-, 9-, and 10-word glyph bitmap cache-key shape planning for base, substitution, and native-text variants |
 | `d9705f514` Phase 4 glyph-origin slice | 14,307 | 7,496 | 241 | 2,943 | 6,570 | 274,199 | 5.22% | 3.75% | Prior surfaces plus checked Rust-owned glyph bitmap origin placement for bounding-box and draw composition offsets |
 | `026b3cd97` Phase 4 device-origin slice | 14,411 | 7,600 | 241 | 3,008 | 6,570 | 274,388 | 5.25% | 3.80% | Prior surfaces plus Rust-owned LCD-floor and saturated half-away-from-zero device-origin rounding before glyph bitmap loading |
+| `074c9b1b5` Phase 4 glyph-bounds slice | 14,657 | 7,846 | 241 | 3,075 | 6,570 | 274,766 | 5.33% | 3.92% | Prior surfaces plus Rust-owned borrowed glyph iteration, LCD width adjustment, checked edge construction, skip behavior, and bounding-box min/max aggregation |
 
 ## Toolchain
 
@@ -568,6 +569,21 @@ no-mutation. The glyph trace records both float bit patterns, LCD mode, and
 planned integer coordinates; `HelloWorldNoNativeText` proves the event is
 reached, and all 19 exact renderer cases pass. Glyph bounding-box aggregation,
 cache lookup/action planning, and the FreeType boundary remain next.
+
+The fourth slice moves complete glyph bitmap bounding-box aggregation into a
+Rust-owned borrowed iteration. A narrow C++ callback exposes only per-glyph
+validity, checked origin, and bitmap dimensions; Rust applies LCD width
+division, skips missing glyphs and overflowing right/bottom edges, and folds
+the remaining rectangles with exact min/max ordering. The callback is
+synchronous and allocation-free, while glyph vectors, bitmaps, and lifetimes
+remain C++-owned. Boundary failure retains the complete C++ loop as fallback.
+
+Thirteen native glyph tests now cover mixed missing/valid entries, LCD widths,
+both edge-overflow directions, callback iteration, missing callback, and
+no-mutation outputs in addition to all prior contracts. The structured trace
+records the final rectangle and `HelloWorldNoNativeText` proves reachability;
+all 19 bitmap-plus-trace renderer cases pass. Cache lookup/action planning and
+the FreeType boundary remain the next Phase 4 work.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
