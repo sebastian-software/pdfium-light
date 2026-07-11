@@ -2703,6 +2703,51 @@ mod tests {
     }
 
     #[test]
+    fn stretch_weights_should_preserve_fixed_point_sums() {
+        let (weight_count, item_size, table_size) =
+            stretch_weight_layout(3, 0, 3, 7).expect("test layout should be valid");
+        let mut output = vec![0; table_size];
+        assert!(calculate_stretch_weights(
+            3,
+            0,
+            3,
+            7,
+            0,
+            7,
+            false,
+            false,
+            &mut output,
+            weight_count,
+            item_size,
+        ));
+        for pixel in 0..3 {
+            let item_offset = pixel * item_size;
+            let source_start = i32::from_ne_bytes(
+                output[item_offset..item_offset + 4]
+                    .try_into()
+                    .expect("test header should contain a start"),
+            );
+            let source_end = i32::from_ne_bytes(
+                output[item_offset + 4..item_offset + 8]
+                    .try_into()
+                    .expect("test header should contain an end"),
+            );
+            let mut sum = 0_u32;
+            for position in source_start..=source_end {
+                let index = usize::try_from(position - source_start)
+                    .expect("test weight index should be non-negative");
+                let offset = item_offset + 8 + index * 4;
+                sum = sum.wrapping_add(u32::from_ne_bytes(
+                    output[offset..offset + 4]
+                        .try_into()
+                        .expect("test output should contain every weight"),
+                ));
+            }
+            assert_eq!(65_536, sum);
+        }
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(
