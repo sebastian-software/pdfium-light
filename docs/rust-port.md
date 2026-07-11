@@ -69,6 +69,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `5322e1543` Phase 1 stretch-palette slice | 12,061 | 5,250 | 241 | 1,637 | 6,570 | 270,030 | 4.47% | 2.67% | Prior surfaces plus signed integer interpolation of opaque 1-bpp source colors into 256-entry stretch palettes |
 | `a799e7b4b` Phase 1 bitmap-flip slice | 12,170 | 5,359 | 241 | 1,661 | 6,570 | 270,174 | 4.50% | 2.72% | Prior surfaces plus copy/horizontal flip rows for packed 1-bpp and 8-/24-/32-bpp Windows `FlipImage` behavior |
 | `dc837a462` Phase 2 render-request slice | 12,279 | 5,468 | 241 | 1,755 | 6,570 | 270,440 | 4.54% | 2.77% | Prior surfaces plus Rust planning for public render flags, color mode, print/view usage, annotations, and device restoration |
+| `da914a73c` Phase 2 object-dispatch slice | 12,355 | 5,544 | 241 | 1,808 | 6,570 | 270,607 | 4.57% | 2.81% | Prior surfaces plus Rust-owned dispatch planning for text, path, image, shading, and form page objects |
 
 ## Toolchain
 
@@ -313,6 +314,16 @@ boundary. Two native Rust tests cover the complete bitset and the rule that
 fill-to-stroke requires a color scheme. Fourteen same-process renderer cases
 exercise each independently observable flag plus text, paths, images,
 transparency, and annotations with exact bitmap parity.
+
+The next slice moves page-object type dispatch into the same core render crate.
+Rust maps the five pinned `CPDF_PageObject::Type` values to text, path, image,
+shading, and form commands; C++ still owns the typed objects and executes the
+existing render methods. Invalid FFI values fail closed to the retained C++
+mapping, and the test-only render scope switches both the outer SDK plan and
+this inner core dispatch so the candidate and oracle remain genuinely
+independent in the same process. Two additional native tests cover all five
+commands, invalid values, null output, and unchanged output on failure; the
+fourteen zero-tolerance renderer cases remain byte-identical.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

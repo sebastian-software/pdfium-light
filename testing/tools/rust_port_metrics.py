@@ -62,8 +62,9 @@ ACTIVE_SURFACES = (
     "1-bpp stretch palette interpolation",
     "bitmap row flipping across retained pixel widths",
     "public render flag request planning",
+    "page-object render command dispatch",
 )
-CANDIDATE_SURFACES = ("render command planning and page rendering orchestration",)
+CANDIDATE_SURFACES = ("remaining render command planning and page rendering orchestration",)
 
 
 def tracked_paths(root: Path) -> tuple[Path, ...]:
