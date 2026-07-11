@@ -152,4 +152,34 @@ mod tests {
         assert_eq!(0, build_render_request_plan(FPDF_CONVERT_FILL_TO_STROKE, false, false));
         assert_eq!(PLAN_FORCED_COLOR, build_render_request_plan(0, true, false));
     }
+
+    #[test]
+    fn page_object_render_command_should_map_every_supported_type() {
+        let cases = [
+            (PAGE_OBJECT_TEXT, RENDER_COMMAND_TEXT),
+            (PAGE_OBJECT_PATH, RENDER_COMMAND_PATH),
+            (PAGE_OBJECT_IMAGE, RENDER_COMMAND_IMAGE),
+            (PAGE_OBJECT_SHADING, RENDER_COMMAND_SHADING),
+            (PAGE_OBJECT_FORM, RENDER_COMMAND_FORM),
+        ];
+        for (page_object_type, expected) in cases {
+            assert_eq!(Some(expected), build_page_object_render_command(page_object_type));
+        }
+    }
+
+    #[test]
+    fn page_object_render_command_should_reject_invalid_inputs() {
+        assert_eq!(None, build_page_object_render_command(0));
+        assert_eq!(None, build_page_object_render_command(6));
+
+        let mut output = 0xa5;
+        // SAFETY: `output` is one writable byte for the duration of the call.
+        assert!(!unsafe { pdfium_rust_build_page_object_render_command(6, &mut output) });
+        assert_eq!(0xa5, output);
+        // SAFETY: A null output is explicitly supported and rejected without
+        // dereferencing it.
+        assert!(!unsafe {
+            pdfium_rust_build_page_object_render_command(PAGE_OBJECT_TEXT, core::ptr::null_mut())
+        });
+    }
 }
