@@ -340,3 +340,41 @@ TEST(CFXDIBitmapTest, RustPopulateFromSpanMatchesCppReference) {
         << "source_pitch=" << source_pitch;
   }
 }
+
+TEST(CFXDIBitmapTest, RustEqualFormatTransferMatchesCppReference) {
+  static constexpr std::array<FXDIB_Format, 7> kFormats = {
+      FXDIB_Format::k1bppMask, FXDIB_Format::k1bppRgb,
+      FXDIB_Format::k8bppMask, FXDIB_Format::k8bppRgb,
+      FXDIB_Format::kBgr,      FXDIB_Format::kBgrx,
+      FXDIB_Format::kBgra,
+  };
+  struct TransferCase {
+    int source_left;
+    int source_top;
+  };
+  static constexpr std::array<TransferCase, 2> kCases = {
+      TransferCase{2, 1}, TransferCase{-2, -1}};
+
+  for (const FXDIB_Format format : kFormats) {
+    for (const auto& transfer : kCases) {
+      auto source = CreatePatternedBitmap(format, 11, 5);
+      auto reference = CreatePatternedBitmap(format, 9, 4);
+      auto candidate = CreatePatternedBitmap(format, 9, 4);
+      ASSERT_TRUE(source);
+      ASSERT_TRUE(reference);
+      ASSERT_TRUE(candidate);
+      {
+        fxge::ScopedRustDibImplementationForTesting implementation(false);
+        ASSERT_TRUE(reference->TransferBitmap(
+            7, 3, source, transfer.source_left, transfer.source_top));
+      }
+      ASSERT_TRUE(candidate->TransferBitmap(
+          7, 3, source, transfer.source_left, transfer.source_top));
+      EXPECT_THAT(candidate->GetBuffer(),
+                  ElementsAreArray(reference->GetBuffer()))
+          << "format=" << static_cast<int>(format)
+          << " source_left=" << transfer.source_left
+          << " source_top=" << transfer.source_top;
+    }
+  }
+}
