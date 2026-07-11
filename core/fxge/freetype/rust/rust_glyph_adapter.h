@@ -43,6 +43,10 @@ std::optional<GlyphOriginPlan> RustPlanGlyphOrigin(int32_t origin_x,
                                                    int32_t glyph_top,
                                                    int32_t offset_x,
                                                    int32_t offset_y);
+std::optional<GlyphOriginPlan> RustPlanGlyphDeviceOrigin(
+    float device_x,
+    float device_y,
+    bool anti_alias_is_lcd);
 
 bool UseRustGlyphCandidate();
 bool SetUseRustGlyphCandidateForTesting(bool use_candidate);

@@ -29,6 +29,11 @@ extern "C" bool pdfium_rust_plan_glyph_origin(int32_t origin_x,
                                               uint8_t* output_valid,
                                               int32_t* output_x,
                                               int32_t* output_y);
+extern "C" bool pdfium_rust_plan_glyph_device_origin(float device_x,
+                                                     float device_y,
+                                                     bool anti_alias_is_lcd,
+                                                     int32_t* output_x,
+                                                     int32_t* output_y);
 
 thread_local bool g_use_rust_glyph_candidate = true;
 thread_local std::vector<uint8_t>* g_glyph_trace_for_testing = nullptr;
@@ -66,6 +71,19 @@ std::optional<GlyphOriginPlan> RustPlanGlyphOrigin(int32_t origin_x,
     return std::nullopt;
   }
   return GlyphOriginPlan{.valid = !!valid, .x = x, .y = y};
+}
+
+std::optional<GlyphOriginPlan> RustPlanGlyphDeviceOrigin(
+    float device_x,
+    float device_y,
+    bool anti_alias_is_lcd) {
+  int32_t x = 0;
+  int32_t y = 0;
+  if (!pdfium_rust_plan_glyph_device_origin(device_x, device_y,
+                                            anti_alias_is_lcd, &x, &y)) {
+    return std::nullopt;
+  }
+  return GlyphOriginPlan{.valid = true, .x = x, .y = y};
 }
 
 bool UseRustGlyphCandidate() {

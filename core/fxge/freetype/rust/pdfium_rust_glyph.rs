@@ -25,6 +25,35 @@ struct GlyphOriginPlan {
     y: i32,
 }
 
+fn round_like_fxsys(value: f32) -> i32 {
+    if value.is_nan() {
+        return 0;
+    }
+    if value < i32::MIN as f32 {
+        return i32::MIN;
+    }
+    if value >= i32::MAX as f32 {
+        return i32::MAX;
+    }
+    value.round() as i32
+}
+
+fn plan_glyph_device_origin(
+    device_x: f32,
+    device_y: f32,
+    anti_alias_is_lcd: bool,
+) -> Option<GlyphOriginPlan> {
+    let x = if anti_alias_is_lcd {
+        if !device_x.is_finite() || device_x < i32::MIN as f32 || device_x >= i32::MAX as f32 {
+            return None;
+        }
+        device_x.floor() as i32
+    } else {
+        round_like_fxsys(device_x)
+    };
+    Some(GlyphOriginPlan { x, y: round_like_fxsys(device_y) })
+}
+
 fn plan_glyph_origin(
     origin_x: i32,
     origin_y: i32,
@@ -162,6 +191,37 @@ pub unsafe extern "C" fn pdfium_rust_plan_glyph_origin(
         *output_valid = valid;
         *output_x = x;
         *output_y = y;
+    }
+    true
+}
+
+/// Plans the integer device origin used to place one glyph bitmap.
+///
+/// LCD x coordinates use floor conversion; other coordinates use the PDFium
+/// saturated, half-away-from-zero rounding contract. Non-finite or out-of-range
+/// LCD x values are rejected so C++ can retain its platform conversion oracle.
+///
+/// # Safety
+///
+/// Both output pointers must point to writable `i32` values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_plan_glyph_device_origin(
+    device_x: f32,
+    device_y: f32,
+    anti_alias_is_lcd: bool,
+    output_x: *mut i32,
+    output_y: *mut i32,
+) -> bool {
+    if output_x.is_null() || output_y.is_null() {
+        return false;
+    }
+    let Some(plan) = plan_glyph_device_origin(device_x, device_y, anti_alias_is_lcd) else {
+        return false;
+    };
+    // SAFETY: The caller guarantees two live, writable output values.
+    unsafe {
+        *output_x = plan.x;
+        *output_y = plan.y;
     }
     true
 }
