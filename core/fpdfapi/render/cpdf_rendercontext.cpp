@@ -7,6 +7,7 @@
 #include "core/fpdfapi/render/cpdf_rendercontext.h"
 
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "build/build_config.h"
@@ -18,10 +19,42 @@
 #include "core/fpdfapi/render/cpdf_renderoptions.h"
 #include "core/fpdfapi/render/cpdf_renderstatus.h"
 #include "core/fpdfapi/render/cpdf_textrenderer.h"
+#include "core/fpdfapi/render/rust/rust_render_adapter.h"
 #include "core/fxcrt/check.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/fx_dib.h"
+
+namespace {
+
+pdfium::rust::RenderLayerPlan BuildCppRenderLayerPlan(bool has_options,
+                                                      bool has_last_matrix) {
+  uint8_t bits = 0;
+  if (has_options) {
+    bits |= static_cast<uint8_t>(pdfium::rust::RenderLayerPlanBit::kSetOptions);
+  }
+  if (has_last_matrix) {
+    bits |= static_cast<uint8_t>(
+        pdfium::rust::RenderLayerPlanBit::kApplyLastMatrix);
+  }
+  return pdfium::rust::RenderLayerPlan(bits);
+}
+
+pdfium::rust::RenderLayerCompletion BuildCppRenderLayerCompletion(
+    bool limited_image_cache,
+    bool stopped) {
+  uint8_t bits = 0;
+  if (limited_image_cache) {
+    bits |= static_cast<uint8_t>(
+        pdfium::rust::RenderLayerCompletionBit::kOptimizeCache);
+  }
+  if (stopped) {
+    bits |= static_cast<uint8_t>(pdfium::rust::RenderLayerCompletionBit::kStop);
+  }
+  return pdfium::rust::RenderLayerCompletion(bits);
+}
+
+}  // namespace
 
 CPDF_RenderContext::CPDF_RenderContext(
     CPDF_Document* doc,
@@ -68,23 +101,43 @@ void CPDF_RenderContext::Render(CFX_RenderDevice* pDevice,
   for (auto& layer : layers_) {
     CFX_RenderDevice::StateRestorer restorer(pDevice);
     CPDF_RenderStatus status(this, pDevice);
-    if (pOptions) {
+    const bool has_options = pOptions != nullptr;
+    const bool has_last_matrix = pLastMatrix != nullptr;
+    const auto rust_plan = pdfium::rust::UseRustRenderCandidate()
+                               ? pdfium::rust::BuildRustRenderLayerPlan(
+                                     has_options, has_last_matrix)
+                               : std::nullopt;
+    const pdfium::rust::RenderLayerPlan plan = rust_plan.value_or(
+        BuildCppRenderLayerPlan(has_options, has_last_matrix));
+    if (plan.Has(pdfium::rust::RenderLayerPlanBit::kSetOptions)) {
       status.SetOptions(*pOptions);
     }
     status.SetStopObject(pStopObj);
     status.SetTransparency(layer.GetObjectHolder()->GetTransparency());
     CFX_Matrix final_matrix = layer.GetMatrix();
-    if (pLastMatrix) {
+    if (plan.Has(pdfium::rust::RenderLayerPlanBit::kApplyLastMatrix)) {
       final_matrix *= *pLastMatrix;
       status.SetDeviceMatrix(*pLastMatrix);
     }
     status.Initialize(nullptr, nullptr);
     status.RenderObjectList(layer.GetObjectHolder(), final_matrix);
-    if (status.GetRenderOptions().GetOptions().bLimitedImageCache) {
+    const bool limited_image_cache =
+        status.GetRenderOptions().GetOptions().bLimitedImageCache;
+    const bool stopped = status.IsStopped();
+    const auto rust_completion =
+        pdfium::rust::UseRustRenderCandidate()
+            ? pdfium::rust::BuildRustRenderLayerCompletion(limited_image_cache,
+                                                           stopped)
+            : std::nullopt;
+    const pdfium::rust::RenderLayerCompletion completion =
+        rust_completion.value_or(
+            BuildCppRenderLayerCompletion(limited_image_cache, stopped));
+    if (completion.Has(
+            pdfium::rust::RenderLayerCompletionBit::kOptimizeCache)) {
       page_cache_->CacheOptimization(
           status.GetRenderOptions().GetCacheSizeLimit());
     }
-    if (status.IsStopped()) {
+    if (completion.Has(pdfium::rust::RenderLayerCompletionBit::kStop)) {
       break;
     }
   }

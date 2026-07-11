@@ -27,6 +27,13 @@ extern "C" bool pdfium_rust_build_object_list_command(bool is_stop_object,
                                                       float clip_right,
                                                       float clip_top,
                                                       uint8_t* output);
+extern "C" bool pdfium_rust_build_render_layer_plan(bool has_options,
+                                                    bool has_last_matrix,
+                                                    uint8_t* output);
+extern "C" bool pdfium_rust_build_render_layer_completion(
+    bool limited_image_cache,
+    bool stopped,
+    uint8_t* output);
 
 thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
@@ -112,6 +119,49 @@ std::optional<ObjectListCommand> BuildRustObjectListCommand(bool is_stop_object,
     default:
       return std::nullopt;
   }
+}
+
+std::optional<RenderLayerPlan> BuildRustRenderLayerPlan(bool has_options,
+                                                        bool has_last_matrix) {
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_render_layer_plan(has_options, has_last_matrix,
+                                           &bits)) {
+    return std::nullopt;
+  }
+  constexpr uint8_t kAllowedBits =
+      static_cast<uint8_t>(RenderLayerPlanBit::kSetOptions) |
+      static_cast<uint8_t>(RenderLayerPlanBit::kApplyLastMatrix);
+  if ((bits & ~kAllowedBits) != 0 ||
+      (!has_options &&
+       (bits & static_cast<uint8_t>(RenderLayerPlanBit::kSetOptions)) != 0) ||
+      (!has_last_matrix &&
+       (bits & static_cast<uint8_t>(RenderLayerPlanBit::kApplyLastMatrix)) !=
+           0)) {
+    return std::nullopt;
+  }
+  return RenderLayerPlan(bits);
+}
+
+std::optional<RenderLayerCompletion> BuildRustRenderLayerCompletion(
+    bool limited_image_cache,
+    bool stopped) {
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_render_layer_completion(limited_image_cache, stopped,
+                                                 &bits)) {
+    return std::nullopt;
+  }
+  constexpr uint8_t kAllowedBits =
+      static_cast<uint8_t>(RenderLayerCompletionBit::kOptimizeCache) |
+      static_cast<uint8_t>(RenderLayerCompletionBit::kStop);
+  if ((bits & ~kAllowedBits) != 0 ||
+      (!limited_image_cache &&
+       (bits &
+        static_cast<uint8_t>(RenderLayerCompletionBit::kOptimizeCache)) != 0) ||
+      (!stopped &&
+       (bits & static_cast<uint8_t>(RenderLayerCompletionBit::kStop)) != 0)) {
+    return std::nullopt;
+  }
+  return RenderLayerCompletion(bits);
 }
 
 ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(

@@ -42,6 +42,40 @@ enum class ObjectListCommand : uint8_t {
   kRender,
 };
 
+enum class RenderLayerPlanBit : uint8_t {
+  kSetOptions = 1u << 0,
+  kApplyLastMatrix = 1u << 1,
+};
+
+enum class RenderLayerCompletionBit : uint8_t {
+  kOptimizeCache = 1u << 0,
+  kStop = 1u << 1,
+};
+
+class RenderLayerPlan final {
+ public:
+  explicit RenderLayerPlan(uint8_t bits) : bits_(bits) {}
+
+  bool Has(RenderLayerPlanBit bit) const {
+    return (bits_ & static_cast<uint8_t>(bit)) != 0;
+  }
+
+ private:
+  uint8_t bits_;
+};
+
+class RenderLayerCompletion final {
+ public:
+  explicit RenderLayerCompletion(uint8_t bits) : bits_(bits) {}
+
+  bool Has(RenderLayerCompletionBit bit) const {
+    return (bits_ & static_cast<uint8_t>(bit)) != 0;
+  }
+
+ private:
+  uint8_t bits_;
+};
+
 class RenderRequestPlan final {
  public:
   explicit RenderRequestPlan(uint32_t bits) : bits_(bits) {}
@@ -73,6 +107,12 @@ std::optional<ObjectListCommand> BuildRustObjectListCommand(bool is_stop_object,
                                                             float clip_bottom,
                                                             float clip_right,
                                                             float clip_top);
+
+std::optional<RenderLayerPlan> BuildRustRenderLayerPlan(bool has_options,
+                                                        bool has_last_matrix);
+std::optional<RenderLayerCompletion> BuildRustRenderLayerCompletion(
+    bool limited_image_cache,
+    bool stopped);
 
 class ScopedRenderTraceForTesting final {
  public:

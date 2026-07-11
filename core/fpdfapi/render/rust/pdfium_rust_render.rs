@@ -44,6 +44,11 @@ const OBJECT_LIST_COMMAND_STOP: u8 = 1;
 const OBJECT_LIST_COMMAND_SKIP: u8 = 2;
 const OBJECT_LIST_COMMAND_RENDER: u8 = 3;
 
+const LAYER_PLAN_SET_OPTIONS: u8 = 1 << 0;
+const LAYER_PLAN_APPLY_LAST_MATRIX: u8 = 1 << 1;
+const LAYER_COMPLETION_OPTIMIZE_CACHE: u8 = 1 << 0;
+const LAYER_COMPLETION_STOP: u8 = 1 << 1;
+
 fn build_render_request_plan(flags: u32, has_color_scheme: bool, restore_device: bool) -> u32 {
     let mappings = [
         (FPDF_ANNOT, PLAN_ANNOTATIONS),
@@ -115,6 +120,28 @@ fn build_object_list_command(
         return OBJECT_LIST_COMMAND_SKIP;
     }
     OBJECT_LIST_COMMAND_RENDER
+}
+
+fn build_render_layer_plan(has_options: bool, has_last_matrix: bool) -> u8 {
+    let mut plan = 0;
+    if has_options {
+        plan |= LAYER_PLAN_SET_OPTIONS;
+    }
+    if has_last_matrix {
+        plan |= LAYER_PLAN_APPLY_LAST_MATRIX;
+    }
+    plan
+}
+
+fn build_render_layer_completion(limited_image_cache: bool, stopped: bool) -> u8 {
+    let mut plan = 0;
+    if limited_image_cache {
+        plan |= LAYER_COMPLETION_OPTIMIZE_CACHE;
+    }
+    if stopped {
+        plan |= LAYER_COMPLETION_STOP;
+    }
+    plan
 }
 
 /// Builds a compact render request plan from the supported public flags.
@@ -200,6 +227,48 @@ pub unsafe extern "C" fn pdfium_rust_build_object_list_command(
     // SAFETY: The caller contract guarantees one writable output value.
     unsafe {
         *output = command;
+    }
+    true
+}
+
+/// Plans the optional setup performed before one render layer.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u8` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_render_layer_plan(
+    has_options: bool,
+    has_last_matrix: bool,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees one writable output value.
+    unsafe {
+        *output = build_render_layer_plan(has_options, has_last_matrix);
+    }
+    true
+}
+
+/// Plans cache cleanup and traversal after one render layer.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u8` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_render_layer_completion(
+    limited_image_cache: bool,
+    stopped: bool,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees one writable output value.
+    unsafe {
+        *output = build_render_layer_completion(limited_image_cache, stopped);
     }
     true
 }
