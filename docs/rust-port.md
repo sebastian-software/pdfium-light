@@ -100,6 +100,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `112e036cf` Phase 6 xref-action slice | 15,586 | 8,775 | 241 | 3,519 | 6,570 | 276,363 | 5.64% | 4.36% | Prior surfaces plus Rust-owned cross-reference free/normal/compressed/skip action planning; C++ retains table mutation |
 | `0b48bf90e` Phase 6 xref-index slice | 15,631 | 8,820 | 241 | 3,539 | 6,570 | 276,433 | 5.65% | 4.38% | Prior surfaces plus Rust-owned `/Index` start/count validation; C++ retains segment storage and object graph mutation |
 | `1fe71e0eb` Phase 6 xref-range slice | 15,685 | 8,874 | 241 | 3,574 | 6,570 | 276,531 | 5.67% | 4.40% | Prior surfaces plus Rust-owned cross-reference segment byte-range planning; C++ retains spans, iteration, and object graph mutation |
+| `da18dac0c` Phase 6 xref-iteration slice | 15,745 | 8,934 | 241 | 3,590 | 6,570 | 276,644 | 5.69% | 4.43% | Prior surfaces plus Rust-owned ordered cross-reference segment iteration; C++ retains entry processing and object graph mutation |
 
 ## Toolchain
 
@@ -728,6 +729,12 @@ checks the offset and length multiplications, their sum, and the filtered
 stream length before C++ creates its borrowed span. C++ retains the span,
 iteration, object loading, and all object-graph mutations. Native tests cover
 valid ranges, out-of-bounds ranges, and large scalar inputs.
+
+The seventh Phase 6 slice moves ordered segment entry iteration into Rust. A
+narrow synchronous private `CPDF_Parser` callback receives each index and
+stops at PDFium's maximum object number. C++ retains entry decoding,
+cross-reference table mutation, and every parser/object lifetime. The native
+parser test target proves ascending iteration and the callback stop boundary.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
