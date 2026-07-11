@@ -31,6 +31,7 @@ class RustBlendAdapter final {
                                     pdfium::span<const uint8_t> source,
                                     pdfium::span<const uint8_t> clip,
                                     int output_components,
+                                    bool rgb_byte_order,
                                     pdfium::span<uint8_t> output);
   static bool UseCandidate();
 

@@ -136,15 +136,22 @@ fn composite_bgra_pixel(mode: BlendMode, input: [u8; 4], clip: u8, output: &mut 
     output[3] = destination_alpha;
 }
 
-fn composite_bgra_to_bgr_pixel(mode: BlendMode, input: [u8; 4], clip: u8, output: &mut [u8]) {
+fn composite_bgra_to_bgr_pixel(
+    mode: BlendMode,
+    input: [u8; 4],
+    clip: u8,
+    rgb_byte_order: bool,
+    output: &mut [u8],
+) {
     let source_alpha = (u16::from(input[3]) * u16::from(clip) / 255) as u8;
-    for channel in 0..3 {
+    for (channel, destination) in output[..3].iter_mut().enumerate() {
+        let source_channel = if rgb_byte_order { 2 - channel } else { channel };
         let source = if mode == BlendMode::Normal {
-            input[channel]
+            input[source_channel]
         } else {
-            blend(mode, output[channel], input[channel])
+            blend(mode, *destination, input[source_channel])
         };
-        output[channel] = alpha_merge(output[channel], source, source_alpha);
+        *destination = alpha_merge(*destination, source, source_alpha);
     }
 }
 
@@ -235,6 +242,7 @@ pub unsafe extern "C" fn pdfium_rust_composite_bgra_to_bgr_row(
     clip: *const u8,
     output: *mut u8,
     output_components: usize,
+    rgb_byte_order: bool,
     pixel_count: usize,
 ) -> bool {
     let Ok(mode) = BlendMode::try_from(mode) else {
@@ -251,7 +259,7 @@ pub unsafe extern "C" fn pdfium_rust_composite_bgra_to_bgr_row(
             let output =
                 slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
             let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
-            composite_bgra_to_bgr_pixel(mode, input, clip, output);
+            composite_bgra_to_bgr_pixel(mode, input, clip, rgb_byte_order, output);
         }
     }
     true

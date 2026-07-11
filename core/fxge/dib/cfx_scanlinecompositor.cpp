@@ -2152,6 +2152,7 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgra(
           RustBlendAdapter::CompositeBgraToBgrRow(
               blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
               clip_scan, /*output_components=*/3,
+              rgb_byte_order_,
               dest_scan.first(static_cast<size_t>(width) * 3))) {
         return;
       }
@@ -2172,6 +2173,7 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgra(
           RustBlendAdapter::CompositeBgraToBgrRow(
               blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
               clip_scan, /*output_components=*/4,
+              rgb_byte_order_,
               dest_scan.first(static_cast<size_t>(width) * 4))) {
         return;
       }

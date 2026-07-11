@@ -25,6 +25,7 @@ extern "C" bool pdfium_rust_composite_bgra_to_bgr_row(
     const uint8_t* clip,
     uint8_t* output,
     size_t output_components,
+    bool rgb_byte_order,
     size_t pixel_count);
 
 namespace {
@@ -75,6 +76,7 @@ bool RustBlendAdapter::CompositeBgraToBgrRow(
     pdfium::span<const uint8_t> source,
     pdfium::span<const uint8_t> clip,
     int output_components,
+    bool rgb_byte_order,
     pdfium::span<uint8_t> output) {
   constexpr size_t kSourceBytesPerPixel = 4;
   if (source.size() % kSourceBytesPerPixel != 0 ||
@@ -87,7 +89,7 @@ bool RustBlendAdapter::CompositeBgraToBgrRow(
   return pdfium_rust_composite_bgra_to_bgr_row(
       static_cast<uint8_t>(mode), source.data(),
       clip.empty() ? nullptr : clip.data(), output.data(), output_components,
-      source.size() / kSourceBytesPerPixel);
+      rgb_byte_order, source.size() / kSourceBytesPerPixel);
 }
 
 // static
