@@ -56,6 +56,8 @@ fn cross_ref_segment_range(
     (end <= data_len).then_some((offset, len))
 }
 
+type CrossRefSegmentCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
+
 /// Reads a variable-width big-endian cross-reference field.
 ///
 /// # Safety
@@ -218,9 +220,51 @@ pub unsafe extern "C" fn pdfium_rust_cross_ref_segment_range(
     true
 }
 
+/// Runs cross-reference entries in ascending order until C++ requests a stop.
+///
+/// # Safety
+///
+/// `context` and `callback` must remain valid for every invoked index below
+/// `entry_count`. A `true` callback result requests an orderly stop.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_run_cross_ref_segment_entries(
+    entry_count: u32,
+    context: *mut core::ffi::c_void,
+    callback: Option<CrossRefSegmentCallback>,
+) -> bool {
+    if context.is_null() {
+        return false;
+    }
+    let Some(callback) = callback else {
+        return false;
+    };
+    for entry_index in 0..entry_count {
+        // SAFETY: The caller guarantees the synchronous callback/context
+        // contract for the complete bounded iteration.
+        if unsafe { callback(context, entry_index) } {
+            break;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct EntryLoopState {
+        visited: [u32; 4],
+        count: usize,
+        stop_at: Option<u32>,
+    }
+
+    unsafe extern "C" fn record_entry(context: *mut core::ffi::c_void, entry_index: u32) -> bool {
+        // SAFETY: The test passes one live `EntryLoopState` for the call.
+        let state = unsafe { &mut *context.cast::<EntryLoopState>() };
+        state.visited[state.count] = entry_index;
+        state.count += 1;
+        state.stop_at == Some(entry_index)
+    }
 
     #[test]
     fn big_endian_var_int_should_preserve_all_widths_and_wraparound() {
@@ -296,5 +340,21 @@ mod tests {
         );
         assert_eq!(None, cross_ref_segment_range(3, 2, 4, 19));
         assert_eq!(None, cross_ref_segment_range(u32::MAX, u32::MAX, u32::MAX, 1));
+    }
+
+    #[test]
+    fn cross_ref_segment_loop_should_visit_in_order_and_stop() {
+        let mut state = EntryLoopState { visited: [u32::MAX; 4], count: 0, stop_at: Some(1) };
+        // SAFETY: The context remains live and the callback accepts every
+        // generated index until it requests the expected stop.
+        assert!(unsafe {
+            pdfium_rust_run_cross_ref_segment_entries(
+                4,
+                (&mut state as *mut EntryLoopState).cast(),
+                Some(record_entry),
+            )
+        });
+        assert_eq!(2, state.count);
+        assert_eq!([0, 1], state.visited[..2]);
     }
 }

@@ -21,6 +21,7 @@
 #include "core/fxcrt/bytestring.h"
 #include "core/fxcrt/fx_types.h"
 #include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/span.h"
 #include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_Array;
@@ -147,6 +148,14 @@ class CPDF_Parser {
     CPDF_CrossRefTable::ObjectInfo info;
   };
 
+  struct RustCrossRefSegmentContext {
+    CPDF_Parser* parser;
+    pdfium::span<const uint8_t> segment;
+    pdfium::span<const uint32_t> field_widths;
+    uint32_t start_obj_num;
+    uint32_t entry_width;
+  };
+
   bool LoadAllCrossRefTablesAndStreams(FX_FILESIZE xref_offset);
   bool FindAllCrossReferenceTablesAndStream(
       FX_FILESIZE main_xref_offset,
@@ -156,6 +165,8 @@ class CPDF_Parser {
   void ProcessCrossRefStreamEntry(pdfium::span<const uint8_t> entry_span,
                                   pdfium::span<const uint32_t> field_widths,
                                   uint32_t obj_num);
+  static bool ProcessRustCrossRefSegmentEntry(void* context,
+                                              uint32_t entry_index);
   RetainPtr<CPDF_Dictionary> LoadTrailer();
   Error SetEncryptHandler();
   void ReleaseEncryptHandler();

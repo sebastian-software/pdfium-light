@@ -29,6 +29,10 @@ extern "C" bool pdfium_rust_cross_ref_segment_range(
     uint64_t data_len,
     uint64_t* output_offset,
     uint64_t* output_len);
+extern "C" bool pdfium_rust_run_cross_ref_segment_entries(
+    uint32_t entry_count,
+    void* context,
+    pdfium::rust::CrossRefSegmentCallback callback);
 
 thread_local bool g_use_rust_parser_candidate = true;
 
@@ -104,6 +108,14 @@ std::optional<CrossRefSegmentRange> RustCrossRefSegmentRange(
   }
   return CrossRefSegmentRange{.offset = static_cast<size_t>(offset),
                               .len = static_cast<size_t>(len)};
+}
+
+bool RunRustCrossRefSegmentEntries(uint32_t entry_count,
+                                   void* context,
+                                   CrossRefSegmentCallback callback) {
+  return context && callback &&
+         pdfium_rust_run_cross_ref_segment_entries(entry_count, context,
+                                                   callback);
 }
 
 bool UseRustParserCandidate() {

@@ -967,6 +967,18 @@ bool CPDF_Parser::LoadCrossRefStream(FX_FILESIZE* pos, bool is_main_xref) {
       cross_ref_table_->SetObjectMapSize(new_size);
     }
 
+    RustCrossRefSegmentContext rust_context{
+        .parser = this,
+        .segment = seg_span,
+        .field_widths = field_widths,
+        .start_obj_num = index.start_obj_num,
+        .entry_width = total_width};
+    if (pdfium::rust::UseRustParserCandidate() &&
+        pdfium::rust::RunRustCrossRefSegmentEntries(
+            index.obj_count, &rust_context, ProcessRustCrossRefSegmentEntry)) {
+      segindex += index.obj_count;
+      continue;
+    }
     for (uint32_t i = 0; i < index.obj_count; ++i) {
       const uint32_t obj_num = index.start_obj_num + i;
       if (obj_num > kMaxObjectNumber) {
@@ -980,6 +992,20 @@ bool CPDF_Parser::LoadCrossRefStream(FX_FILESIZE* pos, bool is_main_xref) {
     segindex += index.obj_count;
   }
   return true;
+}
+
+bool CPDF_Parser::ProcessRustCrossRefSegmentEntry(void* context,
+                                                   uint32_t entry_index) {
+  auto* segment_context = static_cast<RustCrossRefSegmentContext*>(context);
+  const uint32_t obj_num = segment_context->start_obj_num + entry_index;
+  if (obj_num > kMaxObjectNumber) {
+    return true;
+  }
+  segment_context->parser->ProcessCrossRefStreamEntry(
+      segment_context->segment.subspan(entry_index * segment_context->entry_width,
+                                       segment_context->entry_width),
+      segment_context->field_widths, obj_num);
+  return false;
 }
 
 void CPDF_Parser::ProcessCrossRefStreamEntry(
