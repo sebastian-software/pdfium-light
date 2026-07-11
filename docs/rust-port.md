@@ -47,6 +47,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `360e1fbb5` Phase 1 CMYK slice | 8,678 | 1,867 | 241 | 741 | 6,570 | 264,368 | 3.28% | 0.97% | Prior surfaces plus Adobe CMYK scalar conversion and batch CMYK-to-BGR image rows; generated lookup data excluded from authored behavior |
 | `19ed48ba3` Phase 1 bitmap-alpha slice | 8,807 | 1,996 | 241 | 839 | 6,570 | 264,700 | 3.33% | 1.04% | Prior surfaces plus BGRA red-from-alpha, opaque-alpha, mask multiplication, and constant-alpha multiplication over complete bitmaps |
 | `5e7dc096b` Phase 1 bitmap-clear slice | 8,864 | 2,053 | 241 | 875 | 6,570 | 264,856 | 3.35% | 1.07% | Prior surfaces plus whole-bitmap clearing across 1-/8-bpp mask/RGB, BGR, BGRx, and BGRA formats |
+| `ecaa53bbb` Phase 1 color-scale slice | 8,903 | 2,092 | 241 | 897 | 6,570 | 264,944 | 3.36% | 1.09% | Prior surfaces plus BGR/BGRx/BGRA integer grayscale conversion over complete bitmaps |
 
 ## Toolchain
 
@@ -117,6 +118,11 @@ Whole-bitmap clearing preserves the format-specific treatment of row padding:
 1-/8-bpp images and equal-channel BGR fill padding, while non-gray BGR and
 four-component formats write active pixels only. The focused differential
 matrix covers seven formats and transparent, gray, and colored ARGB values.
+
+Color-scale conversion handles three- and four-component bitmap rows in one
+FFI call, preserves alpha/x bytes and padding, and uses the same integer
+11/59/30 weights as `FXRGB2GRAY`. Six focused cases cover BGR, BGRx, and BGRA
+with both public mode values against the retained C++ loop.
 
 `ScopedRustDibImplementationForTesting` is test-only. It selects the retained
 C++ row compositor or the production Rust candidate in the same process. The

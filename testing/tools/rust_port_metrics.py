@@ -40,6 +40,7 @@ ACTIVE_SURFACES = (
     "Adobe CMYK scalar and row conversion",
     "BGRA bitmap alpha mutations",
     "bitmap clearing across retained formats",
+    "BGR/BGRx/BGRA bitmap color scaling",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 
