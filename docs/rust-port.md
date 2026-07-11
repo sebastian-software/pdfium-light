@@ -14,16 +14,34 @@ python3 testing/tools/rust_port_metrics.py
 ```
 
 The report counts physical lines in tracked first-party source files under
-`core`, `fpdfsdk`, and `public`. Rust LOC only counts `.rs` files; the C++
-adapter is reported separately. This is a progress signal, not a feature,
-performance, memory, or binary-size metric. `validate_light.py` runs the
-report with `--check`.
+`core`, `fpdfsdk`, and `public`. Rust LOC only counts `.rs` files. Authored
+behavior, Rust ABI thunks, generated Rust data, and the C++ adapter are reported
+separately. Rust ABI regions use paired `RUST_PORT_METRICS_BEGIN/END` markers;
+generated files must carry `@generated` in their first 20 lines. The check fails
+if the categories do not add back up to physical Rust LOC. The behavior share
+uses authored Rust behavior over implementation LOC, excluding headers, ABI
+adapters, generated Rust, and the `fpdfapi/cmaps` mapping-data tree. Both shares
+are progress signals, not feature, performance, memory, or binary-size metrics.
+`validate_light.py` runs the report with `--check`.
 
-| Commit | Rust LOC | C++ adapter LOC | Product-native LOC | Rust share | Activated Rust surfaces |
-| --- | ---: | ---: | ---: | ---: | --- |
-| `5fbaaa393` | 367 | 111 | 253,804 | 0.14% | ASCII85 encode/decode; RunLength encode/decode |
-| Epic #30 predictor slice | 764 | 176 | 254,631 | 0.30% | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; RunLength encode/decode |
-| Epic #30 Fax slice | 1,232 | 262 | 255,525 | 0.48% | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; CCITT Fax Group 4 and scanline decode; RunLength encode/decode |
+## Renderer differential gate
+
+`RustRendererParityEmbedderTest` renders the versioned cases in
+`testing/resources/rust_renderer_corpus.inc` twice in the same process: once
+through the retained C++ reference and once through the production candidate
+path. Width, height, bitmap format, stride, and every allocated bitmap byte must
+match. There is no fuzzy or platform-specific tolerance in this gate.
+
+Phase 0 intentionally routes the candidate to the reference implementation.
+Each later rendering slice replaces behavior only inside the candidate path;
+the reference selector remains test-only and unchanged until the slice passes.
+
+| Commit | Rust LOC | Authored behavior | Rust ABI | C++ adapter | Generated Rust | Product-native LOC | Physical share | Behavior share | Activated Rust surfaces |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `5fbaaa393` | 367 | — | — | 111 | — | 253,804 | 0.14% | — | ASCII85 encode/decode; RunLength encode/decode |
+| Epic #30 predictor slice | 764 | — | — | 176 | — | 254,631 | 0.30% | — | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; RunLength encode/decode |
+| Epic #30 Fax slice | 1,232 | — | — | 262 | — | 255,525 | 0.48% | — | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; CCITT Fax Group 4 and scanline decode; RunLength encode/decode |
+| `7a4eca8b4` Phase 0 | 1,236 | 1,033 | 203 | 262 | 0 | 255,791 | 0.48% | 0.54% | Same codec surfaces; renderer differential candidate bootstrapped to the retained C++ reference |
 
 ## Toolchain
 

@@ -74,6 +74,16 @@ For the Rust codec port, make sure the checkout was synced with
 builds `//core/fxcodec/rust:pdfium_rust_codecs` as part of the retained
 `fxcodec` target.
 
+Run the zero-tolerance renderer differential corpus explicitly with:
+
+```bash
+out/light/pdfium_embeddertests \
+  --gtest_filter='RustMigrationCorpus/RustRendererParityEmbedderTest.*'
+```
+
+The comparison includes bitmap dimensions, format, stride, and all allocated
+bytes. Platform expectation tolerances do not apply to this same-process gate.
+
 For the broader retained test/fuzzer set, run:
 
 ```bash
