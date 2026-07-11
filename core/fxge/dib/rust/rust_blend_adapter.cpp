@@ -155,6 +155,14 @@ extern "C" bool pdfium_rust_transfer_1bpp_row(const uint8_t* source,
                                                size_t destination_len,
                                                size_t destination_left,
                                                size_t width);
+extern "C" bool pdfium_rust_composite_1bpp_mask_row(
+    const uint8_t* source,
+    size_t source_len,
+    size_t source_left,
+    uint8_t* destination,
+    size_t destination_len,
+    size_t destination_left,
+    size_t width);
 extern "C" bool pdfium_rust_get_overlap_rect(
     int32_t destination_width,
     int32_t destination_height,
@@ -629,6 +637,19 @@ bool RustBlendAdapter::Transfer1bppRow(
     int width) {
   return source_left >= 0 && destination_left >= 0 && width > 0 &&
          pdfium_rust_transfer_1bpp_row(
+             source.data(), source.size(), source_left, destination.data(),
+             destination.size(), destination_left, width);
+}
+
+// static
+bool RustBlendAdapter::Composite1bppMaskRow(
+    pdfium::span<const uint8_t> source,
+    int source_left,
+    pdfium::span<uint8_t> destination,
+    int destination_left,
+    int width) {
+  return source_left >= 0 && destination_left >= 0 && width > 0 &&
+         pdfium_rust_composite_1bpp_mask_row(
              source.data(), source.size(), source_left, destination.data(),
              destination.size(), destination_left, width);
 }

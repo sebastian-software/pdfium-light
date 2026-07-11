@@ -751,6 +751,54 @@ pub unsafe extern "C" fn pdfium_rust_transfer_1bpp_row(
     true
 }
 
+/// OR-composites set source bits into one 1-bpp destination row.
+///
+/// # Safety
+///
+/// Source and destination must cover their supplied lengths. Exact aliasing is
+/// permitted and follows the C++ loop's left-to-right update order.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_1bpp_mask_row(
+    source: *const u8,
+    source_len: usize,
+    source_left: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_left: usize,
+    width: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() {
+        return false;
+    }
+    let Some(source_end) = source_left.checked_add(width) else {
+        return false;
+    };
+    let Some(destination_end) = destination_left.checked_add(width) else {
+        return false;
+    };
+    let Some(source_rounded_end) = source_end.checked_add(7) else {
+        return false;
+    };
+    let Some(destination_rounded_end) = destination_end.checked_add(7) else {
+        return false;
+    };
+    if source_rounded_end / 8 > source_len || destination_rounded_end / 8 > destination_len {
+        return false;
+    }
+    for column in 0..width {
+        let source_bit = source_left + column;
+        let destination_bit = destination_left + column;
+        // SAFETY: The checked bit ranges cover both addressed bytes. Raw
+        // pointer access preserves the retained loop's alias order.
+        unsafe {
+            if *source.add(source_bit / 8) & (1 << (7 - source_bit % 8)) != 0 {
+                *destination.add(destination_bit / 8) |= 1 << (7 - destination_bit % 8);
+            }
+        }
+    }
+    true
+}
+
 #[derive(Clone, Copy)]
 struct IntRect {
     left: i32,

@@ -722,6 +722,17 @@ void CFX_DIBitmap::CompositeOneBPPMask(int dest_left,
                       source->GetHeight(), src_left, src_top, nullptr)) {
     return;
   }
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    bool composited = true;
+    for (int row = 0; composited && row < height; ++row) {
+      composited = fxge::RustBlendAdapter::Composite1bppMaskRow(
+          source->GetScanline(src_top + row), src_left,
+          GetWritableScanline(dest_top + row), dest_left, width);
+    }
+    if (composited) {
+      return;
+    }
+  }
   UNSAFE_TODO({
     for (int row = 0; row < height; ++row) {
       uint8_t* dest_scan = GetWritableScanline(dest_top + row).data();

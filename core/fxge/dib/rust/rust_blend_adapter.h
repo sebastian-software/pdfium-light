@@ -132,6 +132,11 @@ class RustBlendAdapter final {
                               pdfium::span<uint8_t> destination,
                               int destination_left,
                               int width);
+  static bool Composite1bppMaskRow(pdfium::span<const uint8_t> source,
+                                   int source_left,
+                                   pdfium::span<uint8_t> destination,
+                                   int destination_left,
+                                   int width);
   static std::optional<std::array<int32_t, 6>> GetOverlapRect(
       int destination_width,
       int destination_height,
