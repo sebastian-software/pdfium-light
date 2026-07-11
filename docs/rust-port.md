@@ -79,6 +79,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `3b1aa7950` Phase 3 AGG stroke-plan slice | 13,301 | 6,490 | 241 | 2,423 | 6,570 | 272,378 | 4.88% | 3.27% | Prior surfaces plus Rust-owned line-cap, line-join, effective-width, and miter-limit planning at the AGG stroke boundary |
 | `2220a8c1b` Phase 3 AGG dash-normalization slice | 13,425 | 6,614 | 241 | 2,499 | 6,570 | 272,601 | 4.92% | 3.33% | Prior surfaces plus Rust-owned dash replacement, absolute scaling, and dash-phase normalization through an allocation-free callback boundary |
 | `44b0aa456` Phase 3 AGG path-emission slice | 13,749 | 6,938 | 241 | 2,595 | 6,570 | 273,129 | 5.03% | 3.49% | Prior surfaces plus Rust-owned path iteration, matrix transformation, hard clipping, degenerate-line repair, Bezier grouping, and Move/Line/Bezier/Close emission |
+| `9f7257f29` Phase 3 AGG path-draw-plan slice | 13,848 | 7,037 | 241 | 2,663 | 6,570 | 273,341 | 5.07% | 3.53% | Prior surfaces plus Rust-owned fill activation, even-odd/non-zero rule selection, stroke suppression, and zero-area/normal stroke-mode orchestration |
 
 ## Toolchain
 
@@ -453,6 +454,18 @@ line fixture exercises the active route, and the exact AGG trace includes each
 normalized value and phase. All 9 native AGG tests, all 21 native render/path
 tests, and all 19 zero-tolerance bitmap-plus-core-and-AGG-trace corpus cases
 pass.
+
+The AGG `DrawPath()` branch plan is now Rust-owned. Fill type and color decide
+whether to construct a fill rasterizer and whether it uses even-odd or non-zero
+winding. Graph-state presence, stroke alpha, and the zero-area flag select no
+stroke, the direct zero-area route, or the matrix-normalized stroke route. The
+same fill-rule plan is used for non-rectangular clip paths. C++ retains bitmap,
+graph-state, matrix, rasterizer, scanline, clip-region, and AGG backend
+ownership, plus the complete plan oracle/fallback. Native tests cover fill
+suppression, both fill rules, unknown wire values, all three stroke modes, and
+null output. The exact plan is part of the AGG trace. All 15 native AGG tests,
+all 21 native render/path tests, and all 19 zero-tolerance bitmap-plus-core-and-
+AGG-trace corpus cases pass.
 
 `BuildAggPath()` now delegates path iteration and command formation to Rust.
 Rust borrows points individually from their C++ owner, applies the optional
