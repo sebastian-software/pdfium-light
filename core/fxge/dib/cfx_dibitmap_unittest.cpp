@@ -237,3 +237,24 @@ TEST(CFXDIBitmapTest, RustClearMatchesCppReferenceAcrossFormats) {
     }
   }
 }
+
+TEST(CFXDIBitmapTest, RustColorScaleMatchesCppReferenceAcrossFormats) {
+  for (const FXDIB_Format format :
+       {FXDIB_Format::kBgr, FXDIB_Format::kBgrx, FXDIB_Format::kBgra}) {
+    for (const bool is_white_on_black : {false, true}) {
+      auto reference = CreatePatternedBitmap(format);
+      auto candidate = CreatePatternedBitmap(format);
+      ASSERT_TRUE(reference);
+      ASSERT_TRUE(candidate);
+      {
+        fxge::ScopedRustDibImplementationForTesting implementation(false);
+        reference->ConvertColorScale(is_white_on_black);
+      }
+      candidate->ConvertColorScale(is_white_on_black);
+      EXPECT_THAT(candidate->GetBuffer(),
+                  ElementsAreArray(reference->GetBuffer()))
+          << "format=" << static_cast<int>(format)
+          << " is_white_on_black=" << is_white_on_black;
+    }
+  }
+}
