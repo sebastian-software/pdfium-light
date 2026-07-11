@@ -75,7 +75,7 @@ ACTIVE_SURFACES = (
     "AGG path fill-rule and stroke-mode orchestration",
     "AGG stroke matrix decomposition",
 )
-CANDIDATE_SURFACES = ("remaining path processing and the AGG adapter boundary",)
+CANDIDATE_SURFACES = ("glyph planning, caches, and the FreeType adapter boundary",)
 
 
 def tracked_paths(root: Path) -> tuple[Path, ...]:

@@ -494,6 +494,26 @@ are part of the AGG trace. All 12 native AGG tests, all 21 native render/path
 tests, and all 19 zero-tolerance bitmap-plus-core-and-AGG-trace corpus cases
 pass.
 
+The intentionally retained C++ after Phase 3 is now explicit:
+
+- page/path/graph-state/matrix object ownership, pattern and transfer-function
+  handling, color resolution, the rectangle clip fast path, clip-region and
+  bitmap lifetime, and concrete `CFX_RenderDevice` calls;
+- AGG `path_storage`, curve, dash, stroke, rasterizer, scanline, renderer, and
+  pixel-format objects plus scanline compositing, which remain the pinned
+  native raster backend required by the compatibility contract;
+- the narrow borrowed point/command/dash callbacks, validated POD adapters,
+  test-only selectors and traces, and complete C++ plan/math oracles used only
+  for differential validation and boundary fallback.
+
+The Phase 3 broad gate builds `pdfium_all` and `pdfium_light_validation`, passes
+all 1,056 unit tests, all 21 native render/path tests, all 18 native AGG tests,
+and all 19 zero-tolerance bitmap-plus-core-and-AGG-trace corpus cases. The full
+branch embedder run passes 505 of 556 tests; `origin/main` passes 486 of 537.
+Both fail the exact same 51 named static macOS golden tests, while all 19 added
+differential cases pass. Phase 4 therefore starts at glyph planning, cache
+behavior, and the narrow FreeType adapter boundary.
+
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
 Focused tests cover every default entry, full generated palettes, mutation of
