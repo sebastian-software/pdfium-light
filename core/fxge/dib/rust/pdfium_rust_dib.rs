@@ -4210,6 +4210,29 @@ mod tests {
     }
 
     #[test]
+    fn flip_bitmap_row_should_cover_every_retained_pixel_width() {
+        let mut one_bit = [0xff; 4];
+        assert!(flip_bitmap_row(&[0b1011_0000], 5, 1, true, &mut one_bit));
+        assert_eq!([0b0110_1000, 0, 0, 0], one_bit);
+
+        let mut eight_bit = [0; 3];
+        assert!(flip_bitmap_row(&[1, 2, 3], 3, 8, true, &mut eight_bit));
+        assert_eq!([3, 2, 1], eight_bit);
+
+        let mut bgr = [0; 6];
+        assert!(flip_bitmap_row(&[1, 2, 3, 4, 5, 6], 2, 24, true, &mut bgr));
+        assert_eq!([4, 5, 6, 1, 2, 3], bgr);
+
+        let mut bgra = [0; 8];
+        assert!(flip_bitmap_row(&[1, 2, 3, 4, 5, 6, 7, 8], 2, 32, true, &mut bgra));
+        assert_eq!([5, 6, 7, 8, 1, 2, 3, 4], bgra);
+
+        let mut copied = [0; 4];
+        assert!(flip_bitmap_row(&[1, 2, 3, 99], 3, 8, false, &mut copied));
+        assert_eq!([1, 2, 3, 99], copied);
+    }
+
+    #[test]
     fn transform_bilinear_alpha_should_preserve_fixed_point_rounding() {
         let mut destination = [9; 4];
         assert!(transform_bilinear_alpha(
