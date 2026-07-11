@@ -34,7 +34,7 @@ ACTIVE_SURFACES = (
     "CCITT Fax Group 4 and scanline decode",
     "PNG/TIFF predictor transforms",
     "RunLength encode/decode",
-    "BGRA-to-BGRA row compositing (normal and separable blend modes)",
+    "BGRA-to-BGRA/BGR/BGRx row compositing (normal and separable blend modes)",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 

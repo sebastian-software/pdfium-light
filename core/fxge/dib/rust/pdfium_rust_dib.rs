@@ -136,6 +136,18 @@ fn composite_bgra_pixel(mode: BlendMode, input: [u8; 4], clip: u8, output: &mut 
     output[3] = destination_alpha;
 }
 
+fn composite_bgra_to_bgr_pixel(mode: BlendMode, input: [u8; 4], clip: u8, output: &mut [u8]) {
+    let source_alpha = (u16::from(input[3]) * u16::from(clip) / 255) as u8;
+    for channel in 0..3 {
+        let source = if mode == BlendMode::Normal {
+            input[channel]
+        } else {
+            blend(mode, output[channel], input[channel])
+        };
+        output[channel] = alpha_merge(output[channel], source, source_alpha);
+    }
+}
+
 // RUST_PORT_METRICS_BEGIN abi_thunk
 /// Applies one separable blend mode to equally sized channel arrays.
 ///
@@ -203,6 +215,43 @@ pub unsafe extern "C" fn pdfium_rust_composite_bgra_row(
             let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
             composite_bgra_pixel(mode, input, clip, &mut destination);
             (output.add(offset) as *mut [u8; 4]).write_unaligned(destination);
+        }
+    }
+    true
+}
+
+/// Composites a packed BGRA row into packed BGR or BGRx output.
+///
+/// # Safety
+///
+/// `source` must be valid for `pixel_count * 4` bytes and `output` for
+/// `pixel_count * output_components` bytes. `output_components` must be 3 or 4.
+/// `clip` must be null or valid for `pixel_count` bytes. The regions must not
+/// overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_bgra_to_bgr_row(
+    mode: u8,
+    source: *const u8,
+    clip: *const u8,
+    output: *mut u8,
+    output_components: usize,
+    pixel_count: usize,
+) -> bool {
+    let Ok(mode) = BlendMode::try_from(mode) else {
+        return false;
+    };
+    if !matches!(output_components, 3 | 4) {
+        return false;
+    }
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees complete source and output
+        // pixels at each computed offset and non-overlapping regions.
+        unsafe {
+            let input = (source.add(pixel * 4) as *const [u8; 4]).read_unaligned();
+            let output =
+                slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
+            let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
+            composite_bgra_to_bgr_pixel(mode, input, clip, output);
         }
     }
     true

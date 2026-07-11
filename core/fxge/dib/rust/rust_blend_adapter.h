@@ -27,6 +27,11 @@ class RustBlendAdapter final {
                                pdfium::span<const uint8_t> source,
                                pdfium::span<const uint8_t> clip,
                                pdfium::span<uint8_t> output);
+  static bool CompositeBgraToBgrRow(BlendMode mode,
+                                    pdfium::span<const uint8_t> source,
+                                    pdfium::span<const uint8_t> clip,
+                                    int output_components,
+                                    pdfium::span<uint8_t> output);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

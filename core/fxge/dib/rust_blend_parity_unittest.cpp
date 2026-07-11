@@ -105,5 +105,57 @@ TEST(RustBlendParityTest, BgraRowsMatchCppReferenceWithAndWithoutClip) {
   }
 }
 
+TEST(RustBlendParityTest, BgraToBgrRowsMatchCppReference) {
+  constexpr size_t kPixelCount = 257;
+  DataVector<uint8_t> source(kPixelCount * 4);
+  DataVector<uint8_t> clip(kPixelCount);
+  for (size_t index = 0; index < source.size(); ++index) {
+    source[index] = static_cast<uint8_t>((index * 71) % 256);
+  }
+  for (size_t pixel = 0; pixel < clip.size(); ++pixel) {
+    clip[pixel] = static_cast<uint8_t>((pixel * 47) % 256);
+  }
+
+  for (FXDIB_Format format : {FXDIB_Format::kBgr, FXDIB_Format::kBgrx}) {
+    const size_t components = GetCompsFromFormat(format);
+    DataVector<uint8_t> initial_destination(kPixelCount * components);
+    for (size_t index = 0; index < initial_destination.size(); ++index) {
+      initial_destination[index] = static_cast<uint8_t>((index * 31) % 256);
+    }
+    for (int mode_value = static_cast<int>(BlendMode::kNormal);
+         mode_value <= static_cast<int>(BlendMode::kExclusion); ++mode_value) {
+      const auto mode = static_cast<BlendMode>(mode_value);
+      for (bool rgb_byte_order : {false, true}) {
+        for (bool use_clip : {false, true}) {
+          CFX_ScanlineCompositor compositor;
+          ASSERT_TRUE(compositor.Init(format, FXDIB_Format::kBgra,
+                                      /*src_palette=*/{}, /*mask_color=*/0,
+                                      mode, rgb_byte_order));
+          const pdfium::span<const uint8_t> clip_span =
+              use_clip ? pdfium::span<const uint8_t>(clip)
+                       : pdfium::span<const uint8_t>();
+          DataVector<uint8_t> reference = initial_destination;
+          {
+            ScopedRustDibImplementationForTesting implementation(false);
+            compositor.CompositeRgbBitmapLine(
+                reference, source, static_cast<int>(kPixelCount), clip_span);
+          }
+          DataVector<uint8_t> candidate = initial_destination;
+          {
+            ScopedRustDibImplementationForTesting implementation(true);
+            compositor.CompositeRgbBitmapLine(
+                candidate, source, static_cast<int>(kPixelCount), clip_span);
+          }
+          EXPECT_EQ(reference, candidate)
+              << "format=" << static_cast<int>(format)
+              << " mode=" << mode_value
+              << " rgb_byte_order=" << rgb_byte_order
+              << " use_clip=" << use_clip;
+        }
+      }
+    }
+  }
+}
+
 }  // namespace
 }  // namespace fxge

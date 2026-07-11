@@ -2148,6 +2148,13 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgra(
       return;
     }
     case FXDIB_Format::kBgr: {
+      if (RustBlendAdapter::UseCandidate() &&
+          RustBlendAdapter::CompositeBgraToBgrRow(
+              blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
+              clip_scan, /*output_components=*/3,
+              dest_scan.first(static_cast<size_t>(width) * 3))) {
+        return;
+      }
       if (rgb_byte_order_) {
         auto dest_span =
             fxcrt::reinterpret_span<FX_RGB_STRUCT<uint8_t>>(dest_scan);
@@ -2161,6 +2168,13 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgra(
       return;
     }
     case FXDIB_Format::kBgrx: {
+      if (RustBlendAdapter::UseCandidate() &&
+          RustBlendAdapter::CompositeBgraToBgrRow(
+              blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
+              clip_scan, /*output_components=*/4,
+              dest_scan.first(static_cast<size_t>(width) * 4))) {
+        return;
+      }
       if (rgb_byte_order_) {
         auto dest_span =
             fxcrt::reinterpret_span<FX_RGBA_STRUCT<uint8_t>>(dest_scan);
