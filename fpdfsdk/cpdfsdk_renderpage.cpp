@@ -17,6 +17,7 @@
 #include "core/fpdfdoc/cpdf_annotlist.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
+#include "fpdfsdk/rust/render_plan_adapter.h"
 
 namespace {
 
@@ -97,11 +98,73 @@ void RenderPageCandidate(CPDF_PageRenderContext* context,
                          int flags,
                          const FPDF_COLORSCHEME* color_scheme,
                          bool need_to_restore) {
-  // Phase 0 deliberately starts with the proven C++ implementation on both
-  // sides. Subsequent vertical slices replace behavior inside this candidate
-  // path while the differential test keeps this reference path unchanged.
-  RenderPageCppReference(context, pPage, matrix, clipping_rect, flags,
-                         color_scheme, need_to_restore);
+  const auto plan = fpdfsdk::BuildRustRenderRequestPlan(
+      flags, color_scheme != nullptr, need_to_restore);
+  if (!plan.has_value()) {
+    RenderPageCppReference(context, pPage, matrix, clipping_rect, flags,
+                           color_scheme, need_to_restore);
+    return;
+  }
+
+  if (!context->options_) {
+    context->options_ = std::make_unique<CPDF_RenderOptions>();
+  }
+
+  auto& options = context->options_->GetOptions();
+  options.bClearType = plan->Has(fpdfsdk::RenderPlanBit::kClearType);
+  options.bNoNativeText = plan->Has(fpdfsdk::RenderPlanBit::kNoNativeText);
+  options.bLimitedImageCache =
+      plan->Has(fpdfsdk::RenderPlanBit::kLimitedImageCache);
+  options.bForceHalftone = plan->Has(fpdfsdk::RenderPlanBit::kForceHalftone);
+  options.bNoTextSmooth =
+      plan->Has(fpdfsdk::RenderPlanBit::kNoTextSmoothing);
+  options.bNoImageSmooth =
+      plan->Has(fpdfsdk::RenderPlanBit::kNoImageSmoothing);
+  options.bNoPathSmooth =
+      plan->Has(fpdfsdk::RenderPlanBit::kNoPathSmoothing);
+
+  if (plan->Has(fpdfsdk::RenderPlanBit::kGrayscale)) {
+    context->options_->SetColorMode(CPDF_RenderOptions::kGray);
+  }
+  if (plan->Has(fpdfsdk::RenderPlanBit::kForcedColor)) {
+    context->options_->SetColorMode(CPDF_RenderOptions::kForcedColor);
+    SetColorFromScheme(color_scheme, context->options_.get());
+    options.bConvertFillToStroke =
+        plan->Has(fpdfsdk::RenderPlanBit::kConvertFillToStroke);
+  }
+
+  const CPDF_OCContext::UsageType usage =
+      plan->Has(fpdfsdk::RenderPlanBit::kPrinting)
+          ? CPDF_OCContext::kPrint
+          : CPDF_OCContext::kView;
+  context->options_->SetOCContext(
+      pdfium::MakeRetain<CPDF_OCContext>(pPage->GetDocument(), usage));
+
+  context->device_->SaveState();
+  context->device_->SetBaseClip(clipping_rect);
+  context->device_->SetClip_Rect(clipping_rect);
+  context->context_ = std::make_unique<CPDF_RenderContext>(
+      pPage->GetDocument(), pPage->GetMutablePageResources(),
+      pPage->GetPageImageCache());
+  context->context_->AppendLayer(pPage, matrix);
+
+  if (plan->Has(fpdfsdk::RenderPlanBit::kAnnotations)) {
+    auto owned_list = std::make_unique<CPDF_AnnotList>(pPage);
+    CPDF_AnnotList* list = owned_list.get();
+    context->annots_ = std::move(owned_list);
+    bool is_printing = plan->Has(fpdfsdk::RenderPlanBit::kPrinting);
+#if BUILDFLAG(IS_WIN)
+    is_printing |= context->device_->GetDeviceType() == DeviceType::kPrinter;
+#endif
+    list->DisplayAnnots(context->context_.get(), is_printing, matrix,
+                        /*bShowWidget=*/false);
+  }
+
+  context->context_->Render(context->device_.get(), nullptr,
+                            context->options_.get(), nullptr);
+  if (plan->Has(fpdfsdk::RenderPlanBit::kRestoreDevice)) {
+    context->device_->RestoreState(false);
+  }
 }
 
 void RenderPageSelected(CPDF_PageRenderContext* context,
