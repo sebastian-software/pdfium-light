@@ -336,4 +336,74 @@ mod tests {
             )
         });
     }
+
+    #[test]
+    fn dash_normalization_should_preserve_replacement_scaling_and_abs() {
+        assert_eq!(normalized_dash_value(0.0, 2.0), 0.2);
+        assert_eq!(normalized_dash_value(MIN_DASH_LENGTH, -2.0), 0.2);
+        assert_eq!(normalized_dash_value(-3.0, 2.0), 0.2);
+        assert_eq!(normalized_dash_value(3.0, -2.0), 6.0);
+        assert!(normalized_dash_value(3.0, f32::NAN).is_nan());
+    }
+
+    unsafe extern "C" fn collect_dash_value(context: *mut core::ffi::c_void, value: f32) {
+        // SAFETY: The test passes an exclusive pointer to a live `Vec<f32>`.
+        let values = unsafe { &mut *context.cast::<Vec<f32>>() };
+        values.push(value);
+    }
+
+    #[test]
+    fn dash_normalization_ffi_should_emit_all_values_and_phase() {
+        let input = [0.0_f32, 2.5, -4.0];
+        let mut values: Vec<f32> = Vec::new();
+        let mut dash_start = 0.0;
+        // SAFETY: The input and output spans remain live, and the callback
+        // receives the exclusive vector pointer for the duration of the call.
+        assert!(unsafe {
+            pdfium_rust_emit_agg_dash_pattern(
+                input.as_ptr(),
+                input.len(),
+                1.25,
+                -2.0,
+                (&mut values as *mut Vec<f32>).cast(),
+                Some(collect_dash_value),
+                &mut dash_start,
+            )
+        });
+        assert_eq!(values, [0.2, 5.0, 0.2]);
+        assert_eq!(dash_start, -2.5);
+    }
+
+    #[test]
+    fn dash_normalization_ffi_should_reject_invalid_boundaries() {
+        let mut dash_start = 9.0;
+        // SAFETY: A missing callback is explicitly rejected before input is
+        // read or output is written.
+        assert!(!unsafe {
+            pdfium_rust_emit_agg_dash_pattern(
+                core::ptr::null(),
+                0,
+                1.0,
+                1.0,
+                core::ptr::null_mut(),
+                None,
+                &mut dash_start,
+            )
+        });
+        assert_eq!(dash_start, 9.0);
+        // SAFETY: A null nonempty input is explicitly rejected before the
+        // callback runs or output is written.
+        assert!(!unsafe {
+            pdfium_rust_emit_agg_dash_pattern(
+                core::ptr::null(),
+                1,
+                1.0,
+                1.0,
+                core::ptr::null_mut(),
+                Some(collect_dash_value),
+                &mut dash_start,
+            )
+        });
+        assert_eq!(dash_start, 9.0);
+    }
 }

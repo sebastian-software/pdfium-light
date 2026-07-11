@@ -62,6 +62,9 @@ class ScopedAggTraceForTesting final {
 
 void RecordAggDashDecisionForTesting(bool should_apply);
 void RecordAggStrokePlanForTesting(const AggStrokePlan& plan);
+void RecordAggDashValueForTesting(float value);
+void RecordAggDashStartForTesting(float value);
+bool AggTraceHasDashValuesForTesting(pdfium::span<const uint8_t> trace);
 
 }  // namespace fxge
 

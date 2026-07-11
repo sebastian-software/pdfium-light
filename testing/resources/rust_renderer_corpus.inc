@@ -29,6 +29,7 @@ RUST_RENDER_CASE(ManyRectanglesNoSmoothPath, "many_rectangles.pdf", 0,
 RUST_RENDER_CASE(Rectangles, "rectangles.pdf", 0, 0)
 RUST_RENDER_CASE(ClipPath, "clip_path.pdf", 0, 0)
 RUST_RENDER_CASE(FormObjectWithPath, "form_object_with_path.pdf", 0, 0)
+RUST_RENDER_CASE(DashedLines, "dashed_lines.pdf", 0, 0)
 RUST_RENDER_CASE(TextAndFonts, "text_font.pdf", 0, 0)
 RUST_RENDER_CASE(ImageAndTransparency, "matte.pdf", 0, 0)
 RUST_RENDER_CASE(AnnotationAppearance, "bug_1658.pdf", 0, FPDF_ANNOT)

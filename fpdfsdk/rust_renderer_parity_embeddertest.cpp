@@ -92,6 +92,9 @@ TEST_P(RustRendererParityEmbedderTest, CandidateMatchesCppReferenceExactly) {
   if (test_case.name == "ManyRectangles") {
     EXPECT_FALSE(reference_agg_trace.empty());
   }
+  if (test_case.name == "DashedLines") {
+    EXPECT_TRUE(fxge::AggTraceHasDashValuesForTesting(reference_agg_trace));
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

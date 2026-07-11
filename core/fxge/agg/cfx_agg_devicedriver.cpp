@@ -398,9 +398,11 @@ void RasterizeStroke(agg::rasterizer_scanline_aa* rasterizer,
           dash_array, pGraphState->dash_phase(), scale, &dash,
           [](void* context, float value) {
             static_cast<DashConverter*>(context)->add_dash(value);
+            fxge::RecordAggDashValueForTesting(value);
           });
       if (dash_start.has_value()) {
         dash.dash_start(*dash_start);
+        fxge::RecordAggDashStartForTesting(*dash_start);
         used_rust_dash_pattern = true;
       }
     }
@@ -409,9 +411,13 @@ void RasterizeStroke(agg::rasterizer_scanline_aa* rasterizer,
         if (dash_len <= 0.000001f) {
           dash_len = 0.1f;
         }
-        dash.add_dash(fabs(dash_len * scale));
+        const float normalized_dash = fabs(dash_len * scale);
+        dash.add_dash(normalized_dash);
+        fxge::RecordAggDashValueForTesting(normalized_dash);
       }
-      dash.dash_start(pGraphState->dash_phase() * scale);
+      const float dash_start = pGraphState->dash_phase() * scale;
+      dash.dash_start(dash_start);
+      fxge::RecordAggDashStartForTesting(dash_start);
     }
     using DashStroke = agg::conv_stroke<DashConverter>;
     DashStroke stroke(dash);
