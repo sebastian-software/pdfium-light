@@ -84,9 +84,10 @@ ACTIVE_SURFACES = (
     "PDF text render dispatch planning",
     "PDF text pattern-path planning",
     "PDF text matrix availability validation",
+    "PDF text backend route planning",
 )
 CANDIDATE_SURFACES = (
-    "PDF text backend invocation boundaries",
+    "PDF text device-matrix adjustment",
 )
 
 
