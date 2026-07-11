@@ -459,3 +459,85 @@ TEST(CFXDIBBaseTest, RustClipMatchesCppReferenceAcrossFormats) {
     }
   }
 }
+
+TEST(CFXDIBBaseTest, RustStretchMatchesCppReferenceAcrossFormats) {
+  struct SourceCase {
+    FXDIB_Format format;
+    bool custom_palette;
+  };
+  static constexpr std::array<SourceCase, 9> kSources = {
+      SourceCase{FXDIB_Format::k1bppMask, false},
+      SourceCase{FXDIB_Format::k1bppRgb, false},
+      SourceCase{FXDIB_Format::k1bppRgb, true},
+      SourceCase{FXDIB_Format::k8bppMask, false},
+      SourceCase{FXDIB_Format::k8bppRgb, false},
+      SourceCase{FXDIB_Format::k8bppRgb, true},
+      SourceCase{FXDIB_Format::kBgr, false},
+      SourceCase{FXDIB_Format::kBgrx, false},
+      SourceCase{FXDIB_Format::kBgra, false},
+  };
+  struct DestinationCase {
+    int width;
+    int height;
+  };
+  static constexpr std::array<DestinationCase, 4> kDestinations = {
+      DestinationCase{11, 5},
+      DestinationCase{3, 2},
+      DestinationCase{-9, 4},
+      DestinationCase{10, -5},
+  };
+  enum class OptionCase { kDefault, kNoSmoothing, kBilinear };
+  for (const auto& source_case : kSources) {
+    auto source =
+        CreateConversionBitmap(source_case.format, source_case.custom_palette);
+    ASSERT_TRUE(source);
+    if (source_case.format == FXDIB_Format::k1bppRgb &&
+        source_case.custom_palette) {
+      source->SetPaletteArgb(1, 0xff42a7e1);
+    }
+    for (const auto& destination : kDestinations) {
+      for (const OptionCase option_case :
+           {OptionCase::kDefault, OptionCase::kNoSmoothing,
+            OptionCase::kBilinear}) {
+        FXDIB_ResampleOptions options;
+        options.bNoSmoothing = option_case == OptionCase::kNoSmoothing;
+        options.bInterpolateBilinear = option_case == OptionCase::kBilinear;
+        RetainPtr<CFX_DIBitmap> reference;
+        {
+          fxge::ScopedRustDibImplementationForTesting implementation(false);
+          reference = source->StretchTo(destination.width, destination.height,
+                                        options, nullptr);
+        }
+        auto candidate = source->StretchTo(destination.width, destination.height,
+                                           options, nullptr);
+        ASSERT_EQ(static_cast<bool>(reference), static_cast<bool>(candidate));
+        ASSERT_TRUE(reference);
+        ASSERT_EQ(reference->GetFormat(), candidate->GetFormat());
+        ASSERT_EQ(reference->GetWidth(), candidate->GetWidth());
+        ASSERT_EQ(reference->GetHeight(), candidate->GetHeight());
+        const size_t active_row_bytes =
+            static_cast<size_t>(reference->GetWidth()) * reference->GetBPP() /
+            8;
+        for (int row = 0; row < reference->GetHeight(); ++row) {
+          for (size_t byte = 0; byte < active_row_bytes; ++byte) {
+            EXPECT_EQ(reference->GetScanline(row)[byte],
+                      candidate->GetScanline(row)[byte])
+                << "source_format=" << static_cast<int>(source_case.format)
+                << " custom_palette=" << source_case.custom_palette
+                << " destination=" << destination.width << 'x'
+                << destination.height << " option="
+                << static_cast<int>(option_case) << " row=" << row
+                << " byte=" << byte;
+          }
+        }
+        ASSERT_EQ(reference->GetPaletteSpan().size(),
+                  candidate->GetPaletteSpan().size());
+        for (size_t index = 0; index < reference->GetPaletteSpan().size();
+             ++index) {
+          EXPECT_EQ(reference->GetPaletteSpan()[index],
+                    candidate->GetPaletteSpan()[index]);
+        }
+      }
+    }
+  }
+}

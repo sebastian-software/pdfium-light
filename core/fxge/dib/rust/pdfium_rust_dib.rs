@@ -3010,6 +3010,130 @@ mod tests {
     }
 
     #[test]
+    fn stretch_horizontal_row_should_cover_every_transform_method() {
+        let (weight_count, item_size, table_size) =
+            stretch_weight_layout(1, 0, 1, 1).expect("test layout should be valid");
+        let mut table = vec![0; table_size];
+        assert!(calculate_stretch_weights(
+            1,
+            0,
+            1,
+            1,
+            0,
+            1,
+            false,
+            false,
+            &mut table,
+            weight_count,
+            item_size,
+        ));
+
+        let mut output = [9; 4];
+        assert!(stretch_horizontal_row(
+            0,
+            0x108,
+            1,
+            &[0x80],
+            &[],
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!(255, output[0]);
+        assert!(stretch_horizontal_row(
+            1,
+            0x018,
+            3,
+            &[0x80],
+            &[],
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!(255, output[0]);
+        assert!(stretch_horizontal_row(
+            2,
+            0x108,
+            1,
+            &[42],
+            &[],
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!(42, output[0]);
+
+        let palette = [0x8040_2010];
+        assert!(stretch_horizontal_row(
+            3,
+            0x018,
+            3,
+            &[0],
+            &palette,
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!([0x10, 0x20, 0x40], output[..3]);
+        assert!(stretch_horizontal_row(
+            3,
+            0x020,
+            4,
+            &[0],
+            &palette,
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!([0x80, 0x40, 0x20], output[..3]);
+
+        output = [9; 4];
+        assert!(stretch_horizontal_row(
+            4,
+            0x020,
+            4,
+            &[1, 2, 3, 4],
+            &[],
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!([1, 2, 3, 9], output);
+        assert!(stretch_horizontal_row(
+            5,
+            0x220,
+            4,
+            &[10, 20, 30, 128],
+            &[],
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!([5, 10, 15, 127], output);
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(
