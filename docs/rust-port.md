@@ -43,6 +43,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | Epic #30 Fax slice | 1,232 | — | — | 262 | — | 255,525 | 0.48% | — | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; CCITT Fax Group 4 and scanline decode; RunLength encode/decode |
 | `7a4eca8b4` Phase 0 | 1,236 | 1,033 | 203 | 262 | 0 | 255,791 | 0.48% | 0.54% | Same codec surfaces; renderer differential candidate bootstrapped to the retained C++ reference |
 | `cffeca939` Phase 1 BGRA slice | 1,495 | 1,220 | 275 | 392 | 0 | 256,298 | 0.58% | 0.64% | Codec surfaces plus BGRA-to-BGRA normal/separable row compositing; remaining DIB formats stay on C++ |
+| `5ab5543b8` Phase 1 row-compositor slice | 2,013 | 1,772 | 241 | 694 | 0 | 257,576 | 0.78% | 0.92% | Codec surfaces plus all PDF blend modes across BGRA, opaque BGR/BGRx, gray, mask, and indexed-palette row compositing |
 
 ## Toolchain
 
@@ -89,11 +90,12 @@ allocator domain.
 
 `core/fxge/dib/rust/rust_blend_adapter.{h,cpp}` is the DIB batch boundary.
 Separable blend primitives can process whole channel arrays for differential
-coverage. The activated BGRA compositor accepts packed source/destination rows
+coverage. The activated row compositor accepts packed source/destination rows
 and an optional clip row, mutates caller-owned output in place, and performs no
-Rust heap allocation. The normal and separable BGRA-to-BGRA paths cross FFI
-once per row; non-separable modes and other pixel formats retain their C++
-implementation until their own differential slice is complete.
+Rust heap allocation. BGRA, opaque BGR/BGRx, gray, byte/bit mask, and 1-/8-bit
+indexed source rows cross FFI once per row across all retained destination
+formats and all PDF blend modes. The C++ row algorithms remain available as the
+same-process differential oracle while the rest of `fxge/dib` is migrated.
 
 `ScopedRustDibImplementationForTesting` is test-only. It selects the retained
 C++ row compositor or the production Rust candidate in the same process. The
