@@ -9,6 +9,9 @@
 //! channel. The C++ implementation remains the differential oracle until that
 //! row boundary is activated.
 
+#[path = "pdfium_rust_cmyk_table.rs"]
+mod cmyk_table;
+
 use std::slice;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -359,6 +362,92 @@ fn composite_opaque_pixel(
         }
         _ => false,
     }
+}
+
+fn adobe_cmyk_to_standard_rgb(cyan: u8, magenta: u8, yellow: u8, key: u8) -> [u8; 3] {
+    let fixed = [cyan, magenta, yellow, key].map(|channel| i32::from(channel) << 8);
+    let index = fixed.map(|channel| (channel + 4096) >> 13);
+    let start = cmyk_table::CMYK
+        [((index[0] * 9 + index[1]) * 9 + index[2]) as usize * 9 + index[3] as usize];
+    let mut rgb = start.map(|channel| i32::from(channel) << 8);
+
+    for dimension in 0..4 {
+        let mut adjacent_index = fixed[dimension] >> 13;
+        if adjacent_index == index[dimension] {
+            adjacent_index = if adjacent_index == 8 { 7 } else { adjacent_index + 1 };
+        }
+        let mut adjacent = index;
+        adjacent[dimension] = adjacent_index;
+        let adjacent_rgb =
+            cmyk_table::CMYK[((adjacent[0] * 9 + adjacent[1]) * 9 + adjacent[2]) as usize * 9
+                + adjacent[3] as usize];
+        let rate =
+            (fixed[dimension] - (index[dimension] << 13)) * (index[dimension] - adjacent_index);
+        for channel in 0..3 {
+            rgb[channel] +=
+                (i32::from(start[channel]) - i32::from(adjacent_rgb[channel])) * rate / 32;
+        }
+    }
+
+    rgb.map(|channel| (channel.max(0) >> 8) as u8)
+}
+
+/// Converts one Adobe CMYK sample to standard RGB.
+///
+/// # Safety
+///
+/// Each output pointer must be valid for one writable byte and the output
+/// locations must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_adobe_cmyk_to_rgb(
+    cyan: u8,
+    magenta: u8,
+    yellow: u8,
+    key: u8,
+    red: *mut u8,
+    green: *mut u8,
+    blue: *mut u8,
+) -> bool {
+    if red.is_null() || green.is_null() || blue.is_null() {
+        return false;
+    }
+    let rgb = adobe_cmyk_to_standard_rgb(cyan, magenta, yellow, key);
+    // SAFETY: The caller contract guarantees three valid, non-overlapping
+    // output locations.
+    unsafe {
+        *red = rgb[0];
+        *green = rgb[1];
+        *blue = rgb[2];
+    }
+    true
+}
+
+/// Converts a packed CMYK row to the packed BGR order expected by PDFium.
+///
+/// # Safety
+///
+/// `source` must be valid for `pixel_count * 4` bytes and `output` for
+/// `pixel_count * 3` writable bytes. The regions must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_adobe_cmyk_to_bgr_row(
+    source: *const u8,
+    output: *mut u8,
+    pixel_count: usize,
+) -> bool {
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees complete, non-overlapping
+        // packed source and output rows at every computed offset.
+        unsafe {
+            let source = source.add(pixel * 4);
+            let rgb =
+                adobe_cmyk_to_standard_rgb(*source, *source.add(1), *source.add(2), *source.add(3));
+            let output = output.add(pixel * 3);
+            *output = rgb[2];
+            *output.add(1) = rgb[1];
+            *output.add(2) = rgb[0];
+        }
+    }
+    true
 }
 
 // RUST_PORT_METRICS_BEGIN abi_thunk
@@ -773,5 +862,11 @@ mod tests {
         let mut clipped_destination = [255, 100, 0, 200];
         composite_bgra_pixel(BlendMode::Darken, [100, 0, 255, 200], 0, &mut clipped_destination);
         assert_eq!([255, 100, 0, 200], clipped_destination);
+    }
+
+    #[test]
+    fn cmyk_should_preserve_reference_endpoints() {
+        assert_eq!([255, 255, 255], adobe_cmyk_to_standard_rgb(0, 0, 0, 0));
+        assert_eq!([0, 0, 0], adobe_cmyk_to_standard_rgb(255, 255, 255, 255));
     }
 }

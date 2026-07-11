@@ -21,6 +21,10 @@ FX_RGB_STRUCT<uint8_t> AdobeCmykToStandardRgb(uint8_t c,
                                               uint8_t m,
                                               uint8_t y,
                                               uint8_t k);
+FX_RGB_STRUCT<uint8_t> AdobeCmykToStandardRgbReferenceForTesting(uint8_t c,
+                                                                 uint8_t m,
+                                                                 uint8_t y,
+                                                                 uint8_t k);
 
 }  // namespace fxge
 

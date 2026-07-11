@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <array>
 #include <optional>
 
 #include "core/fxcrt/data_vector.h"
@@ -66,6 +67,13 @@ class RustBlendAdapter final {
       pdfium::span<const uint8_t> clip,
       bool rgb_byte_order,
       pdfium::span<uint8_t> output);
+  static std::optional<std::array<uint8_t, 3>> ConvertCmykToRgb(
+      uint8_t cyan,
+      uint8_t magenta,
+      uint8_t yellow,
+      uint8_t key);
+  static bool ConvertCmykToBgrRow(pdfium::span<const uint8_t> source,
+                                  pdfium::span<uint8_t> output);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

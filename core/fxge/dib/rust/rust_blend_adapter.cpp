@@ -73,6 +73,16 @@ extern "C" bool pdfium_rust_composite_palette_row(
     uint8_t target,
     bool rgb_byte_order,
     size_t pixel_count);
+extern "C" bool pdfium_rust_adobe_cmyk_to_rgb(uint8_t cyan,
+                                                uint8_t magenta,
+                                                uint8_t yellow,
+                                                uint8_t key,
+                                                uint8_t* red,
+                                                uint8_t* green,
+                                                uint8_t* blue);
+extern "C" bool pdfium_rust_adobe_cmyk_to_bgr_row(const uint8_t* source,
+                                                    uint8_t* output,
+                                                    size_t pixel_count);
 
 namespace {
 
@@ -323,6 +333,35 @@ bool RustBlendAdapter::CompositePaletteRow(
       gray_palette.data(), gray_palette.size(), argb_palette.data(),
       argb_palette.size(), clip.empty() ? nullptr : clip.data(), output.data(),
       output_components, target, rgb_byte_order, pixel_count);
+}
+
+// static
+std::optional<std::array<uint8_t, 3>> RustBlendAdapter::ConvertCmykToRgb(
+    uint8_t cyan,
+    uint8_t magenta,
+    uint8_t yellow,
+    uint8_t key) {
+  std::array<uint8_t, 3> output;
+  if (!pdfium_rust_adobe_cmyk_to_rgb(cyan, magenta, yellow, key, &output[0],
+                                     &output[1], &output[2])) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+// static
+bool RustBlendAdapter::ConvertCmykToBgrRow(
+    pdfium::span<const uint8_t> source,
+    pdfium::span<uint8_t> output) {
+  constexpr size_t kSourceBytesPerPixel = 4;
+  constexpr size_t kOutputBytesPerPixel = 3;
+  if (source.size() % kSourceBytesPerPixel != 0 ||
+      output.size() !=
+          source.size() / kSourceBytesPerPixel * kOutputBytesPerPixel) {
+    return false;
+  }
+  return pdfium_rust_adobe_cmyk_to_bgr_row(
+      source.data(), output.data(), source.size() / kSourceBytesPerPixel);
 }
 
 // static

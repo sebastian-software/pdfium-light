@@ -4,6 +4,8 @@
 
 #include "core/fxge/dib/cfx_cmyk_to_srgb.h"
 
+#include <array>
+
 #include "testing/gtest/include/gtest/gtest.h"
 
 union Float_t {
@@ -27,4 +29,30 @@ TEST(fxge, CMYKRounding) {
   }
   // Check various other 'special' numbers.
   rgb = AdobeCmykToStandardRgbF(0.0f, 0.25f, 0.5f, 1.0f);
+}
+
+TEST(fxge, RustCmykMatchesCppReferenceAcrossInterpolationBoundaries) {
+  static constexpr std::array<uint8_t, 26> kChannels = {
+      0,   1,   31,  32,  33,  63,  64,  65,  95,  96,  97,  127, 128,
+      129, 159, 160, 161, 191, 192, 193, 223, 224, 225, 254, 255, 17,
+  };
+  for (const uint8_t cyan : kChannels) {
+    for (const uint8_t magenta : kChannels) {
+      for (const uint8_t yellow : kChannels) {
+        for (const uint8_t key : kChannels) {
+          const auto expected = AdobeCmykToStandardRgbReferenceForTesting(
+              cyan, magenta, yellow, key);
+          const auto actual =
+              AdobeCmykToStandardRgb(cyan, magenta, yellow, key);
+          ASSERT_EQ(expected.red, actual.red)
+              << "cyan=" << static_cast<int>(cyan)
+              << " magenta=" << static_cast<int>(magenta)
+              << " yellow=" << static_cast<int>(yellow)
+              << " key=" << static_cast<int>(key);
+          ASSERT_EQ(expected.green, actual.green);
+          ASSERT_EQ(expected.blue, actual.blue);
+        }
+      }
+    }
+  }
 }

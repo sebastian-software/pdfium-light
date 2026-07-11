@@ -18,6 +18,7 @@
 #include "core/fxcrt/compiler_specific.h"
 #include "core/fxcrt/notreached.h"
 #include "core/fxge/dib/cfx_cmyk_to_srgb.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 
 namespace {
 
@@ -126,6 +127,12 @@ void CPDF_DeviceCS::TranslateImageLine(pdfium::span<uint8_t> dest_span,
           rgb_out.front().red = 255 - std::min(255, cmyk.yellow + k);
           rgb_out = rgb_out.subspan<1u>();
         }
+        break;
+      }
+      if (fxge::RustBlendAdapter::UseCandidate() &&
+          fxge::RustBlendAdapter::ConvertCmykToBgrRow(
+              src_span.first(static_cast<size_t>(pixels) * 4),
+              dest_span.first(static_cast<size_t>(pixels) * 3))) {
         break;
       }
       for (const auto& cmyk : cmyk_in.first(static_cast<size_t>(pixels))) {

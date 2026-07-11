@@ -13,7 +13,10 @@ rust_static_library("pdfium_rust_dib") {
   edition = "2021"
   allow_unsafe = true
   build_native_rust_unit_tests = true
-  sources = [ "pdfium_rust_dib.rs" ]
+  sources = [
+    "pdfium_rust_cmyk_table.rs",
+    "pdfium_rust_dib.rs",
+  ]
 }
 
 source_set("rust_dib_adapter") {

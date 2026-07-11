@@ -11,6 +11,7 @@
 
 #include "core/fxcrt/check_op.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 
 namespace fxge {
 
@@ -1667,10 +1668,10 @@ constexpr inline int IndexFromCMYK(int c, int m, int y, int k) {
 
 }  // namespace
 
-FX_RGB_STRUCT<uint8_t> AdobeCmykToStandardRgb(uint8_t c,
-                                              uint8_t m,
-                                              uint8_t y,
-                                              uint8_t k) {
+FX_RGB_STRUCT<uint8_t> AdobeCmykToStandardRgbReferenceForTesting(uint8_t c,
+                                                                 uint8_t m,
+                                                                 uint8_t y,
+                                                                 uint8_t k) {
   int fix_c = c << 8;
   int fix_m = m << 8;
   int fix_y = y << 8;
@@ -1735,6 +1736,19 @@ FX_RGB_STRUCT<uint8_t> AdobeCmykToStandardRgb(uint8_t c,
 
   return {static_cast<uint8_t>(fix_r), static_cast<uint8_t>(fix_g),
           static_cast<uint8_t>(fix_b)};
+}
+
+FX_RGB_STRUCT<uint8_t> AdobeCmykToStandardRgb(uint8_t c,
+                                              uint8_t m,
+                                              uint8_t y,
+                                              uint8_t k) {
+  if (RustBlendAdapter::UseCandidate()) {
+    const auto candidate = RustBlendAdapter::ConvertCmykToRgb(c, m, y, k);
+    if (candidate.has_value()) {
+      return {(*candidate)[0], (*candidate)[1], (*candidate)[2]};
+    }
+  }
+  return AdobeCmykToStandardRgbReferenceForTesting(c, m, y, k);
 }
 
 FX_RGB_STRUCT<float> AdobeCmykToStandardRgbF(float c,
