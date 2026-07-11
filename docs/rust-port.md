@@ -42,6 +42,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | Epic #30 predictor slice | 764 | — | — | 176 | — | 254,631 | 0.30% | — | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; RunLength encode/decode |
 | Epic #30 Fax slice | 1,232 | — | — | 262 | — | 255,525 | 0.48% | — | ASCII85 encode/decode; ASCIIHex decode; LZW decode; PNG/TIFF predictor transforms; CCITT Fax Group 4 and scanline decode; RunLength encode/decode |
 | `7a4eca8b4` Phase 0 | 1,236 | 1,033 | 203 | 262 | 0 | 255,791 | 0.48% | 0.54% | Same codec surfaces; renderer differential candidate bootstrapped to the retained C++ reference |
+| `cffeca939` Phase 1 BGRA slice | 1,495 | 1,220 | 275 | 392 | 0 | 256,298 | 0.58% | 0.64% | Codec surfaces plus BGRA-to-BGRA normal/separable row compositing; remaining DIB formats stay on C++ |
 
 ## Toolchain
 
@@ -59,7 +60,10 @@ Run `gclient sync`, then generate and build with the normal light arguments:
 ```bash
 gn gen out/light-rust --args='enable_rust=true pdf_enable_light=true pdf_enable_v8=false pdf_enable_xfa=false is_component_build=false clang_use_chrome_plugins=false'
 ninja -C out/light-rust pdfium_light_validation
-out/light-rust/pdfium_unittests --gtest_filter='RustCodecParityTest.*:FPDFAttachmentEmbedderTest.FacturXAttachmentSurvivesSaveReload'
+out/light-rust/pdfium_unittests --gtest_filter='RustCodecParityTest.*:RustBlendParityTest.*'
+out/light-rust/pdfium_embeddertests --gtest_filter='RustMigrationCorpus/RustRendererParityEmbedderTest.*:FPDFAttachmentEmbedderTest.FacturXAttachmentSurvivesSaveReload'
+ninja -C out/light-rust pdfium_rust_dib_unittests
+out/light-rust/pdfium_rust_dib_unittests
 ```
 
 The reduced source checkout does not include `build/`, `gn`, or the hermetic
@@ -82,6 +86,18 @@ The contract deliberately uses the existing `uint32_t` consumed-byte sentinel
 (`UINT32_MAX`) for decoder failures. It does not introduce a public Rust API,
 modify public headers, or permit Rust allocations to escape into the C++
 allocator domain.
+
+`core/fxge/dib/rust/rust_blend_adapter.{h,cpp}` is the DIB batch boundary.
+Separable blend primitives can process whole channel arrays for differential
+coverage. The activated BGRA compositor accepts packed source/destination rows
+and an optional clip row, mutates caller-owned output in place, and performs no
+Rust heap allocation. The normal and separable BGRA-to-BGRA paths cross FFI
+once per row; non-separable modes and other pixel formats retain their C++
+implementation until their own differential slice is complete.
+
+`ScopedRustDibImplementationForTesting` is test-only. It selects the retained
+C++ row compositor or the production Rust candidate in the same process. The
+production default is always the candidate.
 
 ## Parity and activation
 

@@ -84,6 +84,21 @@ out/light/pdfium_embeddertests \
 The comparison includes bitmap dimensions, format, stride, and all allocated
 bytes. Platform expectation tolerances do not apply to this same-process gate.
 
+For Rust DIB changes, build and run the native Rust target and the exhaustive
+C++/Rust blend and row parity cases:
+
+```bash
+ninja -C out/light pdfium_rust_dib_unittests
+out/light/pdfium_rust_dib_unittests
+out/light/pdfium_unittests \
+  --gtest_filter='RustBlendParityTest.*:ScanlineCompositorTest.CompositeRgbBitmapLineBgra*'
+```
+
+The BGRA row parity test covers every separable mode with clip enabled and
+disabled and with both byte-order settings. It selects C++ and Rust explicitly
+in the same process; the ordinary compositor tests execute the production Rust
+default.
+
 For the broader retained test/fuzzer set, run:
 
 ```bash
