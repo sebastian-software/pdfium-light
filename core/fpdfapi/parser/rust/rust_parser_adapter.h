@@ -12,6 +12,8 @@ namespace pdfium::rust {
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);
+std::optional<uint8_t> RustCrossRefEntryType(bool has_type_field,
+                                             uint32_t type_code);
 
 bool UseRustParserCandidate();
 bool SetUseRustParserCandidateForTesting(bool use_candidate);

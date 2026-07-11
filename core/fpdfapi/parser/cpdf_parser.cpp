@@ -974,9 +974,28 @@ void CPDF_Parser::ProcessCrossRefStreamEntry(
     uint32_t obj_num) {
   DCHECK_GE(field_widths.size(), kMinFieldCount);
   ObjectType type;
-  if (field_widths[0]) {
-    const uint32_t cross_ref_stream_obj_type =
-        GetFirstXRefStreamEntry(entry_span, field_widths);
+  const bool has_type_field = !!field_widths[0];
+  const uint32_t cross_ref_stream_obj_type =
+      has_type_field ? GetFirstXRefStreamEntry(entry_span, field_widths) : 1;
+  const auto rust_type = pdfium::rust::UseRustParserCandidate()
+                             ? pdfium::rust::RustCrossRefEntryType(
+                                   has_type_field, cross_ref_stream_obj_type)
+                             : std::nullopt;
+  if (rust_type.has_value()) {
+    switch (*rust_type) {
+      case 0:
+        type = ObjectType::kFree;
+        break;
+      case 1:
+        type = ObjectType::kNormal;
+        break;
+      case 2:
+        type = ObjectType::kCompressed;
+        break;
+      default:
+        return;
+    }
+  } else if (has_type_field) {
     std::optional<ObjectType> maybe_type =
         GetObjectTypeFromCrossRefStreamType(cross_ref_stream_obj_type);
     if (!maybe_type.has_value()) {

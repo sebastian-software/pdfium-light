@@ -11,6 +11,14 @@ fn cross_ref_object_type(type_code: u32) -> Option<u8> {
     }
 }
 
+fn cross_ref_entry_type(has_type_field: bool, type_code: u32) -> Option<u8> {
+    if has_type_field {
+        cross_ref_object_type(type_code)
+    } else {
+        Some(1)
+    }
+}
+
 /// Reads a variable-width big-endian cross-reference field.
 ///
 /// # Safety
@@ -61,6 +69,31 @@ pub unsafe extern "C" fn pdfium_rust_cross_ref_object_type(
     true
 }
 
+/// Selects the effective cross-reference entry type, including the ISO default.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u8` value. Invalid explicit codes
+/// leave it unchanged and return `false`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_entry_type(
+    has_type_field: bool,
+    type_code: u32,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let Some(result) = cross_ref_entry_type(has_type_field, type_code) else {
+        return false;
+    };
+    // SAFETY: The checked output pointer refers to one writable type code.
+    unsafe {
+        *output = result;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,5 +132,12 @@ mod tests {
         // it is written.
         assert!(!unsafe { pdfium_rust_cross_ref_object_type(3, &mut output) });
         assert_eq!(0xa5, output);
+    }
+
+    #[test]
+    fn cross_ref_entry_type_should_apply_the_iso_default_only_when_missing() {
+        assert_eq!(Some(1), cross_ref_entry_type(false, u32::MAX));
+        assert_eq!(Some(0), cross_ref_entry_type(true, 0));
+        assert_eq!(None, cross_ref_entry_type(true, 3));
     }
 }

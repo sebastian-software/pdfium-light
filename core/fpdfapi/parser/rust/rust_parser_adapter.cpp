@@ -7,6 +7,9 @@ extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                      uint32_t* output);
 extern "C" bool pdfium_rust_cross_ref_object_type(uint32_t type_code,
                                                    uint8_t* output);
+extern "C" bool pdfium_rust_cross_ref_entry_type(bool has_type_field,
+                                                  uint32_t type_code,
+                                                  uint8_t* output);
 
 thread_local bool g_use_rust_parser_candidate = true;
 
@@ -27,6 +30,16 @@ std::optional<uint32_t> RustReadBigEndianVarInt(
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code) {
   uint8_t output = 0;
   if (!pdfium_rust_cross_ref_object_type(type_code, &output) || output > 2) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+std::optional<uint8_t> RustCrossRefEntryType(bool has_type_field,
+                                             uint32_t type_code) {
+  uint8_t output = 0;
+  if (!pdfium_rust_cross_ref_entry_type(has_type_field, type_code, &output) ||
+      output > 2) {
     return std::nullopt;
   }
   return output;
