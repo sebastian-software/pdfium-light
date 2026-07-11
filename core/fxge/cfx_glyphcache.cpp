@@ -93,6 +93,7 @@ UniqueKeyGen::UniqueKeyGen(const CFX_Font* font,
         key_);
     if (key_len.has_value()) {
       key_len_ = *key_len;
+      fxge::RecordGlyphCacheKeyForTesting(pdfium::span(key_).first(key_len_));
       return;
     }
   }
@@ -108,6 +109,7 @@ UniqueKeyGen::UniqueKeyGen(const CFX_Font* font,
       Initialize({nMatrixA, nMatrixB, nMatrixC, nMatrixD, dest_width,
                   fxcrt::to_underlying(anti_alias), 3});
     }
+    fxge::RecordGlyphCacheKeyForTesting(pdfium::span(key_).first(key_len_));
     return;
   }
 #endif
@@ -121,6 +123,7 @@ UniqueKeyGen::UniqueKeyGen(const CFX_Font* font,
     Initialize({nMatrixA, nMatrixB, nMatrixC, nMatrixD, dest_width,
                 fxcrt::to_underlying(anti_alias)});
   }
+  fxge::RecordGlyphCacheKeyForTesting(pdfium::span(key_).first(key_len_));
 }
 
 }  // namespace

@@ -14,6 +14,7 @@
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxcrt/span.h"
 #include "core/fxge/agg/rust/rust_agg_adapter.h"
+#include "core/fxge/freetype/rust/rust_glyph_adapter.h"
 #include "fpdfsdk/cpdfsdk_renderpage.h"
 #include "public/fpdfview.h"
 #include "testing/embedder_test.h"
@@ -66,22 +67,26 @@ TEST_P(RustRendererParityEmbedderTest, CandidateMatchesCppReferenceExactly) {
   ScopedFPDFBitmap reference;
   std::vector<uint8_t> reference_trace;
   std::vector<uint8_t> reference_agg_trace;
+  std::vector<uint8_t> reference_glyph_trace;
   {
     ScopedRenderImplementationForTesting implementation(
         RenderImplementationForTesting::kCppReference);
     pdfium::rust::ScopedRenderTraceForTesting trace(&reference_trace);
     fxge::ScopedAggTraceForTesting agg_trace(&reference_agg_trace);
+    fxge::ScopedGlyphTraceForTesting glyph_trace(&reference_glyph_trace);
     reference = RenderLoadedPageWithFlags(page.get(), test_case.flags);
   }
 
   ScopedFPDFBitmap candidate;
   std::vector<uint8_t> candidate_trace;
   std::vector<uint8_t> candidate_agg_trace;
+  std::vector<uint8_t> candidate_glyph_trace;
   {
     ScopedRenderImplementationForTesting implementation(
         RenderImplementationForTesting::kCandidate);
     pdfium::rust::ScopedRenderTraceForTesting trace(&candidate_trace);
     fxge::ScopedAggTraceForTesting agg_trace(&candidate_agg_trace);
+    fxge::ScopedGlyphTraceForTesting glyph_trace(&candidate_glyph_trace);
     candidate = RenderLoadedPageWithFlags(page.get(), test_case.flags);
   }
 
@@ -89,6 +94,7 @@ TEST_P(RustRendererParityEmbedderTest, CandidateMatchesCppReferenceExactly) {
   ASSERT_FALSE(reference_trace.empty());
   EXPECT_EQ(reference_trace, candidate_trace);
   EXPECT_EQ(reference_agg_trace, candidate_agg_trace);
+  EXPECT_EQ(reference_glyph_trace, candidate_glyph_trace);
   if (test_case.name == "ManyRectangles") {
     EXPECT_FALSE(reference_agg_trace.empty());
   }
@@ -100,6 +106,9 @@ TEST_P(RustRendererParityEmbedderTest, CandidateMatchesCppReferenceExactly) {
   if (test_case.name == "Rectangles") {
     EXPECT_TRUE(fxge::AggTraceHasPathCommandsForTesting(reference_agg_trace));
     EXPECT_TRUE(fxge::AggTraceHasPathDrawPlansForTesting(reference_agg_trace));
+  }
+  if (test_case.name == "HelloWorldNoNativeText") {
+    EXPECT_FALSE(reference_glyph_trace.empty());
   }
 }
 

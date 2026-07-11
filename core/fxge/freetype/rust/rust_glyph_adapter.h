@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include <optional>
+#include <vector>
 
 #include "core/fxcrt/span.h"
 
@@ -33,6 +34,20 @@ std::optional<size_t> RustFillGlyphCacheKey(const GlyphCacheKeyInputs& inputs,
 
 bool UseRustGlyphCandidate();
 bool SetUseRustGlyphCandidateForTesting(bool use_candidate);
+
+class ScopedGlyphTraceForTesting final {
+ public:
+  explicit ScopedGlyphTraceForTesting(std::vector<uint8_t>* trace);
+  ScopedGlyphTraceForTesting(const ScopedGlyphTraceForTesting&) = delete;
+  ScopedGlyphTraceForTesting& operator=(const ScopedGlyphTraceForTesting&) =
+      delete;
+  ~ScopedGlyphTraceForTesting();
+
+ private:
+  std::vector<uint8_t>* previous_;
+};
+
+void RecordGlyphCacheKeyForTesting(pdfium::span<const uint32_t> key);
 
 }  // namespace fxge
 

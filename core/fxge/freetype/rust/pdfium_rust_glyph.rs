@@ -110,3 +110,97 @@ pub unsafe extern "C" fn pdfium_rust_fill_glyph_cache_key(
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn inputs() -> GlyphCacheKeyInputs {
+        GlyphCacheKeyInputs {
+            matrix: [10, -20, 30, -40],
+            destination_width: 500,
+            anti_alias: 2,
+            has_substitution: false,
+            weight: 0,
+            italic_angle: 0,
+            vertical: false,
+            native_text: false,
+        }
+    }
+
+    #[test]
+    fn cache_key_should_preserve_base_and_signed_word_representation() {
+        let Some(key) = build_glyph_cache_key(inputs()) else {
+            panic!("fixed base key must fit the bounded output");
+        };
+        assert_eq!(key.len, 6);
+        assert_eq!(&key.words[..key.len], &[10, (-20_i32) as u32, 30, (-40_i32) as u32, 500, 2]);
+    }
+
+    #[test]
+    fn cache_key_should_append_substitution_and_native_discriminators() {
+        let Some(key) = build_glyph_cache_key(GlyphCacheKeyInputs {
+            has_substitution: true,
+            weight: 700,
+            italic_angle: -12,
+            vertical: true,
+            native_text: true,
+            ..inputs()
+        }) else {
+            panic!("maximum supported key must fit the bounded output");
+        };
+        assert_eq!(key.len, MAX_GLYPH_CACHE_KEY_WORDS);
+        assert_eq!(
+            key.words,
+            [10, (-20_i32) as u32, 30, (-40_i32) as u32, 500, 2, 700, (-12_i32) as u32, 1, 3,]
+        );
+    }
+
+    #[test]
+    fn cache_key_ffi_should_reject_invalid_boundaries_without_mutation() {
+        let mut output = [0xfeed_beef_u32; MAX_GLYPH_CACHE_KEY_WORDS];
+        let mut output_len = 99;
+        // SAFETY: The deliberately short output is live and writable; the
+        // boundary rejects it before writing either output.
+        assert!(!unsafe {
+            pdfium_rust_fill_glyph_cache_key(
+                1,
+                2,
+                3,
+                4,
+                5,
+                0,
+                true,
+                400,
+                0,
+                false,
+                true,
+                output.as_mut_ptr(),
+                9,
+                &mut output_len,
+            )
+        });
+        assert_eq!(output, [0xfeed_beef; MAX_GLYPH_CACHE_KEY_WORDS]);
+        assert_eq!(output_len, 99);
+        // SAFETY: A null length output is explicitly rejected before the
+        // otherwise valid word span is written.
+        assert!(!unsafe {
+            pdfium_rust_fill_glyph_cache_key(
+                1,
+                2,
+                3,
+                4,
+                5,
+                0,
+                false,
+                0,
+                0,
+                false,
+                false,
+                output.as_mut_ptr(),
+                output.len(),
+                core::ptr::null_mut(),
+            )
+        });
+    }
+}
