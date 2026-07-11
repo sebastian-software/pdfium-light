@@ -3782,6 +3782,23 @@ mod tests {
     }
 
     #[test]
+    fn transform_bilinear_alpha_should_preserve_fixed_point_rounding() {
+        let mut destination = [9; 4];
+        assert!(transform_bilinear_alpha(
+            &[256, 0, 0, 256, -128, -128],
+            &[0, 64, 128, 255],
+            2,
+            2,
+            2,
+            &mut destination,
+            2,
+            2,
+            2,
+        ));
+        assert_eq!([0, 62, 126, 253], destination);
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(
