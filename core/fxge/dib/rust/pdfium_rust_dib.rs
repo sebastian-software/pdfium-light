@@ -2383,6 +2383,22 @@ mod tests {
     }
 
     #[test]
+    fn copy_bitmap_row_should_include_source_padding() {
+        let source = [1, 2, 3, 4];
+        let mut destination = [0xaa; 8];
+        // SAFETY: The arrays are distinct and cover their supplied lengths.
+        assert!(unsafe {
+            pdfium_rust_copy_bitmap_row(
+                source.as_ptr(),
+                source.len(),
+                destination.as_mut_ptr(),
+                destination.len(),
+            )
+        });
+        assert_eq!([1, 2, 3, 4, 0xaa, 0xaa, 0xaa, 0xaa], destination);
+    }
+
+    #[test]
     fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
         let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
         assert_eq!(

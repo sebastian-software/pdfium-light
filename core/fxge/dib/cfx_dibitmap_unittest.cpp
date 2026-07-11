@@ -537,3 +537,51 @@ TEST(CFXDIBitmapTest, RustCloneAlphaMaskMatchesCppReference) {
     }
   }
 }
+
+TEST(CFXDIBitmapTest, RustCopyMatchesCppReferenceAcrossFormats) {
+  struct SourceCase {
+    FXDIB_Format format;
+    bool custom_palette;
+  };
+  static constexpr std::array<SourceCase, 9> kSources = {
+      SourceCase{FXDIB_Format::k1bppMask, false},
+      SourceCase{FXDIB_Format::k1bppRgb, false},
+      SourceCase{FXDIB_Format::k1bppRgb, true},
+      SourceCase{FXDIB_Format::k8bppMask, false},
+      SourceCase{FXDIB_Format::k8bppRgb, false},
+      SourceCase{FXDIB_Format::k8bppRgb, true},
+      SourceCase{FXDIB_Format::kBgr, false},
+      SourceCase{FXDIB_Format::kBgrx, false},
+      SourceCase{FXDIB_Format::kBgra, false},
+  };
+  for (const auto& source_case : kSources) {
+    auto source = CreatePatternedBitmap(source_case.format, 7, 3);
+    ASSERT_TRUE(source);
+    if (source_case.custom_palette) {
+      const int index =
+          source_case.format == FXDIB_Format::k1bppRgb ? 1 : 173;
+      source->SetPaletteArgb(index, 0x8042a7e1);
+    }
+    auto reference = pdfium::MakeRetain<CFX_DIBitmap>();
+    auto candidate = pdfium::MakeRetain<CFX_DIBitmap>();
+    {
+      fxge::ScopedRustDibImplementationForTesting implementation(false);
+      ASSERT_TRUE(reference->Copy(source));
+    }
+    ASSERT_TRUE(candidate->Copy(source));
+    ASSERT_EQ(reference->GetFormat(), candidate->GetFormat());
+    ASSERT_EQ(reference->GetWidth(), candidate->GetWidth());
+    ASSERT_EQ(reference->GetHeight(), candidate->GetHeight());
+    EXPECT_THAT(candidate->GetBuffer(),
+                ElementsAreArray(reference->GetBuffer()))
+        << "format=" << static_cast<int>(source_case.format)
+        << " custom_palette=" << source_case.custom_palette;
+    ASSERT_EQ(reference->GetPaletteSpan().size(),
+              candidate->GetPaletteSpan().size());
+    for (size_t index = 0; index < reference->GetPaletteSpan().size();
+         ++index) {
+      EXPECT_EQ(reference->GetPaletteSpan()[index],
+                candidate->GetPaletteSpan()[index]);
+    }
+  }
+}
