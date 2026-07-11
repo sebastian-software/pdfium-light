@@ -44,6 +44,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `7a4eca8b4` Phase 0 | 1,236 | 1,033 | 203 | 262 | 0 | 255,791 | 0.48% | 0.54% | Same codec surfaces; renderer differential candidate bootstrapped to the retained C++ reference |
 | `cffeca939` Phase 1 BGRA slice | 1,495 | 1,220 | 275 | 392 | 0 | 256,298 | 0.58% | 0.64% | Codec surfaces plus BGRA-to-BGRA normal/separable row compositing; remaining DIB formats stay on C++ |
 | `5ab5543b8` Phase 1 row-compositor slice | 2,013 | 1,772 | 241 | 694 | 0 | 257,576 | 0.78% | 0.92% | Codec surfaces plus all PDF blend modes across BGRA, opaque BGR/BGRx, gray, mask, and indexed-palette row compositing |
+| `360e1fbb5` Phase 1 CMYK slice | 8,678 | 1,867 | 241 | 741 | 6,570 | 264,368 | 3.28% | 0.97% | Prior surfaces plus Adobe CMYK scalar conversion and batch CMYK-to-BGR image rows; generated lookup data excluded from authored behavior |
 
 ## Toolchain
 
@@ -96,6 +97,13 @@ Rust heap allocation. BGRA, opaque BGR/BGRx, gray, byte/bit mask, and 1-/8-bit
 indexed source rows cross FFI once per row across all retained destination
 formats and all PDF blend modes. The C++ row algorithms remain available as the
 same-process differential oracle while the rest of `fxge/dib` is migrated.
+
+Adobe CMYK interpolation is active through the same boundary for scalar colors
+and complete image rows. `testing/tools/generate_rust_cmyk_table.py` reproduces
+the 6,561-entry Rust lookup table from the retained C++ oracle; the generated
+file is reported as generated Rust rather than authored behavior. The focused
+gate compares 456,976 interpolation-boundary combinations plus a 256-pixel
+batch corpus that verifies PDFium's historical BGR output order.
 
 `ScopedRustDibImplementationForTesting` is test-only. It selects the retained
 C++ row compositor or the production Rust candidate in the same process. The

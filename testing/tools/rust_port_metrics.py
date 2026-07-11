@@ -37,6 +37,7 @@ ACTIVE_SURFACES = (
     "all PDF blend modes across BGRA and opaque BGR/BGRx row compositing",
     "byte and bit mask row compositing",
     "1-bit and 8-bit palette row compositing",
+    "Adobe CMYK scalar and row conversion",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 
