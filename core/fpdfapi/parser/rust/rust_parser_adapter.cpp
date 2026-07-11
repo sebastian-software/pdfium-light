@@ -33,6 +33,8 @@ extern "C" bool pdfium_rust_run_cross_ref_segment_entries(
     uint32_t entry_count,
     void* context,
     pdfium::rust::CrossRefSegmentCallback callback);
+extern "C" bool pdfium_rust_cross_ref_field_width(int32_t value,
+                                                   uint32_t* output);
 
 thread_local bool g_use_rust_parser_candidate = true;
 
@@ -116,6 +118,14 @@ bool RunRustCrossRefSegmentEntries(uint32_t entry_count,
   return context && callback &&
          pdfium_rust_run_cross_ref_segment_entries(entry_count, context,
                                                    callback);
+}
+
+std::optional<uint32_t> RustCrossRefFieldWidth(int32_t value) {
+  uint32_t output = 0;
+  if (!pdfium_rust_cross_ref_field_width(value, &output)) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 bool UseRustParserCandidate() {

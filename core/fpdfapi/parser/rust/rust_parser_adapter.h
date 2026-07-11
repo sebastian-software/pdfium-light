@@ -37,6 +37,7 @@ std::optional<CrossRefSegmentRange> RustCrossRefSegmentRange(
 bool RunRustCrossRefSegmentEntries(uint32_t entry_count,
                                    void* context,
                                    CrossRefSegmentCallback callback);
+std::optional<uint32_t> RustCrossRefFieldWidth(int32_t value);
 
 bool UseRustParserCandidate();
 bool SetUseRustParserCandidateForTesting(bool use_candidate);

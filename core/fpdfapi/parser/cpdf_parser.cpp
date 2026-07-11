@@ -178,7 +178,11 @@ std::vector<uint32_t> GetFieldWidths(const CPDF_Array* array) {
 
   CPDF_ArrayLocker locker(array);
   for (const auto& obj : locker) {
-    results.push_back(obj->GetInteger());
+    const int value = obj->GetInteger();
+    const auto rust_width = pdfium::rust::UseRustParserCandidate()
+                                ? pdfium::rust::RustCrossRefFieldWidth(value)
+                                : std::nullopt;
+    results.push_back(rust_width.value_or(static_cast<uint32_t>(value)));
   }
   return results;
 }

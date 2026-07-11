@@ -56,6 +56,10 @@ fn cross_ref_segment_range(
     (end <= data_len).then_some((offset, len))
 }
 
+fn cross_ref_field_width(value: i32) -> u32 {
+    value as u32
+}
+
 type CrossRefSegmentCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
 
 /// Reads a variable-width big-endian cross-reference field.
@@ -248,6 +252,23 @@ pub unsafe extern "C" fn pdfium_rust_run_cross_ref_segment_entries(
     true
 }
 
+/// Converts a signed `/W` array value using PDFium's unsigned representation.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u32` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_field_width(value: i32, output: *mut u32) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller guarantees one writable scalar output.
+    unsafe {
+        *output = cross_ref_field_width(value);
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,5 +377,13 @@ mod tests {
         });
         assert_eq!(2, state.count);
         assert_eq!([0, 1], state.visited[..2]);
+    }
+
+    #[test]
+    fn cross_ref_field_width_should_preserve_signed_cast_behavior() {
+        assert_eq!(0, cross_ref_field_width(0));
+        assert_eq!(17, cross_ref_field_width(17));
+        assert_eq!(u32::MAX, cross_ref_field_width(-1));
+        assert_eq!(0x8000_0000, cross_ref_field_width(i32::MIN));
     }
 }
