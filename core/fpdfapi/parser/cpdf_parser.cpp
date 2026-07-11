@@ -20,6 +20,7 @@
 #include "core/fpdfapi/parser/cpdf_linearized_header.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_object_stream.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fpdfapi/parser/cpdf_read_validator.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_security_handler.h"
@@ -79,12 +80,22 @@ std::optional<ObjectType> GetObjectTypeFromCrossRefStreamType(
 
 // Use the Get*XRefStreamEntry() functions below, instead of calling this
 // directly.
-uint32_t GetVarInt(pdfium::span<const uint8_t> input) {
+uint32_t GetVarIntCppReference(pdfium::span<const uint8_t> input) {
   uint32_t result = 0;
   for (uint8_t c : input) {
     result = result * 256 + c;
   }
   return result;
+}
+
+uint32_t GetVarInt(pdfium::span<const uint8_t> input) {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto result = pdfium::rust::RustReadBigEndianVarInt(input);
+    if (result.has_value()) {
+      return *result;
+    }
+  }
+  return GetVarIntCppReference(input);
 }
 
 // The following 3 functions retrieve variable length entries from
