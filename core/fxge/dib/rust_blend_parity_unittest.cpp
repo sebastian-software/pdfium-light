@@ -353,5 +353,90 @@ TEST(RustBlendParityTest, MaskRowsMatchCppReferenceAcrossFormats) {
   }
 }
 
+TEST(RustBlendParityTest, PaletteRowsMatchCppReferenceAcrossFormats) {
+  constexpr int kPixelCount = 257;
+  DataVector<uint8_t> clip(kPixelCount);
+  for (size_t pixel = 0; pixel < clip.size(); ++pixel) {
+    clip[pixel] = static_cast<uint8_t>((pixel * 101) % 256);
+  }
+
+  for (FXDIB_Format source_format :
+       {FXDIB_Format::k1bppRgb, FXDIB_Format::k8bppRgb}) {
+    const int source_left = source_format == FXDIB_Format::k1bppRgb ? 3 : 5;
+    const size_t palette_size = source_format == FXDIB_Format::k1bppRgb ? 2 : 256;
+    DataVector<uint32_t> palette(palette_size);
+    for (size_t index = 0; index < palette.size(); ++index) {
+      palette[index] = ArgbEncode(static_cast<uint8_t>((index * 17) % 256),
+                                  static_cast<uint8_t>((index * 47) % 256),
+                                  static_cast<uint8_t>((index * 71) % 256),
+                                  static_cast<uint8_t>((index * 97) % 256));
+    }
+    const size_t source_size = source_format == FXDIB_Format::k1bppRgb
+                                   ? (source_left + kPixelCount + 7) / 8
+                                   : source_left + kPixelCount;
+    DataVector<uint8_t> source(source_size);
+    for (size_t index = 0; index < source.size(); ++index) {
+      source[index] = static_cast<uint8_t>((index * 103 + 19) % 256);
+    }
+    for (bool use_custom_palette : {false, true}) {
+      const pdfium::span<const uint32_t> palette_span =
+          use_custom_palette ? pdfium::span<const uint32_t>(palette)
+                             : pdfium::span<const uint32_t>();
+      for (FXDIB_Format destination_format :
+           {FXDIB_Format::k8bppRgb, FXDIB_Format::k8bppMask,
+            FXDIB_Format::kBgr, FXDIB_Format::kBgrx, FXDIB_Format::kBgra}) {
+        const size_t destination_components =
+            GetCompsFromFormat(destination_format);
+        DataVector<uint8_t> initial_destination(kPixelCount *
+                                                 destination_components);
+        for (size_t index = 0; index < initial_destination.size(); ++index) {
+          initial_destination[index] = static_cast<uint8_t>((index * 59) % 256);
+        }
+        for (int mode_value = static_cast<int>(BlendMode::kNormal);
+             mode_value <= static_cast<int>(BlendMode::kLast); ++mode_value) {
+          const auto mode = static_cast<BlendMode>(mode_value);
+          const bool byte_order_allowed =
+              destination_format != FXDIB_Format::k8bppRgb &&
+              destination_format != FXDIB_Format::k8bppMask;
+          for (bool rgb_byte_order : {false, true}) {
+            if (rgb_byte_order && !byte_order_allowed) {
+              continue;
+            }
+            for (bool use_clip : {false, true}) {
+              CFX_ScanlineCompositor compositor;
+              ASSERT_TRUE(compositor.Init(destination_format, source_format,
+                                          palette_span, /*mask_color=*/0, mode,
+                                          rgb_byte_order));
+              const pdfium::span<const uint8_t> clip_span =
+                  use_clip ? pdfium::span<const uint8_t>(clip)
+                           : pdfium::span<const uint8_t>();
+              DataVector<uint8_t> reference = initial_destination;
+              DataVector<uint8_t> candidate = initial_destination;
+              {
+                ScopedRustDibImplementationForTesting implementation(false);
+                compositor.CompositePalBitmapLine(
+                    reference, source, source_left, kPixelCount, clip_span);
+              }
+              {
+                ScopedRustDibImplementationForTesting implementation(true);
+                compositor.CompositePalBitmapLine(
+                    candidate, source, source_left, kPixelCount, clip_span);
+              }
+              EXPECT_EQ(reference, candidate)
+                  << "source_format=" << static_cast<int>(source_format)
+                  << " destination_format="
+                  << static_cast<int>(destination_format)
+                  << " custom_palette=" << use_custom_palette
+                  << " mode=" << mode_value
+                  << " rgb_byte_order=" << rgb_byte_order
+                  << " use_clip=" << use_clip;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 }  // namespace
 }  // namespace fxge

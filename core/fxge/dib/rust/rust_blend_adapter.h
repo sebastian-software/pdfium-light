@@ -55,6 +55,17 @@ class RustBlendAdapter final {
                                uint32_t mask_argb,
                                bool rgb_byte_order,
                                pdfium::span<uint8_t> output);
+  static bool CompositePaletteRow(
+      BlendMode mode,
+      FXDIB_Format destination_format,
+      pdfium::span<const uint8_t> source,
+      int source_left,
+      bool source_is_bit,
+      pdfium::span<const uint8_t> gray_palette,
+      pdfium::span<const uint32_t> argb_palette,
+      pdfium::span<const uint8_t> clip,
+      bool rgb_byte_order,
+      pdfium::span<uint8_t> output);
   static bool UseCandidate();
 
   RustBlendAdapter() = delete;

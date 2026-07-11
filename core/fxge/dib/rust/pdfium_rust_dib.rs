@@ -482,6 +482,79 @@ pub unsafe extern "C" fn pdfium_rust_composite_mask_row(
     }
     true
 }
+
+/// Composites a 1-bit or 8-bit indexed row using optional gray/ARGB palettes.
+///
+/// # Safety
+///
+/// Source, palette, clip, and output pointers must cover the lengths supplied
+/// by the caller. Source and output must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_palette_row(
+    mode: u8,
+    source: *const u8,
+    source_left: usize,
+    source_is_bit: bool,
+    gray_palette: *const u8,
+    gray_palette_len: usize,
+    argb_palette: *const u32,
+    argb_palette_len: usize,
+    clip: *const u8,
+    output: *mut u8,
+    output_components: usize,
+    target: u8,
+    rgb_byte_order: bool,
+    pixel_count: usize,
+) -> bool {
+    if !matches!((target, output_components), (0 | 1, 1) | (2, 3 | 4) | (3, 4)) {
+        return false;
+    }
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees each addressed source,
+        // palette, clip, and output element.
+        unsafe {
+            let index = if source_is_bit {
+                let bit = source_left + pixel;
+                usize::from((*source.add(bit / 8) >> (7 - bit % 8)) & 1)
+            } else {
+                usize::from(*source.add(pixel))
+            };
+            let input = if target == 0 {
+                let value = if index < gray_palette_len {
+                    *gray_palette.add(index)
+                } else if source_is_bit {
+                    if index == 0 {
+                        0
+                    } else {
+                        255
+                    }
+                } else {
+                    index as u8
+                };
+                [value, value, value, 255]
+            } else if target == 1 {
+                [0, 0, 0, 255]
+            } else {
+                let argb = if index < argb_palette_len {
+                    *argb_palette.add(index)
+                } else {
+                    let value = if source_is_bit && index != 0 { 255 } else { index as u8 };
+                    u32::from(value) * 0x00010101
+                };
+                [argb as u8, (argb >> 8) as u8, (argb >> 16) as u8, 255]
+            };
+            let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
+            let output =
+                slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
+            let effective_mode = if target >= 2 { 0 } else { mode };
+            if !composite_opaque_pixel(effective_mode, input, clip, target, rgb_byte_order, output)
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
 #[cfg(test)]
 mod tests {
     use super::*;

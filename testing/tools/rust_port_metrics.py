@@ -36,6 +36,7 @@ ACTIVE_SURFACES = (
     "RunLength encode/decode",
     "BGRA and opaque BGR/BGRx row compositing across retained bitmap formats",
     "byte and bit mask row compositing",
+    "1-bit and 8-bit palette row compositing",
 )
 CANDIDATE_SURFACES = ("remaining fxge/dib formats and compositors",)
 

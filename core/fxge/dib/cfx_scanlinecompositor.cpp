@@ -2249,6 +2249,28 @@ void CFX_ScanlineCompositor::CompositePalBitmapLineSrcBpp1(
     int width,
     pdfium::span<const uint8_t> clip_scan) const {
   CHECK_EQ(src_format_, FXDIB_Format::k1bppRgb);
+  CHECK_GE(src_left, 0);
+  CHECK_GE(width, 0);
+
+  const auto gray_palette = dest_format_ == FXDIB_Format::k8bppRgb
+                                ? src_palette_.Get8BitPalette()
+                                : pdfium::span<const uint8_t>();
+  const auto argb_palette =
+      dest_format_ != FXDIB_Format::k8bppRgb &&
+              dest_format_ != FXDIB_Format::k8bppMask
+          ? src_palette_.Get32BitPalette()
+          : pdfium::span<const uint32_t>();
+  const int dest_Bpp = GetCompsFromFormat(dest_format_);
+  const size_t source_size =
+      (static_cast<size_t>(src_left) + static_cast<size_t>(width) + 7) / 8;
+  if (RustBlendAdapter::UseCandidate() &&
+      RustBlendAdapter::CompositePaletteRow(
+          blend_type_, dest_format_, src_scan.first(source_size), src_left,
+          /*source_is_bit=*/true, gray_palette, argb_palette, clip_scan,
+          rgb_byte_order_,
+          dest_scan.first(static_cast<size_t>(width) * dest_Bpp))) {
+    return;
+  }
 
   switch (dest_format_) {
     case FXDIB_Format::kInvalid:
@@ -2303,6 +2325,28 @@ void CFX_ScanlineCompositor::CompositePalBitmapLineSrcBpp8(
     int width,
     pdfium::span<const uint8_t> clip_scan) const {
   CHECK_EQ(src_format_, FXDIB_Format::k8bppRgb);
+  CHECK_GE(src_left, 0);
+  CHECK_GE(width, 0);
+
+  const auto gray_palette = dest_format_ == FXDIB_Format::k8bppRgb
+                                ? src_palette_.Get8BitPalette()
+                                : pdfium::span<const uint8_t>();
+  const auto argb_palette =
+      dest_format_ != FXDIB_Format::k8bppRgb &&
+              dest_format_ != FXDIB_Format::k8bppMask
+          ? src_palette_.Get32BitPalette()
+          : pdfium::span<const uint32_t>();
+  const int dest_Bpp = GetCompsFromFormat(dest_format_);
+  if (RustBlendAdapter::UseCandidate() &&
+      RustBlendAdapter::CompositePaletteRow(
+          blend_type_, dest_format_,
+          src_scan.subspan(static_cast<size_t>(src_left),
+                           static_cast<size_t>(width)),
+          /*source_left=*/0, /*source_is_bit=*/false, gray_palette,
+          argb_palette, clip_scan, rgb_byte_order_,
+          dest_scan.first(static_cast<size_t>(width) * dest_Bpp))) {
+    return;
+  }
 
   switch (dest_format_) {
     case FXDIB_Format::kInvalid:

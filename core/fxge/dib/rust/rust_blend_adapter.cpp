@@ -58,6 +58,21 @@ extern "C" bool pdfium_rust_composite_mask_row(
     uint8_t target,
     bool rgb_byte_order,
     size_t pixel_count);
+extern "C" bool pdfium_rust_composite_palette_row(
+    uint8_t mode,
+    const uint8_t* source,
+    size_t source_left,
+    bool source_is_bit,
+    const uint8_t* gray_palette,
+    size_t gray_palette_len,
+    const uint32_t* argb_palette,
+    size_t argb_palette_len,
+    const uint8_t* clip,
+    uint8_t* output,
+    size_t output_components,
+    uint8_t target,
+    bool rgb_byte_order,
+    size_t pixel_count);
 
 namespace {
 
@@ -249,6 +264,65 @@ bool RustBlendAdapter::CompositeMaskRow(
       FXARGB_B(mask_argb), FXARGB_G(mask_argb), FXARGB_R(mask_argb),
       FXARGB_A(mask_argb), output.data(), output_components, target,
       rgb_byte_order, pixel_count);
+}
+
+// static
+bool RustBlendAdapter::CompositePaletteRow(
+    BlendMode mode,
+    FXDIB_Format destination_format,
+    pdfium::span<const uint8_t> source,
+    int source_left,
+    bool source_is_bit,
+    pdfium::span<const uint8_t> gray_palette,
+    pdfium::span<const uint32_t> argb_palette,
+    pdfium::span<const uint8_t> clip,
+    bool rgb_byte_order,
+    pdfium::span<uint8_t> output) {
+  uint8_t target;
+  int output_components;
+  switch (destination_format) {
+    case FXDIB_Format::k8bppRgb:
+      target = 0;
+      output_components = 1;
+      break;
+    case FXDIB_Format::k8bppMask:
+      target = 1;
+      output_components = 1;
+      break;
+    case FXDIB_Format::kBgr:
+      target = 2;
+      output_components = 3;
+      break;
+    case FXDIB_Format::kBgrx:
+      target = 2;
+      output_components = 4;
+      break;
+    case FXDIB_Format::kBgra:
+      target = 3;
+      output_components = 4;
+      break;
+    default:
+      return false;
+  }
+  if (source_left < 0 || output.size() % output_components != 0) {
+    return false;
+  }
+  const size_t pixel_count = output.size() / output_components;
+  const size_t required_source_size = source_is_bit
+                                          ? (static_cast<size_t>(source_left) +
+                                             pixel_count + 7) /
+                                                8
+                                          : pixel_count;
+  if (source.size() < required_source_size ||
+      (!clip.empty() && clip.size() != pixel_count) ||
+      mode > BlendMode::kLast) {
+    return false;
+  }
+  return pdfium_rust_composite_palette_row(
+      static_cast<uint8_t>(mode), source.data(), source_left, source_is_bit,
+      gray_palette.data(), gray_palette.size(), argb_palette.data(),
+      argb_palette.size(), clip.empty() ? nullptr : clip.data(), output.data(),
+      output_components, target, rgb_byte_order, pixel_count);
 }
 
 // static
