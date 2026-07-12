@@ -1433,6 +1433,34 @@ TEST_F(FPDFTextEmbedderTest, Bug1029) {
   }
 }
 
+TEST_F(FPDFTextEmbedderTest, RustCharacterNormalizationMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bug_1029.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    int count;
+    std::vector<std::array<uint32_t, 3>> characters;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    Snapshot snapshot = {FPDFText_CountChars(text_page.get()), {}};
+    snapshot.characters.reserve(snapshot.count);
+    for (int index = 0; index < snapshot.count; ++index) {
+      snapshot.characters.push_back(
+          {FPDFText_GetUnicode(text_page.get(), index),
+           static_cast<uint32_t>(FPDFText_IsHyphen(text_page.get(), index)),
+           static_cast<uint32_t>(FPDFText_IsGenerated(text_page.get(), index))});
+    }
+    return snapshot;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
+
 TEST_F(FPDFTextEmbedderTest, CountRects) {
   ASSERT_TRUE(OpenDocument("hello_world.pdf"));
   ScopedPage page = LoadScopedPage(0);
