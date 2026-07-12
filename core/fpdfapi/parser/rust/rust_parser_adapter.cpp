@@ -129,6 +129,27 @@ extern "C" bool pdfium_rust_pdf_array_remove(void* state,
                                              size_t index,
                                              uintptr_t* old_handle);
 extern "C" bool pdfium_rust_pdf_array_clear(void* state);
+extern "C" void* pdfium_rust_pdf_dictionary_new();
+extern "C" void pdfium_rust_pdf_dictionary_destroy(void* state);
+extern "C" bool pdfium_rust_pdf_dictionary_len(const void* state,
+                                               size_t* output);
+extern "C" bool pdfium_rust_pdf_dictionary_get(const void* state,
+                                               const uint8_t* key,
+                                               size_t key_len,
+                                               uintptr_t* output);
+extern "C" bool pdfium_rust_pdf_dictionary_set(void* state,
+                                               const uint8_t* key,
+                                               size_t key_len,
+                                               uintptr_t handle,
+                                               uintptr_t* old_handle);
+extern "C" bool pdfium_rust_pdf_dictionary_remove(void* state,
+                                                  const uint8_t* key,
+                                                  size_t key_len,
+                                                  uintptr_t* old_handle);
+extern "C" bool pdfium_rust_pdf_dictionary_snapshot(
+    const void* state,
+    void* context,
+    pdfium::rust::RustPdfDictionarySnapshotCallback callback);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -495,6 +516,56 @@ std::optional<uintptr_t> RustPdfArray::Remove(size_t index) {
 
 bool RustPdfArray::Clear() {
   return pdfium_rust_pdf_array_clear(state_);
+}
+
+RustPdfDictionary::RustPdfDictionary()
+    : state_(pdfium_rust_pdf_dictionary_new()) {
+  CHECK(state_);
+}
+
+RustPdfDictionary::~RustPdfDictionary() {
+  pdfium_rust_pdf_dictionary_destroy(state_);
+}
+
+size_t RustPdfDictionary::size() const {
+  size_t result = 0;
+  CHECK(pdfium_rust_pdf_dictionary_len(state_, &result));
+  return result;
+}
+
+std::optional<uintptr_t> RustPdfDictionary::Get(
+    pdfium::span<const uint8_t> key) const {
+  uintptr_t result = 0;
+  if (!pdfium_rust_pdf_dictionary_get(state_, key.data(), key.size(),
+                                      &result)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<uintptr_t> RustPdfDictionary::Set(pdfium::span<const uint8_t> key,
+                                                uintptr_t handle) {
+  uintptr_t old_handle = 0;
+  CHECK(pdfium_rust_pdf_dictionary_set(state_, key.data(), key.size(), handle,
+                                       &old_handle));
+  return old_handle ? std::optional<uintptr_t>(old_handle) : std::nullopt;
+}
+
+std::optional<uintptr_t> RustPdfDictionary::Remove(
+    pdfium::span<const uint8_t> key) {
+  uintptr_t old_handle = 0;
+  if (!pdfium_rust_pdf_dictionary_remove(state_, key.data(), key.size(),
+                                         &old_handle)) {
+    return std::nullopt;
+  }
+  return old_handle;
+}
+
+bool RustPdfDictionary::Snapshot(
+    void* context,
+    RustPdfDictionarySnapshotCallback callback) const {
+  return callback &&
+         pdfium_rust_pdf_dictionary_snapshot(state_, context, callback);
 }
 
 std::optional<uint32_t> RustReadBigEndianVarInt(

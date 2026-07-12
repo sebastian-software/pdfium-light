@@ -161,6 +161,14 @@ pub struct PdfArrayState {
     objects: Vec<usize>,
 }
 
+#[derive(Default)]
+pub struct PdfDictionaryState {
+    objects: BTreeMap<Vec<u8>, usize>,
+}
+
+type PdfDictionarySnapshotCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, usize) -> bool;
+
 impl Default for PdfNumberState {
     fn default() -> Self {
         Self { value: PdfNumberValue::Unsigned(0) }
@@ -1475,6 +1483,130 @@ pub unsafe extern "C" fn pdfium_rust_pdf_array_clear(state: *mut PdfArrayState) 
     true
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_pdf_dictionary_new() -> *mut PdfDictionaryState {
+    Box::into_raw(Box::new(PdfDictionaryState::default()))
+}
+
+/// # Safety
+/// `state` must be null or uniquely owned from
+/// `pdfium_rust_pdf_dictionary_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_dictionary_destroy(state: *mut PdfDictionaryState) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state` and `output` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_dictionary_len(
+    state: *const PdfDictionaryState,
+    output: *mut usize,
+) -> bool {
+    let (Some(state), Some(output)) = ((unsafe { state.as_ref() }), (unsafe { output.as_mut() }))
+    else {
+        return false;
+    };
+    *output = state.objects.len();
+    true
+}
+
+/// # Safety
+/// Nonempty keys must identify readable bytes; `output` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_dictionary_get(
+    state: *const PdfDictionaryState,
+    key: *const u8,
+    key_len: usize,
+    output: *mut usize,
+) -> bool {
+    let (Some(state), Some(output)) = ((unsafe { state.as_ref() }), (unsafe { output.as_mut() }))
+    else {
+        return false;
+    };
+    if key_len != 0 && key.is_null() {
+        return false;
+    }
+    let key = if key_len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { key };
+    let key = unsafe { core::slice::from_raw_parts(key, key_len) };
+    let Some(handle) = state.objects.get(key) else {
+        return false;
+    };
+    *output = *handle;
+    true
+}
+
+/// # Safety
+/// Nonempty keys must identify readable bytes; `old_handle` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_dictionary_set(
+    state: *mut PdfDictionaryState,
+    key: *const u8,
+    key_len: usize,
+    handle: usize,
+    old_handle: *mut usize,
+) -> bool {
+    let (Some(state), Some(old_handle)) =
+        ((unsafe { state.as_mut() }), (unsafe { old_handle.as_mut() }))
+    else {
+        return false;
+    };
+    if handle == 0 || (key_len != 0 && key.is_null()) {
+        return false;
+    }
+    let key = if key_len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { key };
+    let key = unsafe { core::slice::from_raw_parts(key, key_len) };
+    *old_handle = state.objects.insert(key.to_vec(), handle).unwrap_or(0);
+    true
+}
+
+/// # Safety
+/// Nonempty keys must identify readable bytes; `old_handle` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_dictionary_remove(
+    state: *mut PdfDictionaryState,
+    key: *const u8,
+    key_len: usize,
+    old_handle: *mut usize,
+) -> bool {
+    let (Some(state), Some(old_handle)) =
+        ((unsafe { state.as_mut() }), (unsafe { old_handle.as_mut() }))
+    else {
+        return false;
+    };
+    if key_len != 0 && key.is_null() {
+        return false;
+    }
+    let key = if key_len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { key };
+    let key = unsafe { core::slice::from_raw_parts(key, key_len) };
+    let Some(handle) = state.objects.remove(key) else {
+        return false;
+    };
+    *old_handle = handle;
+    true
+}
+
+/// # Safety
+/// `state`, `context`, and `callback` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_dictionary_snapshot(
+    state: *const PdfDictionaryState,
+    context: *mut core::ffi::c_void,
+    callback: Option<PdfDictionarySnapshotCallback>,
+) -> bool {
+    let (Some(state), Some(callback)) = ((unsafe { state.as_ref() }), callback) else {
+        return false;
+    };
+    for (key, handle) in &state.objects {
+        if !unsafe { callback(context, key.as_ptr(), key.len(), *handle) } {
+            return false;
+        }
+    }
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -2092,6 +2224,38 @@ mod tests {
         assert!(!unsafe { pdfium_rust_pdf_array_append(&mut state, 0) });
         assert!(unsafe { pdfium_rust_pdf_array_clear(&mut state) });
         assert!(state.objects.is_empty());
+    }
+
+    #[test]
+    fn pdf_dictionary_state_should_own_sorted_key_mutations() {
+        let mut state = PdfDictionaryState::default();
+        let mut old_handle = 99;
+        assert!(unsafe {
+            pdfium_rust_pdf_dictionary_set(&mut state, b"z".as_ptr(), 1, 10, &mut old_handle)
+        });
+        assert_eq!(0, old_handle);
+        assert!(unsafe {
+            pdfium_rust_pdf_dictionary_set(&mut state, b"a\0b".as_ptr(), 3, 20, &mut old_handle)
+        });
+        assert!(unsafe {
+            pdfium_rust_pdf_dictionary_set(&mut state, b"a".as_ptr(), 1, 30, &mut old_handle)
+        });
+        assert_eq!(
+            vec![b"a".to_vec(), b"a\0b".to_vec(), b"z".to_vec()],
+            state.objects.keys().cloned().collect::<Vec<_>>()
+        );
+
+        assert!(unsafe {
+            pdfium_rust_pdf_dictionary_set(&mut state, b"a".as_ptr(), 1, 40, &mut old_handle)
+        });
+        assert_eq!(30, old_handle);
+        assert!(unsafe {
+            pdfium_rust_pdf_dictionary_remove(&mut state, b"z".as_ptr(), 1, &mut old_handle)
+        });
+        assert_eq!(10, old_handle);
+        assert!(!unsafe {
+            pdfium_rust_pdf_dictionary_remove(&mut state, b"missing".as_ptr(), 7, &mut old_handle)
+        });
     }
 
     #[test]

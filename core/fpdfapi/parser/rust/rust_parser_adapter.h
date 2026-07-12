@@ -159,6 +159,30 @@ class RustPdfArray final {
   void* state_;
 };
 
+using RustPdfDictionarySnapshotCallback = bool (*)(void* context,
+                                                   const uint8_t* key,
+                                                   size_t key_len,
+                                                   uintptr_t handle);
+
+class RustPdfDictionary final {
+ public:
+  RustPdfDictionary();
+  RustPdfDictionary(const RustPdfDictionary&) = delete;
+  RustPdfDictionary& operator=(const RustPdfDictionary&) = delete;
+  ~RustPdfDictionary();
+
+  size_t size() const;
+  std::optional<uintptr_t> Get(pdfium::span<const uint8_t> key) const;
+  std::optional<uintptr_t> Set(pdfium::span<const uint8_t> key,
+                               uintptr_t handle);
+  std::optional<uintptr_t> Remove(pdfium::span<const uint8_t> key);
+  bool Snapshot(void* context,
+                RustPdfDictionarySnapshotCallback callback) const;
+
+ private:
+  void* state_;
+};
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);
