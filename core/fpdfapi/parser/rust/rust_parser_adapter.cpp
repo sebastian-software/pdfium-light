@@ -298,6 +298,10 @@ extern "C" bool pdfium_rust_page_object_rotated_bounds(uint8_t object_type,
                                                        const float* matrix,
                                                        const float* bounds,
                                                        float* output);
+extern "C" bool pdfium_rust_page_annotation_transform_rect(const float* matrix,
+                                                           const float* rect,
+                                                           float* output);
+extern "C" int32_t pdfium_rust_page_rotation_degrees(int32_t rotation);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -1057,6 +1061,21 @@ std::optional<std::array<float, 8>> RustPageObjectRotatedBounds(
     return std::nullopt;
   }
   return output;
+}
+
+std::optional<std::array<float, 4>> RustTransformPageAnnotationRect(
+    const RustPageObjectMatrix& matrix,
+    const std::array<float, 4>& rect) {
+  std::array<float, 4> output = {};
+  if (!pdfium_rust_page_annotation_transform_rect(matrix.values.data(),
+                                                  rect.data(), output.data())) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+int RustPageRotationDegrees(int rotation) {
+  return pdfium_rust_page_rotation_degrees(rotation);
 }
 
 std::optional<std::vector<size_t>> RustDocumentPageMutationPath(

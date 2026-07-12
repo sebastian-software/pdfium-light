@@ -437,6 +437,10 @@ std::optional<std::array<float, 8>> RustPageObjectRotatedBounds(
     uint8_t object_type,
     const RustPageObjectMatrix& matrix,
     const std::array<float, 4>& bounds);
+std::optional<std::array<float, 4>> RustTransformPageAnnotationRect(
+    const RustPageObjectMatrix& matrix,
+    const std::array<float, 4>& rect);
+int RustPageRotationDegrees(int rotation);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,

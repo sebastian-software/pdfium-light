@@ -457,6 +457,33 @@ fn page_object_rotated_bounds(
     ])
 }
 
+fn page_annotation_transform_rect(matrix: [f32; 6], rect: [f32; 4]) -> [f32; 4] {
+    let transform = |x: f32, y: f32| {
+        [matrix[0] * x + matrix[2] * y + matrix[4], matrix[1] * x + matrix[3] * y + matrix[5]]
+    };
+    let points = [
+        transform(rect[0], rect[3]),
+        transform(rect[0], rect[1]),
+        transform(rect[2], rect[3]),
+        transform(rect[2], rect[1]),
+    ];
+    let mut right = points[0][0];
+    let mut left = points[0][0];
+    let mut top = points[0][1];
+    let mut bottom = points[0][1];
+    for point in &points[1..] {
+        right = if right < point[0] { point[0] } else { right };
+        left = if point[0] < left { point[0] } else { left };
+        top = if top < point[1] { point[1] } else { top };
+        bottom = if point[1] < bottom { point[1] } else { bottom };
+    }
+    [left, bottom, right, top]
+}
+
+fn page_rotation_degrees(rotation: i32) -> i32 {
+    (rotation % 4) * 90
+}
+
 impl Default for PdfNumberState {
     fn default() -> Self {
         Self { value: PdfNumberValue::Unsigned(0) }
@@ -3131,6 +3158,34 @@ pub unsafe extern "C" fn pdfium_rust_page_object_rotated_bounds(
     true
 }
 
+/// Transforms an annotation rectangle with C++-compatible corner reduction.
+///
+/// # Safety
+/// Inputs contain six and four readable floats; output contains four writable
+/// floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_page_annotation_transform_rect(
+    matrix: *const f32,
+    rect: *const f32,
+    output: *mut f32,
+) -> bool {
+    if matrix.is_null() || rect.is_null() || output.is_null() {
+        return false;
+    }
+    let transformed =
+        page_annotation_transform_rect(unsafe { *(matrix as *const [f32; 6]) }, unsafe {
+            *(rect as *const [f32; 4])
+        });
+    unsafe { *(output as *mut [f32; 4]) = transformed };
+    true
+}
+
+/// Converts the public quarter-turn value to dictionary degrees.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_page_rotation_degrees(rotation: i32) -> i32 {
+    page_rotation_degrees(rotation)
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -4783,5 +4838,26 @@ mod tests {
         assert_eq!([5.0, 77.0, 45.0, 97.0, 25.0, 157.0, -15.0, 137.0], quad);
         assert!(page_object_rotated_bounds(3, [1.0; 6], [0.0; 4]).is_some());
         assert!(page_object_rotated_bounds(2, [1.0; 6], [0.0; 4]).is_none());
+    }
+
+    #[test]
+    fn page_annotation_geometry_should_transform_rects_and_signed_rotation() {
+        assert_eq!(
+            [-15.0, 77.0, 45.0, 157.0],
+            page_annotation_transform_rect(
+                [2.0, 1.0, -1.0, 3.0, 5.0, 7.0],
+                [10.0, 20.0, 30.0, 40.0]
+            )
+        );
+        assert_eq!(90, page_rotation_degrees(5));
+        assert_eq!(-90, page_rotation_degrees(-5));
+        assert_eq!(0, page_rotation_degrees(4));
+
+        let transformed = page_annotation_transform_rect(
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            [f32::NAN, 0.0, 1.0, 1.0],
+        );
+        assert!(transformed[0].is_nan());
+        assert!(transformed[2].is_nan());
     }
 }

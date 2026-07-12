@@ -45,7 +45,6 @@
 #include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 
-
 namespace {
 
 static_assert(FPDF_PAGEOBJ_TEXT ==
@@ -327,7 +326,6 @@ FPDF_EXPORT FPDF_PAGE FPDF_CALLCONV FPDFPage_New(FPDF_DOCUMENT document,
   page_dict->SetNewFor<CPDF_Number>(pdfium::page_object::kRotate, 0);
   page_dict->SetNewFor<CPDF_Dictionary>(pdfium::page_object::kResources);
 
-
   auto pPage = pdfium::MakeRetain<CPDF_Page>(doc, std::move(page_dict));
   pPage->AddPageImageCache();
   pPage->ParseContent();
@@ -398,10 +396,10 @@ FPDFPage_RemoveObject(FPDF_PAGE page, FPDF_PAGEOBJECT page_object) {
   return !!pPage->RemovePageObject(pPageObj).release();
 }
 
-FPDF_EXPORT int FPDF_CALLCONV FPDFPage_ApplyRedactions(
-    FPDF_PAGE page,
-    const FS_RECTF* rects,
-    unsigned long rect_count) {
+FPDF_EXPORT int FPDF_CALLCONV
+FPDFPage_ApplyRedactions(FPDF_PAGE page,
+                         const FS_RECTF* rects,
+                         unsigned long rect_count) {
   CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
   if (!IsPageObject(pPage)) {
     return FPDF_REDACTION_ERROR_INVALID_PAGE;
@@ -1118,7 +1116,21 @@ FPDF_EXPORT void FPDF_CALLCONV FPDFPage_TransformAnnots(FPDF_PAGE page,
     CPDF_Annot* pAnnot = AnnotList.GetAt(i);
     CFX_Matrix matrix((float)a, (float)b, (float)c, (float)d, (float)e,
                       (float)f);
-    CFX_FloatRect rect = matrix.TransformRect(pAnnot->GetRect());
+    CFX_FloatRect rect;
+    if (pdfium::rust::UseRustParserCandidate()) {
+      const CFX_FloatRect& original = pAnnot->GetRect();
+      const auto transformed = pdfium::rust::RustTransformPageAnnotationRect(
+          RustPageObjectMatrixFromCFXMatrix(matrix),
+          {original.left, original.bottom, original.right, original.top});
+      if (transformed.has_value()) {
+        rect = CFX_FloatRect((*transformed)[0], (*transformed)[1],
+                             (*transformed)[2], (*transformed)[3]);
+      } else {
+        rect = matrix.TransformRect(original);
+      }
+    } else {
+      rect = matrix.TransformRect(pAnnot->GetRect());
+    }
 
     RetainPtr<CPDF_Dictionary> pAnnotDict = pAnnot->GetMutableAnnotDict();
     RetainPtr<CPDF_Array> pRectArray = pAnnotDict->GetMutableArrayFor("Rect");
@@ -1144,9 +1156,15 @@ FPDF_EXPORT void FPDF_CALLCONV FPDFPage_SetRotation(FPDF_PAGE page,
     return;
   }
 
-  rotate %= 4;
+  int degrees;
+  if (pdfium::rust::UseRustParserCandidate()) {
+    degrees = pdfium::rust::RustPageRotationDegrees(rotate);
+  } else {
+    rotate %= 4;
+    degrees = rotate * 90;
+  }
   pPage->GetMutableDict()->SetNewFor<CPDF_Number>(pdfium::page_object::kRotate,
-                                                  rotate * 90);
+                                                  degrees);
   pPage->UpdateDimensions();
 }
 
