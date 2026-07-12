@@ -141,6 +141,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `d13ca6f5d` Phase 7 text-hit-testing slice | 20,915 | 14,104 | 241 | 5,379 | 6,570 | 286,176 | 7.31% | 6.75% | Rust owns character-rectangle containment, tolerance expansion, nearest-edge selection, and tie order; C++ retains character rectangles, the synchronous rectangle callback, public wrappers, and the separately selected oracle |
 | `244e6f130` Phase 7 text-selection-rectangle slice | 21,087 | 14,276 | 241 | 5,456 | 6,570 | 286,525 | 7.36% | 6.82% | Rust owns selected-rectangle grouping, normalization, union, range handling, and retained public result state; C++ retains character metadata, the synchronous callback, public wrappers, and the separately selected oracle |
 | `9216b82ed` Phase 7 visible-text-range slice | 21,155 | 14,344 | 241 | 5,480 | 6,570 | 286,654 | 7.38% | 6.85% | Rust owns printable range-edge scanning and visible-buffer range calculation; C++ retains the text buffer, final substring copy, public wrapper, and the separately selected oracle |
+| `f9b2e8c81` Phase 7 predicate-text-assembly slice | 21,281 | 14,470 | 241 | 5,540 | 6,570 | 286,897 | 7.42% | 6.90% | Rust owns bounded/object-selected character assembly, intervening spaces, line-transition state, and CRLF insertion; C++ retains predicate evaluation, character metadata, final `WideString` conversion, public wrappers, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1368,6 +1369,22 @@ Nine native Rust text tests and a same-process public comparison of exact
 buffers and return lengths across invalid, empty, clipped, and non-printing
 ranges pass, together with all seven search-extension tests, all 66 public text
 tests, all 1,069 unit tests, and `pdfium_all`.
+
+The sixteenth Phase 7 slice moves `GetTextByPredicate()` assembly into Rust for
+both bounded-rectangle and text-object selection. Rust owns included/excluded
+character state, intervening-space preservation, vertical transition tracking,
+CRLF insertion, zero-Unicode filtering, and output code-point order. C++
+retains predicate evaluation against native geometry/object identity, borrowed
+Unicode/origin metadata through a synchronous callback, final `WideString`
+conversion, public wrappers, and the separately selected loop.
+
+The candidate retains O(n) traversal and O(output) memory, using a temporary
+Rust code-point result before the required native string value copy. Ten native
+Rust text tests cover space and line-transition behavior. A same-process public
+matrix compares required lengths, copied lengths, every UTF-16 code unit, and
+untouched buffer capacity for partial, full-page, and empty rectangles. All
+seven search-extension tests, all 67 public text tests, all 1,069 unit tests,
+and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
