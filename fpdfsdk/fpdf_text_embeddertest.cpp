@@ -1467,6 +1467,38 @@ TEST_F(FPDFTextEmbedderTest, CountRects) {
   }
 }
 
+TEST_F(FPDFTextEmbedderTest, RustSelectionRectsMatchCppOracle) {
+  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    int count;
+    std::vector<std::array<double, 4>> rects;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust, int start, int count) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    Snapshot snapshot = {FPDFText_CountRects(text_page.get(), start, count),
+                         {}};
+    for (int index = 0; index < snapshot.count; ++index) {
+      std::array<double, 4> rect = {};
+      EXPECT_TRUE(FPDFText_GetRect(text_page.get(), index, &rect[0], &rect[1],
+                                  &rect[2], &rect[3]));
+      snapshot.rects.push_back(rect);
+    }
+    return snapshot;
+  };
+
+  static constexpr std::pair<int, int> kCases[] = {
+      {-1, 1}, {0, 0}, {0, 1}, {0, -1}, {15, 500}, {29, -1}, {30, 1}};
+  for (const auto& [start, count] : kCases) {
+    EXPECT_EQ(run(false, start, count), run(true, start, count));
+  }
+}
+
 TEST_F(FPDFTextEmbedderTest, GetText) {
   ASSERT_TRUE(OpenDocument("hello_world.pdf"));
   ScopedPage page = LoadScopedPage(0);
