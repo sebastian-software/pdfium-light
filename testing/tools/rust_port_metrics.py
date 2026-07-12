@@ -87,6 +87,7 @@ ACTIVE_SURFACES = (
     "PDF text backend route planning",
     "PDF stroked-text device-matrix adjustment planning",
     "PDF path-text fill-option planning",
+    "PDF text backend execution",
     "cross-reference stream big-endian field reading",
     "cross-reference stream object-type validation",
     "cross-reference stream effective entry-type planning",
@@ -99,7 +100,6 @@ ACTIVE_SURFACES = (
     "complete simple PDF token scanning",
 )
 CANDIDATE_SURFACES = (
-    "PDF text draw backend execution",
     "cross-reference stream object graph mutation",
 )
 

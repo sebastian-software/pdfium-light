@@ -94,6 +94,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `8dc87fd9e` Phase 5 text-backend slice | 15,292 | 8,481 | 241 | 3,364 | 6,570 | 275,848 | 5.54% | 4.22% | Prior surfaces plus Rust-owned normal/path text-backend route; C++ retains backend calls and arguments |
 | `8ff532f47` Phase 5 text-CTM slice | 15,326 | 8,515 | 241 | 3,383 | 6,570 | 275,906 | 5.55% | 4.23% | Prior surfaces plus Rust-owned stroked-text CTM-adjustment decision; C++ retains matrix work and backend calls |
 | `9286e9a6d` Phase 5 path-text options slice | 15,385 | 8,574 | 241 | 3,413 | 6,570 | 276,002 | 5.57% | 4.26% | Prior surfaces plus Rust-owned path-text fill/stroke option planning; C++ retains objects and backend calls |
+| `6ca019d65` Phase 5 text-backend execution slice | 16,264 | 9,453 | 241 | 3,746 | 6,570 | 277,467 | 5.86% | 4.67% | Prior surfaces plus Rust-owned pattern/path/normal text-backend invocation; C++ retains objects, matrices, colors, and concrete backend implementation |
 | `e122a59b0` Phase 6 xref-field slice | 15,439 | 8,628 | 241 | 3,468 | 6,570 | 276,122 | 5.59% | 4.29% | Prior surfaces plus Rust-owned variable-width cross-reference field reading; C++ retains stream interpretation and cross-reference ownership |
 | `9dfe83b11` Phase 6 xref-type slice | 15,488 | 8,677 | 241 | 3,479 | 6,570 | 276,197 | 5.61% | 4.31% | Prior surfaces plus Rust-owned cross-reference object-type validation; C++ retains entry interpretation and table mutation |
 | `64abd58c8` Phase 6 xref-entry slice | 15,528 | 8,717 | 241 | 3,494 | 6,570 | 276,271 | 5.62% | 4.33% | Prior surfaces plus Rust-owned effective cross-reference entry-type planning; C++ retains field interpretation and table mutation |
@@ -690,6 +691,19 @@ preserves the special combined fill-and-stroke flags plus stroke adjustment
 and text smoothing. C++ keeps the text object and render options, and still
 calls `DrawTextPath()` with the planned result. The Rust unit suite covers
 stroke-only, combined, and independent adjustment/smoothing cases.
+
+The seventh Phase 5 slice moves pattern, path, or normal text-backend execution
+into Rust. Rust chooses the command with pattern precedence and invokes exactly
+one synchronous C++ callback, returning the concrete backend result unchanged.
+C++ continues to own text/font objects, matrices, color resolution, device
+state, path preparation, and the concrete renderer calls. Twenty-nine native
+render tests cover command priority, callback result propagation, and invalid
+boundaries without output mutation.
+
+The full differential gate opens a fresh document for each Oracle/Candidate
+render so glyph and font caches cannot leak from the first run into the second.
+All 19 renderer cases match bitmap dimensions, format, stride, bytes, and every
+core/AGG/glyph/backend trace; `pdfium_all` builds and all 1,057 unit tests pass.
 
 ## Phase 6 parser and PDF object graph
 

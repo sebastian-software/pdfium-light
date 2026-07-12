@@ -102,9 +102,11 @@ the AGG path, draw-plan, stroke-matrix, dash-decision, dash-value, and phase
 traces plus every glyph bitmap cache-key word, checked bitmap-origin plan,
 device-origin rounding decision, aggregated glyph bounds, bitmap lookup action,
 FreeType glyph load plan, PDF text dispatch decision, and active text-pattern
-decision plus text-matrix availability. AGG and FreeType remain the retained
-raster and font backends; these tests validate the Rust-owned planning and
-adapter boundaries around them.
+decision plus text-matrix availability and the executed pattern/path/normal
+text backend. AGG and FreeType remain the retained raster and font backends;
+these tests validate the Rust-owned planning and adapter boundaries around
+them. The harness opens independent documents for Oracle and Candidate so
+glyph/font cache state cannot hide or manufacture trace differences.
 
 For Rust parser changes, build the native parser tests, the C++ object-snapshot
 corpus, and the retained parser fuzzer source:
