@@ -9,6 +9,43 @@
 
 namespace pdfium::rust {
 
+struct RustCrossRefObjectInfo {
+  uint8_t type;
+  bool is_object_stream;
+  uint16_t generation;
+  int64_t position;
+  uint32_t archive_object_number;
+  uint32_t archive_object_index;
+};
+
+using RustCrossRefSnapshotCallback =
+    bool (*)(void* context,
+             uint32_t object_number,
+             const RustCrossRefObjectInfo& info);
+
+class RustCrossRefTable final {
+ public:
+  RustCrossRefTable();
+  RustCrossRefTable(const RustCrossRefTable&) = delete;
+  RustCrossRefTable& operator=(const RustCrossRefTable&) = delete;
+  ~RustCrossRefTable();
+
+  bool AddCompressed(uint32_t object_number,
+                     uint32_t archive_object_number,
+                     uint32_t archive_object_index);
+  bool AddNormal(uint32_t object_number,
+                 uint16_t generation,
+                 bool is_object_stream,
+                 int64_t position);
+  bool SetFree(uint32_t object_number, uint16_t generation);
+  bool SetSize(uint32_t size);
+  bool OverlayFrom(RustCrossRefTable* top);
+  bool Snapshot(void* context, RustCrossRefSnapshotCallback callback) const;
+
+ private:
+  void* state_;
+};
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);

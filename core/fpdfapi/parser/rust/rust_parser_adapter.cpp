@@ -4,6 +4,38 @@
 
 namespace {
 
+using RawCrossRefSnapshotCallback = bool (*)(void*,
+                                             uint32_t,
+                                             uint8_t,
+                                             bool,
+                                             uint16_t,
+                                             int64_t,
+                                             uint32_t,
+                                             uint32_t);
+
+extern "C" void* pdfium_rust_cross_ref_table_new();
+extern "C" void pdfium_rust_cross_ref_table_destroy(void* state);
+extern "C" bool pdfium_rust_cross_ref_table_add_compressed(
+    void* state,
+    uint32_t object_number,
+    uint32_t archive_object_number,
+    uint32_t archive_object_index);
+extern "C" bool pdfium_rust_cross_ref_table_add_normal(void* state,
+                                                       uint32_t object_number,
+                                                       uint16_t generation,
+                                                       bool is_object_stream,
+                                                       int64_t position);
+extern "C" bool pdfium_rust_cross_ref_table_set_free(void* state,
+                                                     uint32_t object_number,
+                                                     uint16_t generation);
+extern "C" bool pdfium_rust_cross_ref_table_set_size(void* state,
+                                                     uint32_t size);
+extern "C" bool pdfium_rust_cross_ref_table_overlay(void* current, void* top);
+extern "C" bool pdfium_rust_cross_ref_table_snapshot(
+    const void* state,
+    void* context,
+    RawCrossRefSnapshotCallback callback);
+
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
                                                     uint32_t* output);
@@ -83,6 +115,70 @@ thread_local bool g_use_rust_parser_candidate = true;
 }  // namespace
 
 namespace pdfium::rust {
+
+RustCrossRefTable::RustCrossRefTable()
+    : state_(pdfium_rust_cross_ref_table_new()) {}
+
+RustCrossRefTable::~RustCrossRefTable() {
+  pdfium_rust_cross_ref_table_destroy(state_);
+}
+
+bool RustCrossRefTable::AddCompressed(uint32_t object_number,
+                                      uint32_t archive_object_number,
+                                      uint32_t archive_object_index) {
+  return pdfium_rust_cross_ref_table_add_compressed(
+      state_, object_number, archive_object_number, archive_object_index);
+}
+
+bool RustCrossRefTable::AddNormal(uint32_t object_number,
+                                  uint16_t generation,
+                                  bool is_object_stream,
+                                  int64_t position) {
+  return pdfium_rust_cross_ref_table_add_normal(
+      state_, object_number, generation, is_object_stream, position);
+}
+
+bool RustCrossRefTable::SetFree(uint32_t object_number, uint16_t generation) {
+  return pdfium_rust_cross_ref_table_set_free(state_, object_number,
+                                              generation);
+}
+
+bool RustCrossRefTable::SetSize(uint32_t size) {
+  return pdfium_rust_cross_ref_table_set_size(state_, size);
+}
+
+bool RustCrossRefTable::OverlayFrom(RustCrossRefTable* top) {
+  return top && pdfium_rust_cross_ref_table_overlay(state_, top->state_);
+}
+
+bool RustCrossRefTable::Snapshot(void* context,
+                                 RustCrossRefSnapshotCallback callback) const {
+  if (!context || !callback) {
+    return false;
+  }
+  struct SnapshotContext {
+    void* outer_context;
+    RustCrossRefSnapshotCallback outer_callback;
+  } snapshot_context = {context, callback};
+  const auto forward = [](void* raw_context, uint32_t object_number,
+                          uint8_t type, bool is_object_stream,
+                          uint16_t generation, int64_t position,
+                          uint32_t archive_object_number,
+                          uint32_t archive_object_index) -> bool {
+    auto* context = static_cast<SnapshotContext*>(raw_context);
+    const RustCrossRefObjectInfo info = {
+        .type = type,
+        .is_object_stream = is_object_stream,
+        .generation = generation,
+        .position = position,
+        .archive_object_number = archive_object_number,
+        .archive_object_index = archive_object_index,
+    };
+    return context->outer_callback(context->outer_context, object_number, info);
+  };
+  return pdfium_rust_cross_ref_table_snapshot(state_, &snapshot_context,
+                                              forward);
+}
 
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input) {
