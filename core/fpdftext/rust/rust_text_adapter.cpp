@@ -73,6 +73,33 @@ extern "C" bool pdfium_rust_text_line_plan_emission(const void* state,
                                                      size_t index,
                                                      size_t* character_index,
                                                      bool* is_rtl);
+extern "C" void* pdfium_rust_text_add_character_plan_new(
+    uint8_t char_type,
+    uint32_t char_code,
+    uint32_t info_unicode,
+    uint32_t display_unicode,
+    bool is_rtl);
+extern "C" void pdfium_rust_text_add_character_plan_free(void* state);
+extern "C" bool pdfium_rust_text_add_character_plan_needs_normalization(
+    const void* state);
+extern "C" bool pdfium_rust_text_add_character_plan_needs_display_unicode(
+    const void* state);
+extern "C" bool pdfium_rust_text_add_character_plan_set_display_unicode(
+    void* state,
+    uint32_t display_unicode);
+extern "C" bool pdfium_rust_text_add_character_plan_set_normalization(
+    void* state,
+    const uint32_t* normalized,
+    size_t normalized_len);
+extern "C" size_t pdfium_rust_text_add_character_plan_emission_count(
+    const void* state);
+extern "C" bool pdfium_rust_text_add_character_plan_emission(
+    const void* state,
+    size_t index,
+    uint32_t* unicode,
+    bool* append_text,
+    bool* set_unicode,
+    uint8_t* char_type);
 extern "C" void* pdfium_rust_text_find_new(const uint32_t* page_text,
                                            size_t page_text_len,
                                            const uint32_t* query,
@@ -281,6 +308,60 @@ std::optional<RustTextEmission> RustTextLinePlan::GetEmission(
   if (!state_ || !pdfium_rust_text_line_plan_emission(
                      state_, index, &emission.character_index,
                      &emission.is_rtl)) {
+    return std::nullopt;
+  }
+  return emission;
+}
+
+RustTextAddCharacterPlan::RustTextAddCharacterPlan(
+    uint8_t char_type,
+    uint32_t char_code,
+    uint32_t info_unicode,
+    uint32_t display_unicode,
+    bool is_rtl)
+    : state_(pdfium_rust_text_add_character_plan_new(
+          char_type, char_code, info_unicode, display_unicode, is_rtl)) {}
+
+RustTextAddCharacterPlan::~RustTextAddCharacterPlan() {
+  pdfium_rust_text_add_character_plan_free(state_);
+}
+
+bool RustTextAddCharacterPlan::needs_display_unicode() const {
+  return state_ &&
+         pdfium_rust_text_add_character_plan_needs_display_unicode(state_);
+}
+
+bool RustTextAddCharacterPlan::SetDisplayUnicode(uint32_t display_unicode) {
+  return state_ && pdfium_rust_text_add_character_plan_set_display_unicode(
+                       state_, display_unicode);
+}
+
+bool RustTextAddCharacterPlan::needs_normalization() const {
+  return state_ &&
+         pdfium_rust_text_add_character_plan_needs_normalization(state_);
+}
+
+bool RustTextAddCharacterPlan::SetNormalization(
+    pdfium::span<const wchar_t> normalized) {
+  std::vector<uint32_t> code_points;
+  code_points.reserve(normalized.size());
+  for (wchar_t character : normalized) {
+    code_points.push_back(static_cast<uint32_t>(character));
+  }
+  return state_ && pdfium_rust_text_add_character_plan_set_normalization(
+                       state_, code_points.data(), code_points.size());
+}
+
+size_t RustTextAddCharacterPlan::emission_count() const {
+  return state_ ? pdfium_rust_text_add_character_plan_emission_count(state_) : 0;
+}
+
+std::optional<RustTextCharacterEmission> RustTextAddCharacterPlan::GetEmission(
+    size_t index) const {
+  RustTextCharacterEmission emission = {};
+  if (!state_ || !pdfium_rust_text_add_character_plan_emission(
+                     state_, index, &emission.unicode, &emission.append_text,
+                     &emission.set_unicode, &emission.char_type)) {
     return std::nullopt;
   }
   return emission;

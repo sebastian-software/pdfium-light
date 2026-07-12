@@ -183,6 +183,36 @@ class RustTextLinePlan final {
   void* state_;
 };
 
+struct RustTextCharacterEmission {
+  uint32_t unicode;
+  bool append_text;
+  bool set_unicode;
+  uint8_t char_type;
+};
+
+class RustTextAddCharacterPlan final {
+ public:
+  RustTextAddCharacterPlan(uint8_t char_type,
+                           uint32_t char_code,
+                           uint32_t info_unicode,
+                           uint32_t display_unicode,
+                           bool is_rtl);
+  RustTextAddCharacterPlan(const RustTextAddCharacterPlan&) = delete;
+  RustTextAddCharacterPlan& operator=(const RustTextAddCharacterPlan&) = delete;
+  ~RustTextAddCharacterPlan();
+
+  bool valid() const { return state_ != nullptr; }
+  bool needs_display_unicode() const;
+  bool SetDisplayUnicode(uint32_t display_unicode);
+  bool needs_normalization() const;
+  bool SetNormalization(pdfium::span<const wchar_t> normalized);
+  size_t emission_count() const;
+  std::optional<RustTextCharacterEmission> GetEmission(size_t index) const;
+
+ private:
+  void* state_;
+};
+
 class RustTextLinkExtract final {
  public:
   RustTextLinkExtract();

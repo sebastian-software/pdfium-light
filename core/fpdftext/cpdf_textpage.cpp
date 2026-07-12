@@ -935,6 +935,59 @@ void CPDF_TextPage::ProcessFormObject(CPDF_FormObject* form_obj,
 }
 
 void CPDF_TextPage::AddCharInfo(wchar_t wc, const CharInfo& info, bool is_rtl) {
+  if (use_rust_) {
+    auto process_rust = [&]() {
+      pdfium::rust::RustTextAddCharacterPlan plan(
+          static_cast<uint8_t>(info.char_type()), info.char_code(),
+          static_cast<uint32_t>(info.unicode()), static_cast<uint32_t>(wc),
+          is_rtl);
+      if (!plan.valid()) {
+        return false;
+      }
+      wchar_t display_character = wc;
+      if (plan.needs_display_unicode()) {
+        display_character = pdfium::unicode::GetMirrorChar(wc);
+        if (!plan.SetDisplayUnicode(
+                static_cast<uint32_t>(display_character))) {
+          return false;
+        }
+      }
+      if (plan.needs_normalization()) {
+        DataVector<wchar_t> normalized =
+            GetUnicodeNormalization(display_character);
+        if (!plan.SetNormalization(normalized)) {
+          return false;
+        }
+      }
+      std::vector<pdfium::rust::RustTextCharacterEmission> emissions;
+      emissions.reserve(plan.emission_count());
+      for (size_t index = 0; index < plan.emission_count(); ++index) {
+        const auto emission = plan.GetEmission(index);
+        if (!emission.has_value() ||
+            emission->char_type > static_cast<uint8_t>(CharType::kPiece)) {
+          return false;
+        }
+        emissions.push_back(*emission);
+      }
+      for (const auto& emission : emissions) {
+        CharInfo modified_info = info;
+        modified_info.set_char_type(
+            static_cast<CharType>(emission.char_type));
+        if (emission.set_unicode) {
+          modified_info.set_unicode(static_cast<wchar_t>(emission.unicode));
+        }
+        if (emission.append_text) {
+          text_buf_.AppendChar(static_cast<wchar_t>(emission.unicode));
+        }
+        char_list_.push_back(modified_info);
+      }
+      return true;
+    };
+    if (process_rust()) {
+      return;
+    }
+  }
+
   if (!IsNormalCharacter(info)) {
     char_list_.push_back(info);
     return;

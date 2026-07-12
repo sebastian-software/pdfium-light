@@ -67,6 +67,104 @@ pub struct TextLinePlanState {
     emissions: Vec<(usize, bool)>,
 }
 
+struct TextCharacterEmission {
+    unicode: u32,
+    append_text: bool,
+    set_unicode: bool,
+    char_type: u8,
+}
+
+pub struct TextAddCharacterPlanState {
+    display_unicode: u32,
+    original_char_type: u8,
+    is_rtl: bool,
+    needs_display_unicode: bool,
+    needs_normalization: bool,
+    emissions: Vec<TextCharacterEmission>,
+}
+
+impl TextAddCharacterPlanState {
+    fn new(
+        char_type: u8,
+        char_code: u32,
+        info_unicode: u32,
+        display_unicode: u32,
+        is_rtl: bool,
+    ) -> Option<Self> {
+        if char_type > 4 {
+            return None;
+        }
+        let is_control =
+            matches!(info_unicode, 0x2 | 0x3 | 0x93 | 0x94 | 0x96 | 0x97 | 0x98 | 0xfffe)
+                && char_type != 3;
+        let is_normal = if info_unicode != 0 { !is_control } else { char_code != 0 };
+        let needs_display_unicode = is_normal && is_rtl;
+        let needs_normalization =
+            is_normal && !needs_display_unicode && (0xfb00..=0xfb06).contains(&display_unicode);
+        let emissions = if is_normal && !needs_display_unicode && !needs_normalization {
+            vec![TextCharacterEmission {
+                unicode: display_unicode,
+                append_text: true,
+                set_unicode: is_rtl,
+                char_type,
+            }]
+        } else if !is_normal {
+            vec![TextCharacterEmission {
+                unicode: info_unicode,
+                append_text: false,
+                set_unicode: false,
+                char_type,
+            }]
+        } else {
+            Vec::new()
+        };
+        Some(Self {
+            display_unicode,
+            original_char_type: char_type,
+            is_rtl,
+            needs_display_unicode,
+            needs_normalization,
+            emissions,
+        })
+    }
+
+    fn set_display_unicode(&mut self, display_unicode: u32) -> bool {
+        if !self.needs_display_unicode {
+            return false;
+        }
+        self.display_unicode = display_unicode;
+        self.needs_display_unicode = false;
+        self.needs_normalization = true;
+        true
+    }
+
+    fn set_normalization(&mut self, normalized: &[u32]) -> bool {
+        if !self.needs_normalization {
+            return false;
+        }
+        self.emissions = if normalized.is_empty() {
+            vec![TextCharacterEmission {
+                unicode: self.display_unicode,
+                append_text: true,
+                set_unicode: self.is_rtl,
+                char_type: self.original_char_type,
+            }]
+        } else {
+            normalized
+                .iter()
+                .map(|unicode| TextCharacterEmission {
+                    unicode: *unicode,
+                    append_text: true,
+                    set_unicode: true,
+                    char_type: 4,
+                })
+                .collect()
+        };
+        self.needs_normalization = false;
+        true
+    }
+}
+
 #[repr(C)]
 pub struct TextBidiSegment {
     start: usize,
@@ -1238,6 +1336,122 @@ pub unsafe extern "C" fn pdfium_rust_text_line_plan_emission(
     true
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_text_add_character_plan_new(
+    char_type: u8,
+    char_code: u32,
+    info_unicode: u32,
+    display_unicode: u32,
+    is_rtl: bool,
+) -> *mut TextAddCharacterPlanState {
+    let Some(state) =
+        TextAddCharacterPlanState::new(char_type, char_code, info_unicode, display_unicode, is_rtl)
+    else {
+        return core::ptr::null_mut();
+    };
+    Box::into_raw(Box::new(state))
+}
+
+/// # Safety
+/// `state` must be null or returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_add_character_plan_free(
+    state: *mut TextAddCharacterPlanState,
+) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_add_character_plan_needs_normalization(
+    state: *const TextAddCharacterPlanState,
+) -> bool {
+    unsafe { state.as_ref() }.is_some_and(|state| state.needs_normalization)
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_add_character_plan_needs_display_unicode(
+    state: *const TextAddCharacterPlanState,
+) -> bool {
+    unsafe { state.as_ref() }.is_some_and(|state| state.needs_display_unicode)
+}
+
+/// Supplies the native mirrored display character when requested by Rust.
+///
+/// # Safety
+/// `state` must remain writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_add_character_plan_set_display_unicode(
+    state: *mut TextAddCharacterPlanState,
+    display_unicode: u32,
+) -> bool {
+    unsafe { state.as_mut() }.is_some_and(|state| state.set_display_unicode(display_unicode))
+}
+
+/// Supplies native Unicode normalization output when requested by Rust.
+///
+/// # Safety
+/// State and the code-point span must remain readable/writable for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_add_character_plan_set_normalization(
+    state: *mut TextAddCharacterPlanState,
+    normalized: *const u32,
+    normalized_len: usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    let normalized = if normalized_len == 0 {
+        &[]
+    } else if normalized.is_null() {
+        return false;
+    } else {
+        unsafe { core::slice::from_raw_parts(normalized, normalized_len) }
+    };
+    state.set_normalization(normalized)
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_add_character_plan_emission_count(
+    state: *const TextAddCharacterPlanState,
+) -> usize {
+    unsafe { state.as_ref() }.map_or(0, |state| state.emissions.len())
+}
+
+/// # Safety
+/// State and all outputs must remain readable/writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_add_character_plan_emission(
+    state: *const TextAddCharacterPlanState,
+    index: usize,
+    unicode: *mut u32,
+    append_text: *mut bool,
+    set_unicode: *mut bool,
+    char_type: *mut u8,
+) -> bool {
+    let (Some(emission), Some(unicode), Some(append_text), Some(set_unicode), Some(char_type)) = (
+        unsafe { state.as_ref() }.and_then(|state| state.emissions.get(index)),
+        unsafe { unicode.as_mut() },
+        unsafe { append_text.as_mut() },
+        unsafe { set_unicode.as_mut() },
+        unsafe { char_type.as_mut() },
+    ) else {
+        return false;
+    };
+    *unicode = emission.unicode;
+    *append_text = emission.append_text;
+    *set_unicode = emission.set_unicode;
+    *char_type = emission.char_type;
+    true
+}
+
 /// # Safety
 /// The inclusion span must remain readable for this call.
 #[unsafe(no_mangle)]
@@ -1610,6 +1824,33 @@ mod tests {
             ],
         ));
         assert_eq!(vec![(0, false), (1, false), (3, true), (2, true)], plan.emissions);
+    }
+
+    #[test]
+    fn add_character_plan_should_classify_controls_and_expand_ligatures() {
+        let control = TextAddCharacterPlanState::new(0, 2, 2, 2, false)
+            .expect("the test character type is valid");
+        assert!(!control.emissions[0].append_text);
+
+        let mut ligature = TextAddCharacterPlanState::new(0, 0xfb00, 0xfb00, 0xfb00, false)
+            .expect("the test character type is valid");
+        assert!(ligature.needs_normalization);
+        assert!(ligature.set_normalization(&[b'f' as u32, b'f' as u32]));
+        assert_eq!(
+            vec![(b'f' as u32, 4), (b'f' as u32, 4)],
+            ligature
+                .emissions
+                .iter()
+                .map(|emission| (emission.unicode, emission.char_type))
+                .collect::<Vec<_>>()
+        );
+
+        let mut rtl =
+            TextAddCharacterPlanState::new(0, b'(' as u32, b'(' as u32, b'(' as u32, true)
+                .expect("the test character type is valid");
+        assert!(rtl.needs_display_unicode);
+        assert!(rtl.set_display_unicode(b')' as u32));
+        assert!(rtl.needs_normalization);
     }
 
     #[test]
