@@ -1920,6 +1920,25 @@ misses. The existing destination and Link-to-Annotation regressions also pass.
 All three focused public cases, all 54 parser-native tests, all 1,072 unit
 tests, and `pdfium_all` pass.
 
+The forty-seventh Phase 7 slice moves decoded-name lookup in document name
+trees into Rust. Rust owns `/Limits` pruning, sorted leaf scanning,
+depth-first child order, the historical 32-level bound, and exact object-number
+cycle guarding across arrays and children. C++ retains dictionaries, arrays,
+decoded Unicode comparisons, object numbers, and value lifetimes, supplies
+synchronous borrowed callbacks, and preserves the complete original lookup as
+the separately selected oracle. Count, indexed lookup, insertion, and deletion
+retain their existing ownership boundaries.
+
+Valid lookup remains O(nodes + entries) in expected time, with O(depth) stack
+and O(nodes) visited-set storage. Two parser-native tests cover limits, sorted
+leaf termination, depth-first order, exact hits, misses, callback failure,
+array tokens, child cycles, and the depth cutoff. The same-process NameTree
+differential compares exact value handles for five present names and three
+misses, alongside the existing count and indexed-lookup corpus. The Unicode
+BOM lookup, lookup-only limits behavior, all mutation cases, and five public
+named-destination cases also pass. Evidence includes all 56 parser-native
+tests, all 1,072 unit tests, and `pdfium_all`.
+
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
 Focused tests cover every default entry, full generated palettes, mutation of
