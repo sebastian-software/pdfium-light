@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include <optional>
+#include <vector>
 
 #include "core/fxcrt/span.h"
 
@@ -232,6 +233,11 @@ class RustDocumentPageIndex final {
  private:
   void* state_;
 };
+
+std::optional<std::vector<int>> RustDocumentMovePageDeletionOrder(
+    pdfium::span<const int> page_indices,
+    size_t num_pages,
+    int destination);
 
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);

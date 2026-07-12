@@ -1903,6 +1903,42 @@ pub unsafe extern "C" fn pdfium_rust_document_page_index_contains(
     unsafe { state.as_ref() }.is_some_and(|state| state.object_numbers.contains(&object_number))
 }
 
+/// Plans public page movement without touching document state.
+///
+/// # Safety
+/// Nonempty `page_indices` and `deletion_order` must identify `len` readable
+/// and writable values respectively.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_move_page_plan(
+    page_indices: *const i32,
+    len: usize,
+    num_pages: usize,
+    destination: i32,
+    deletion_order: *mut i32,
+) -> bool {
+    if len == 0
+        || len > num_pages
+        || page_indices.is_null()
+        || deletion_order.is_null()
+        || destination < 0
+        || destination as usize > num_pages - len
+    {
+        return false;
+    }
+    let indices = unsafe { core::slice::from_raw_parts(page_indices, len) };
+    let mut unique = std::collections::BTreeSet::new();
+    for &index in indices {
+        if index < 0 || index as usize >= num_pages || !unique.insert(index) {
+            return false;
+        }
+    }
+    let output = unsafe { core::slice::from_raw_parts_mut(deletion_order, len) };
+    for (target, index) in output.iter_mut().zip(unique.iter().rev()) {
+        *target = *index;
+    }
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -2592,6 +2628,43 @@ mod tests {
         assert_eq!(vec![0, 10, 0], state.object_numbers);
         assert!(!unsafe { pdfium_rust_document_page_index_contains(&state, 20) });
         assert!(!unsafe { pdfium_rust_document_page_index_set(&mut state, 4, 99) });
+    }
+
+    #[test]
+    fn document_move_page_plan_should_validate_and_sort_deletions() {
+        let indices = [4, 1, 3];
+        let mut deletion_order = [0; 3];
+        assert!(unsafe {
+            pdfium_rust_document_move_page_plan(
+                indices.as_ptr(),
+                indices.len(),
+                7,
+                2,
+                deletion_order.as_mut_ptr(),
+            )
+        });
+        assert_eq!([4, 3, 1], deletion_order);
+
+        for invalid in [[1, 1, 3], [-1, 2, 3], [1, 2, 7]] {
+            assert!(!unsafe {
+                pdfium_rust_document_move_page_plan(
+                    invalid.as_ptr(),
+                    invalid.len(),
+                    7,
+                    2,
+                    deletion_order.as_mut_ptr(),
+                )
+            });
+        }
+        assert!(!unsafe {
+            pdfium_rust_document_move_page_plan(
+                indices.as_ptr(),
+                indices.len(),
+                7,
+                5,
+                deletion_order.as_mut_ptr(),
+            )
+        });
     }
 
     #[test]

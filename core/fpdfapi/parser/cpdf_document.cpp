@@ -752,14 +752,10 @@ bool CPDF_Document::MovePages(pdfium::span<const int> page_indices,
   }
   const size_t num_pages = num_pages_signed;
 
-  // Check the number of pages is in range.
-  if (page_indices.empty() || page_indices.size() > num_pages) {
-    return false;
-  }
-
-  // Check that destination page index is in range.
-  if (dest_page_index < 0 ||
-      static_cast<size_t>(dest_page_index) > num_pages - page_indices.size()) {
+  std::optional<std::vector<int>> deletion_order =
+      pdfium::rust::RustDocumentMovePageDeletionOrder(page_indices, num_pages,
+                                                      dest_page_index);
+  if (!deletion_order) {
     return false;
   }
 
@@ -770,39 +766,25 @@ bool CPDF_Document::MovePages(pdfium::span<const int> page_indices,
     return false;
   }
 
-  // Check for duplicate and out-of-range page indices
-  std::set<int> unique_page_indices;
   // Store the pages that need to be moved. They'll be deleted then reinserted.
   std::vector<RetainPtr<CPDF_Dictionary>> pages_to_move;
   pages_to_move.reserve(page_indices.size());
-  // Store the page indices that will be deleted (and moved).
-  std::vector<int> page_indices_to_delete;
-  page_indices_to_delete.reserve(page_indices.size());
   for (const int page_index : page_indices) {
-    bool inserted = unique_page_indices.insert(page_index).second;
-    if (!inserted) {
-      // Duplicate page index found
-      return false;
-    }
     RetainPtr<CPDF_Dictionary> page = GetMutablePageDictionary(page_index);
     if (!page) {
       // Page not found, index might be out of range.
       return false;
     }
     pages_to_move.push_back(std::move(page));
-    page_indices_to_delete.push_back(page_index);
   }
 
-  // Sort the page indices to be deleted in descending order.
-  std::sort(page_indices_to_delete.begin(), page_indices_to_delete.end(),
-            std::greater<int>());
   // Delete the pages in descending order.
   if (extension) {
-    for (int page_index : page_indices_to_delete) {
+    for (int page_index : *deletion_order) {
       extension->DeletePage(page_index);
     }
   } else {
-    for (int page_index : page_indices_to_delete) {
+    for (int page_index : *deletion_order) {
       DeletePage(page_index);
     }
   }
