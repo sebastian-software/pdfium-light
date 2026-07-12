@@ -132,6 +132,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `53f150f66` Phase 7 page-index-traversal slice | 18,901 | 12,090 | 241 | 4,823 | 6,570 | 282,912 | 6.68% | 5.86% | Rust owns page-object-number lookup traversal, cached-prefix skipping, count shortcuts, direct-reference lookup, and the depth bound; C++ retains borrowed dictionaries and exact fallback traversal |
 | `0dfd10951` Phase 7 SDK-page-range slice | 19,041 | 12,230 | 241 | 4,851 | 6,570 | 283,118 | 6.73% | 5.92% | Rust validates and expands the public import-page range grammar with exact order and duplicates; C++ retains the public wrapper, document import, and overflow oracle fallback |
 | `1ff59c226` Phase 7 page-tree-mutation slice | 19,255 | 12,444 | 241 | 4,897 | 6,570 | 283,500 | 6.79% | 6.01% | Rust selects nested insertion/deletion paths, subtree skips, and active-path cycle rejection; C++ retains dictionaries, reference writes, count updates, and the bounded fallback oracle |
+| `6c858cf2e` Phase 7 SDK-NUL-output slice | 19,322 | 12,511 | 241 | 4,915 | 6,570 | 283,613 | 6.81% | 6.04% | Rust owns required-length calculation and complete NUL-terminated byte-string copies for public SDK getters; C++ retains source strings, API wrappers, and checked public length conversion |
 
 ## Toolchain
 
@@ -1219,6 +1220,19 @@ The malformed-count regression proves `INT32_MIN` cannot panic across the FFI.
 The document create/move/delete Oracle/Candidate scenario, six public
 delete/save cases, the complete public move case, object-graph save/reload, all
 35 parser-native tests, all 1,068 unit tests, and `pdfium_all` pass.
+
+The seventh Phase 7 slice moves the shared byte-string output contract used by
+public action, document, viewer-preference, signature, image, and structure
+getters into Rust. Rust owns checked required-length calculation, trailing NUL,
+and the all-or-nothing copy rule that leaves undersized buffers untouched. C++
+retains source `ByteString` ownership, each public wrapper, and checked
+conversion to the public `unsigned long` length.
+
+Native coverage includes embedded NUL bytes and short/exact buffers. A
+same-process Oracle/Candidate matrix compares every output byte for zero,
+undersized, and exact capacities. Six representative public getter cases, all
+four SDK-helper tests, all 36 parser-native tests, all 1,069 unit tests, and
+`pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
