@@ -147,7 +147,7 @@ source_set("fxcrt") {
     "../../:pdfium_noshorten_config",
   ]
   deps = [
-    ":rust:rust_fxcrt_adapter",
+    "rust:rust_fxcrt_adapter",
     "//third_party/fast_float",
   ]
   public_deps = [
