@@ -8,6 +8,15 @@
 
 #include "core/fxcrt/compiler_specific.h"
 
+extern "C" bool pdfium_rust_text_index_at_position(
+    size_t character_count,
+    float point_x,
+    float point_y,
+    float tolerance_width,
+    float tolerance_height,
+    void* context,
+    pdfium::rust::RustTextRectCallback get_rect,
+    int32_t* output);
 extern "C" void* pdfium_rust_text_index_map_new(const uint8_t* included,
                                                  size_t included_len);
 extern "C" void pdfium_rust_text_index_map_free(void* state);
@@ -73,6 +82,23 @@ std::vector<uint32_t> ToCodePoints(WideStringView value) {
 }
 
 }  // namespace
+
+std::optional<int> RustTextIndexAtPosition(
+    size_t character_count,
+    float point_x,
+    float point_y,
+    float tolerance_width,
+    float tolerance_height,
+    void* context,
+    RustTextRectCallback get_rect) {
+  int32_t output = -1;
+  if (!pdfium_rust_text_index_at_position(
+          character_count, point_x, point_y, tolerance_width,
+          tolerance_height, context, get_rect, &output)) {
+    return std::nullopt;
+  }
+  return output;
+}
 
 RustTextIndexMap::RustTextIndexMap(pdfium::span<const uint8_t> included)
     : state_(pdfium_rust_text_index_map_new(included.data(), included.size())) {}

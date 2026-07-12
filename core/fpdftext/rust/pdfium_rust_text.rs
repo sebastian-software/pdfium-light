@@ -6,6 +6,14 @@
 
 type IndexMapCallback = unsafe extern "C" fn(*mut core::ffi::c_void, i32, *mut i32) -> bool;
 type IsAlphanumericCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
+type TextRectCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+) -> bool;
 
 #[derive(Clone)]
 pub struct TextFindState {
@@ -660,6 +668,83 @@ fn read_u32_span(data: *const u32, len: usize) -> Option<Vec<u32>> {
     (!data.is_null()).then(|| unsafe { core::slice::from_raw_parts(data, len).to_vec() })
 }
 
+fn normalize_rect(rect: &mut [f32; 4]) {
+    if rect[0] > rect[2] {
+        rect.swap(0, 2);
+    }
+    if rect[1] > rect[3] {
+        rect.swap(1, 3);
+    }
+}
+
+fn contains_point(rect: &[f32; 4], x: f32, y: f32) -> bool {
+    x <= rect[2] && x >= rect[0] && y <= rect[3] && y >= rect[1]
+}
+
+/// Computes the character nearest to a point within the requested tolerance.
+///
+/// # Safety
+/// The callback, context, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_index_at_position(
+    character_count: usize,
+    point_x: f32,
+    point_y: f32,
+    tolerance_width: f32,
+    tolerance_height: f32,
+    context: *mut core::ffi::c_void,
+    get_rect: Option<TextRectCallback>,
+    output: *mut i32,
+) -> bool {
+    let (Some(get_rect), Some(output)) = (get_rect, unsafe { output.as_mut() }) else {
+        return false;
+    };
+    if character_count > i32::MAX as usize {
+        return false;
+    }
+
+    let mut near_position = -1;
+    let mut x_difference = 5000.0_f64;
+    let mut y_difference = 5000.0_f64;
+    for position in 0..character_count {
+        let mut rect = [0.0; 4];
+        if !unsafe {
+            get_rect(context, position, &mut rect[0], &mut rect[1], &mut rect[2], &mut rect[3])
+        } {
+            return false;
+        }
+        normalize_rect(&mut rect);
+        if contains_point(&rect, point_x, point_y) {
+            *output = position as i32;
+            return true;
+        }
+        if tolerance_width <= 0.0 && tolerance_height <= 0.0 {
+            continue;
+        }
+
+        let extended = [
+            rect[0] - tolerance_width / 2.0,
+            rect[1] - tolerance_height / 2.0,
+            rect[2] + tolerance_width / 2.0,
+            rect[3] + tolerance_height / 2.0,
+        ];
+        if !contains_point(&extended, point_x, point_y) {
+            continue;
+        }
+        let current_x_difference =
+            f64::from((point_x - rect[0]).abs().min((point_x - rect[2]).abs()));
+        let current_y_difference =
+            f64::from((point_y - rect[1]).abs().min((point_y - rect[3]).abs()));
+        if current_y_difference + current_x_difference < x_difference + y_difference {
+            x_difference = current_x_difference;
+            y_difference = current_y_difference;
+            near_position = position as i32;
+        }
+    }
+    *output = near_position;
+    true
+}
+
 /// # Safety
 /// The inclusion span must remain readable for this call.
 #[unsafe(no_mangle)]
@@ -920,6 +1005,33 @@ pub unsafe extern "C" fn pdfium_rust_text_link_extract_url(
 mod tests {
     use super::*;
 
+    unsafe extern "C" fn test_get_rect(
+        context: *mut core::ffi::c_void,
+        index: usize,
+        left: *mut f32,
+        bottom: *mut f32,
+        right: *mut f32,
+        top: *mut f32,
+    ) -> bool {
+        let Some(rects) = (unsafe { (context as *const Vec<[f32; 4]>).as_ref() }) else {
+            return false;
+        };
+        let (Some(rect), Some(left), Some(bottom), Some(right), Some(top)) = (
+            rects.get(index),
+            unsafe { left.as_mut() },
+            unsafe { bottom.as_mut() },
+            unsafe { right.as_mut() },
+            unsafe { top.as_mut() },
+        ) else {
+            return false;
+        };
+        *left = rect[0];
+        *bottom = rect[1];
+        *right = rect[2];
+        *top = rect[3];
+        true
+    }
+
     unsafe extern "C" fn test_is_alphanumeric(
         _context: *mut core::ffi::c_void,
         character: u32,
@@ -939,6 +1051,39 @@ mod tests {
             vec![0, 1, -1, 2, -1, -1, 3, -1],
             (0..=7).map(|index| state.text_from_character(index)).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn index_at_position_should_prefer_containment_then_nearest_character() {
+        let rects = vec![[0.0, 0.0, 10.0, 10.0], [20.0, 0.0, 30.0, 10.0]];
+        let mut output = -1;
+        let context = std::ptr::from_ref(&rects).cast_mut().cast();
+        assert!(unsafe {
+            pdfium_rust_text_index_at_position(
+                rects.len(),
+                5.0,
+                5.0,
+                0.0,
+                0.0,
+                context,
+                Some(test_get_rect),
+                &mut output,
+            )
+        });
+        assert_eq!(0, output);
+        assert!(unsafe {
+            pdfium_rust_text_index_at_position(
+                rects.len(),
+                18.0,
+                5.0,
+                6.0,
+                0.0,
+                context,
+                Some(test_get_rect),
+                &mut output,
+            )
+        });
+        assert_eq!(1, output);
     }
 
     #[test]

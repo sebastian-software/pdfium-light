@@ -16,6 +16,22 @@
 
 namespace pdfium::rust {
 
+using RustTextRectCallback = bool (*)(void* context,
+                                      size_t index,
+                                      float* left,
+                                      float* bottom,
+                                      float* right,
+                                      float* top);
+
+std::optional<int> RustTextIndexAtPosition(
+    size_t character_count,
+    float point_x,
+    float point_y,
+    float tolerance_width,
+    float tolerance_height,
+    void* context,
+    RustTextRectCallback get_rect);
+
 class RustTextIndexMap final {
  public:
   explicit RustTextIndexMap(pdfium::span<const uint8_t> included);

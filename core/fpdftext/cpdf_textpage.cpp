@@ -509,6 +509,26 @@ std::vector<CFX_FloatRect> CPDF_TextPage::GetRectArray(int start,
 
 int CPDF_TextPage::GetIndexAtPos(const CFX_PointF& point,
                                  const CFX_SizeF& tolerance) const {
+  if (use_rust_) {
+    auto get_rect = [](void* context, size_t index, float* left, float* bottom,
+                       float* right, float* top) {
+      const auto* text_page = static_cast<const CPDF_TextPage*>(context);
+      if (index >= text_page->char_list_.size()) {
+        return false;
+      }
+      const CFX_FloatRect& rect = text_page->char_list_[index].char_box();
+      *left = rect.left;
+      *bottom = rect.bottom;
+      *right = rect.right;
+      *top = rect.top;
+      return true;
+    };
+    return pdfium::rust::RustTextIndexAtPosition(
+               char_list_.size(), point.x, point.y, tolerance.width,
+               tolerance.height, const_cast<CPDF_TextPage*>(this), get_rect)
+        .value_or(-1);
+  }
+
   int pos;
   int near_pos = -1;
   double xdif = 5000;
