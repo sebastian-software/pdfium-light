@@ -251,6 +251,41 @@ TEST_F(FPDFTextEmbedderTest, Text) {
   EXPECT_EQ(0xbdbd, buffer[10]);
 }
 
+TEST_F(FPDFTextEmbedderTest, RustIndexAtPositionMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Case {
+    double x;
+    double y;
+    double x_tolerance;
+    double y_tolerance;
+  };
+  static constexpr Case kCases[] = {
+      {42.0, 50.0, 1.0, 1.0},
+      {0.0, 0.0, 1.0, 1.0},
+      {199.0, 199.0, 1.0, 1.0},
+      {-1.0, 50.0, 1.0, 1.0},
+      {42.0, 10000000.0, 1.0, 1.0},
+      {42.0, 50.0, 0.0, 0.0},
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    std::vector<int> results;
+    for (const auto& test_case : kCases) {
+      results.push_back(FPDFText_GetCharIndexAtPos(
+          text_page.get(), test_case.x, test_case.y, test_case.x_tolerance,
+          test_case.y_tolerance));
+    }
+    return results;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
+
 TEST_F(FPDFTextEmbedderTest, TextVertical) {
   ASSERT_TRUE(OpenDocument("vertical_text.pdf"));
   ScopedPage page = LoadScopedPage(0);
