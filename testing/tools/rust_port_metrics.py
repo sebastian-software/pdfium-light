@@ -111,9 +111,10 @@ ACTIVE_SURFACES = (
     "PDF name binary value, mutation, clone, and encoding state",
     "PDF stream in-memory byte storage, mutation, sizing, and cloning",
     "PDF object slot membership and last-reference lifetime decisions",
+    "document page object-number indexing, caching, insertion, removal, and lookup",
 )
 CANDIDATE_SURFACES = (
-    "file-backed PDF stream data and native RetainPtr ABI storage and cycle breaking",
+    "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
 )
 
 

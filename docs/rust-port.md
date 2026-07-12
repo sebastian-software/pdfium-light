@@ -126,6 +126,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `76017a44f` Phase 6 public object-graph fuzzer gate | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,637 | 6.45% | 5.52% | Versioned inputs execute token and public document Oracle/Candidate comparisons for exact errors, metadata, page bounds, and boundary-page geometry in normal and ASan corpus runners |
 | `5525cc9a3` Phase 6 object-graph save/reload gate | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,722 | 6.44% | 5.52% | Catalog/page key order, types, MediaBox, filtered content bytes, text, and rendering remain exact after public save/reload; all six Rust codec/object-graph embedder cases pass |
 | `75380056e` Phase 6 object-slot-lifetime slice | 18,194 | 11,383 | 241 | 4,627 | 6,570 | 281,778 | 6.46% | 5.54% | Rust array, dictionary, and indirect-object states decide whether removed or replaced handles still occupy any slot; C++ retains one intrusive-pointer ABI handle without a duplicate reference-count policy |
+| `0b3f209ba` Phase 7 document-page-index slice | 18,341 | 11,530 | 241 | 4,708 | 6,570 | 282,125 | 6.50% | 5.60% | Rust owns the document page object-number cache, unloaded slots, lookup, resize, insertion, removal, and membership; C++ retains page-tree traversal and tree-dictionary mutation |
 
 ## Toolchain
 
@@ -1113,6 +1114,34 @@ handles, shared array/dictionary values, holder replacement/deletion, lazy
 views, save/reload, and the normal and ASan public parser corpus. All 28 Rust
 parser tests, 19 focused container/holder tests, all 1,066 unit tests, all six
 focused embedder tests, `pdfium_all`, and the ASan+LSan corpus pass.
+
+This completes the Phase 6 owned-state boundary. Intentionally retained native
+backends are file-backed `IFX_SeekableReadStream`, one intrusive
+`RetainPtr<CPDF_Object>` ABI value per live opaque handle, native cycle-sentinel
+destructors, encryption/compression/archive calls, and public C ABI wrappers.
+None retains a parallel PDF value, key map, object-number index, slot count, or
+in-memory stream buffer. The candidate ledger now advances to Phase 7 rather
+than treating these declared backends as unfinished parser behavior.
+
+## Phase 7 edit, document, text, and SDK implementation
+
+The first Phase 7 slice replaces `CPDF_Document::page_list_` in production with
+a Rust-owned object-number vector. Rust owns page-count cache size, unloaded
+zero slots, object-number lookup and membership, cache population, resize,
+insertion, and removal used by page creation, deletion, movement, traversal,
+and object-null replacement decisions. Each document fixes its Oracle/Candidate
+choice at construction.
+
+C++ retains the recursive PDF `/Pages` dictionary traversal and repair logic,
+page dictionary objects, extension callbacks, and public SDK entry points. A
+same-process scenario builds the seven-page nested tree independently under
+the oracle and candidate, loads pages out of order, creates a page, moves two
+pages, deletes one, then compares count, logical numbering, object numbers, and
+loaded state for every remaining page.
+
+All 29 parser-native Rust tests, all nine `DocumentTest` cases, six public page
+delete/save cases, the public page-move corpus, the object-graph save/reload
+test, all 1,067 unit tests, and `pdfium_all` pass in the full light build.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
