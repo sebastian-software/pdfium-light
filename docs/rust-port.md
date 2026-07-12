@@ -134,6 +134,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `1ff59c226` Phase 7 page-tree-mutation slice | 19,255 | 12,444 | 241 | 4,897 | 6,570 | 283,500 | 6.79% | 6.01% | Rust selects nested insertion/deletion paths, subtree skips, and active-path cycle rejection; C++ retains dictionaries, reference writes, count updates, and the bounded fallback oracle |
 | `6c858cf2e` Phase 7 SDK-NUL-output slice | 19,322 | 12,511 | 241 | 4,915 | 6,570 | 283,613 | 6.81% | 6.04% | Rust owns required-length calculation and complete NUL-terminated byte-string copies for public SDK getters; C++ retains source strings, API wrappers, and checked public length conversion |
 | `44e5d54fb` Phase 7 incremental-page-traversal slice | 19,763 | 12,952 | 241 | 5,034 | 6,570 | 284,343 | 6.95% | 6.24% | Rust owns the persistent traversal stack, child cursors, next-page cursor, depth state, and cache scheduling; C++ retains dictionary access and one unordered `RetainPtr` lifetime token per active Rust stack entry |
+| `85aab3743` Phase 7 public-text-search slice | 20,193 | 13,382 | 241 | 5,195 | 6,570 | 285,051 | 7.08% | 6.43% | A dedicated Rust text crate owns page/word search data, forward/backward cursors, match results, whole-word, spacing, and overlap policy; C++ retains case folding, query tokenization, and text/character index mapping |
 
 ## Toolchain
 
@@ -1253,6 +1254,23 @@ with exactly the same 51 documented macOS AGG static-golden failures;
 `LargeImageDoesNotRenderBlank` passes after 189.6 seconds. The rebuilt public
 parser corpus also completes under ASan+LSan with leak detection and immediate
 failure enabled.
+
+The ninth Phase 7 slice establishes a dedicated `core/fpdftext/rust` domain and
+replaces the production `CPDF_TextPageFind` state machine. Rust owns the copied
+page/search-word code points, forward and backward cursors, result bounds,
+consecutive-overlap behavior, whitespace-separated matching, whole-word rules,
+and previous-result scan. C++ retains PDF text-page ownership, historical case
+folding and query tokenization, public wrappers, and synchronous
+text-index/character-index mapping callbacks. Candidate construction keeps no
+parallel C++ page text, query vector, cursor, or result state.
+
+`FindPrev()` intentionally creates a temporary Rust search state just as the
+C++ oracle creates a temporary engine; time and memory complexity therefore
+remain unchanged. The first public run exposed the historical unset-result
+sentinel (`res_end = -1`), fixed separately by preserving its wrapping ABI
+conversion. Both native text tests, all 62 public text embedder cases, the
+five-scenario same-process Oracle/Candidate forward/backward matrix, all 1,069
+unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
