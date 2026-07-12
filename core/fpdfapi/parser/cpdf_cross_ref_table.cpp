@@ -45,13 +45,23 @@ void CPDF_CrossRefTable::AddCompressed(uint32_t obj_num,
   CHECK_LE(archive_obj_num, CPDF_Parser::kMaxObjectNumber);
 
   auto& info = objects_info_[obj_num];
-  if (info.gennum > 0) {
-    return;
-  }
-
-  // Don't add known object streams to object streams.
-  if (info.is_object_stream_flag) {
-    return;
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto action = pdfium::rust::RustCrossRefTableAddAction(
+        static_cast<uint8_t>(ObjectType::kCompressed), info.gennum,
+        info.is_object_stream_flag, 0);
+    CHECK(action.has_value());
+    if (*action == 0) {
+      return;
+    }
+    CHECK_EQ(2, *action);
+  } else {
+    if (info.gennum > 0) {
+      return;
+    }
+    // Don't add known object streams to object streams.
+    if (info.is_object_stream_flag) {
+      return;
+    }
   }
 
   info.type = ObjectType::kCompressed;
@@ -69,7 +79,16 @@ void CPDF_CrossRefTable::AddNormal(uint32_t obj_num,
   CHECK_LE(obj_num, CPDF_Parser::kMaxObjectNumber);
 
   auto& info = objects_info_[obj_num];
-  if (info.gennum > gen_num) {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto action = pdfium::rust::RustCrossRefTableAddAction(
+        static_cast<uint8_t>(ObjectType::kNormal), info.gennum,
+        info.is_object_stream_flag, gen_num);
+    CHECK(action.has_value());
+    if (*action == 0) {
+      return;
+    }
+    CHECK_EQ(1, *action);
+  } else if (info.gennum > gen_num) {
     return;
   }
 

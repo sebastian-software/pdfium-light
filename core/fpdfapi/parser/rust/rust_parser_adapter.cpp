@@ -34,6 +34,12 @@ extern "C" bool pdfium_rust_cross_ref_merge_action(
     bool current_is_object_stream,
     uint8_t new_type,
     uint8_t* output);
+extern "C" bool pdfium_rust_cross_ref_table_add_action(
+    uint8_t object_type,
+    uint16_t current_generation,
+    bool current_is_object_stream,
+    uint16_t new_generation,
+    uint8_t* output);
 extern "C" bool pdfium_rust_cross_ref_index_pair(int32_t start,
                                                  int32_t count,
                                                  uint32_t* output_start,
@@ -146,6 +152,20 @@ std::optional<uint8_t> RustCrossRefMergeAction(bool has_new,
   uint8_t output = 0;
   if (!pdfium_rust_cross_ref_merge_action(
           has_new, current_type, current_is_object_stream, new_type, &output) ||
+      output > 2) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+std::optional<uint8_t> RustCrossRefTableAddAction(uint8_t object_type,
+                                                  uint16_t current_generation,
+                                                  bool current_is_object_stream,
+                                                  uint16_t new_generation) {
+  uint8_t output = 0;
+  if (!pdfium_rust_cross_ref_table_add_action(object_type, current_generation,
+                                              current_is_object_stream,
+                                              new_generation, &output) ||
       output > 2) {
     return std::nullopt;
   }

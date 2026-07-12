@@ -59,6 +59,26 @@ fn cross_ref_merge_action(
     })
 }
 
+fn cross_ref_table_add_action(
+    object_type: u8,
+    current_generation: u16,
+    current_is_object_stream: bool,
+    new_generation: u16,
+) -> Option<u8> {
+    const SKIP: u8 = 0;
+    const APPLY: u8 = 1;
+    const APPLY_AND_MARK_ARCHIVE: u8 = 2;
+    match object_type {
+        1 => Some(if current_generation > new_generation { SKIP } else { APPLY }),
+        2 => Some(if current_generation > 0 || current_is_object_stream {
+            SKIP
+        } else {
+            APPLY_AND_MARK_ARCHIVE
+        }),
+        _ => None,
+    }
+}
+
 fn cross_ref_index_pair(start: i32, count: i32) -> Option<(u32, u32)> {
     if start < 0 || count <= 0 {
         return None;
@@ -410,6 +430,35 @@ pub unsafe extern "C" fn pdfium_rust_cross_ref_merge_action(
     unsafe {
         *output = action;
     }
+    true
+}
+
+/// Selects whether a normal or compressed cross-reference entry is admitted.
+///
+/// # Safety
+///
+/// `output` must point to one writable action byte.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_table_add_action(
+    object_type: u8,
+    current_generation: u16,
+    current_is_object_stream: bool,
+    new_generation: u16,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let Some(action) = cross_ref_table_add_action(
+        object_type,
+        current_generation,
+        current_is_object_stream,
+        new_generation,
+    ) else {
+        return false;
+    };
+    // SAFETY: The checked output pointer refers to one writable action byte.
+    unsafe { *output = action };
     true
 }
 
@@ -881,6 +930,27 @@ mod tests {
         assert_eq!(2, output);
         assert!(!unsafe {
             pdfium_rust_cross_ref_merge_action(true, 1, true, 1, core::ptr::null_mut())
+        });
+    }
+
+    #[test]
+    fn cross_ref_table_add_action_should_preserve_generation_and_stream_guards() {
+        assert_eq!(Some(1), cross_ref_table_add_action(1, 4, false, 4));
+        assert_eq!(Some(1), cross_ref_table_add_action(1, 4, true, 5));
+        assert_eq!(Some(0), cross_ref_table_add_action(1, 5, false, 4));
+        assert_eq!(Some(2), cross_ref_table_add_action(2, 0, false, 0));
+        assert_eq!(Some(0), cross_ref_table_add_action(2, 1, false, 0));
+        assert_eq!(Some(0), cross_ref_table_add_action(2, 0, true, 0));
+        assert_eq!(None, cross_ref_table_add_action(0, 0, false, 0));
+
+        let mut output = u8::MAX;
+        // SAFETY: The output remains live for both calls.
+        assert!(unsafe { pdfium_rust_cross_ref_table_add_action(2, 0, false, 0, &mut output) });
+        assert_eq!(2, output);
+        assert!(!unsafe { pdfium_rust_cross_ref_table_add_action(0, 0, false, 0, &mut output) });
+        assert_eq!(2, output);
+        assert!(!unsafe {
+            pdfium_rust_cross_ref_table_add_action(1, 0, false, 0, core::ptr::null_mut())
         });
     }
 

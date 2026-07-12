@@ -35,6 +35,10 @@ std::optional<uint8_t> RustCrossRefMergeAction(bool has_new,
                                                uint8_t current_type,
                                                bool current_is_object_stream,
                                                uint8_t new_type);
+std::optional<uint8_t> RustCrossRefTableAddAction(uint8_t object_type,
+                                                  uint16_t current_generation,
+                                                  bool current_is_object_stream,
+                                                  uint16_t new_generation);
 struct CrossRefIndexPair {
   uint32_t start;
   uint32_t count;
