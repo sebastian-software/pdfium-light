@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "core/fpdfdoc/cpdf_pagelabel.h"
+#include "core/fpdfdoc/cpdf_numbertree.h"
 
 #include <memory>
 #include <optional>
@@ -162,6 +163,7 @@ class PageLabelTest : public TestWithPageModule {
   }
 
   const CPDF_PageLabel* page_label() const { return page_label_.get(); }
+  const CPDF_TestDocument* document() const { return doc_.get(); }
 
  private:
   std::unique_ptr<CPDF_TestDocument> doc_;
@@ -213,6 +215,25 @@ TEST_F(PageLabelTest, RustFormattingMatchesCppOracle) {
     result.reserve(10003);
     for (int page_index = -1; page_index <= 10001; ++page_index) {
       result.push_back(page_label()->GetLabel(page_index));
+    }
+    return result;
+  };
+
+  EXPECT_EQ(snapshot(false), snapshot(true));
+}
+
+TEST_F(PageLabelTest, RustNumberTreeLookupMatchesCppOracle) {
+  RetainPtr<const CPDF_Dictionary> root = document()->GetRoot()->GetDictFor(
+      pdfium::catalog::kPageLabels);
+  ASSERT_TRUE(root);
+  CPDF_NumberTree number_tree(std::move(root));
+  auto snapshot = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    std::vector<const CPDF_Object*> result;
+    result.reserve(10003);
+    for (int key = -1; key <= 10001; ++key) {
+      result.push_back(number_tree.LookupValue(key).Get());
     }
     return result;
   };
