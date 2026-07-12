@@ -445,6 +445,7 @@ uint8_t RustPublicActionType(uint8_t internal_type);
 bool RustPublicActionAllowsDestination(uint8_t public_type);
 bool RustPublicActionAllowsFile(uint8_t public_type);
 bool RustPublicActionAllowsUri(uint8_t public_type);
+bool RustPublicBookmarkColorIsValid(float red, float green, float blue);
 uint8_t RustPublicDestinationZoomMode(pdfium::span<const uint8_t> mode);
 size_t RustPublicDestinationNumParams(uint8_t zoom_mode, size_t array_size);
 struct RustPublicDestinationXyzPlan {

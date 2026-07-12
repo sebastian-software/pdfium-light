@@ -242,10 +242,13 @@ FPDFBookmark_GetColor(FPDF_BOOKMARK bookmark, float* R, float* G, float* B) {
   if (!color.has_value()) {
     return false;
   }
-  if (color->red > 1 || color->green > 1 || color->blue > 1) {
-    return false;
-  }
-  if (color->red < 0 || color->green < 0 || color->blue < 0) {
+  const bool valid = pdfium::rust::UseRustParserCandidate()
+                         ? pdfium::rust::RustPublicBookmarkColorIsValid(
+                               color->red, color->green, color->blue)
+                         : !(color->red > 1 || color->green > 1 ||
+                             color->blue > 1 || color->red < 0 ||
+                             color->green < 0 || color->blue < 0);
+  if (!valid) {
     return false;
   }
   *R = color->red;

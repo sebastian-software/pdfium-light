@@ -562,6 +562,10 @@ fn public_action_capabilities(public_type: u8) -> u8 {
     }
 }
 
+fn public_bookmark_color_is_valid(red: f32, green: f32, blue: f32) -> bool {
+    !([red, green, blue].iter().any(|component| *component > 1.0 || *component < 0.0))
+}
+
 fn public_destination_zoom_mode(mode: &[u8]) -> u8 {
     match mode {
         b"XYZ" => 1,
@@ -3768,6 +3772,16 @@ pub extern "C" fn pdfium_rust_public_action_capabilities(public_type: u8) -> u8 
     public_action_capabilities(public_type)
 }
 
+/// Preserves PDFium's public bookmark color admission semantics.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_public_bookmark_color_is_valid(
+    red: f32,
+    green: f32,
+    blue: f32,
+) -> bool {
+    public_bookmark_color_is_valid(red, green, blue)
+}
+
 /// Maps a PDF destination mode name to the public zoom-mode constant.
 ///
 /// # Safety
@@ -5976,6 +5990,18 @@ mod tests {
         assert_eq!(2, public_action_capabilities(4));
         assert_eq!(3, public_action_capabilities(5));
         assert_eq!(0, public_action_capabilities(0));
+    }
+
+    #[test]
+    fn public_bookmark_color_should_accept_unit_interval_and_nan() {
+        assert!(public_bookmark_color_is_valid(0.0, 0.5, 1.0));
+        assert!(public_bookmark_color_is_valid(f32::NAN, 0.5, 1.0));
+    }
+
+    #[test]
+    fn public_bookmark_color_should_reject_out_of_range_components() {
+        assert!(!public_bookmark_color_is_valid(-f32::EPSILON, 0.5, 1.0));
+        assert!(!public_bookmark_color_is_valid(0.0, 0.5, 1.0 + f32::EPSILON));
     }
 
     #[test]
