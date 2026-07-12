@@ -136,6 +136,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `44e5d54fb` Phase 7 incremental-page-traversal slice | 19,763 | 12,952 | 241 | 5,034 | 6,570 | 284,343 | 6.95% | 6.24% | Rust owns the persistent traversal stack, child cursors, next-page cursor, depth state, and cache scheduling; C++ retains dictionary access and one unordered `RetainPtr` lifetime token per active Rust stack entry |
 | `85aab3743` Phase 7 public-text-search slice | 20,193 | 13,382 | 241 | 5,195 | 6,570 | 285,051 | 7.08% | 6.43% | A dedicated Rust text crate owns page/word search data, forward/backward cursors, match results, whole-word, spacing, and overlap policy; C++ retains case folding, query tokenization, and text/character index mapping |
 | `6f70ec2d4` Phase 7 text-query-tokenization slice | 20,258 | 13,447 | 241 | 5,185 | 6,570 | 285,113 | 7.11% | 6.46% | Rust owns leading/trailing-space markers, collapsed separators, script-boundary splitting, and right-apostrophe preservation; C++ retains only case folding and the separately selected tokenization oracle |
+| `2afa6a36f` Phase 7 text-link-extraction slice | 20,677 | 13,866 | 241 | 5,294 | 6,570 | 285,739 | 7.24% | 6.64% | Rust owns extracted web/mail URLs and ranges, multiline/hyphen joining, scheme/host/IPv6/bracket trimming, and email validation; C++ retains text geometry, public wrappers, and platform alphanumeric classification |
 
 ## Toolchain
 
@@ -1286,6 +1287,22 @@ The initial build caught the now-oracle-only temporary constructor in
 `FindPrev()` and its compile fix is isolated. All 62 public text cases, the
 same-process forward/backward matrix, all 1,069 unit tests, and `pdfium_all`
 pass.
+
+The eleventh Phase 7 slice moves `CPDF_LinkExtract` production state and web/
+mail recognition into the Rust text domain. Rust owns the link vector, original
+case URL bytes, text ranges, generated-hyphen replacement, line-break joining,
+HTTP/HTTPS/WWW detection, external bracket/quote trimming, host and IPv6-port
+ending rules, and local/domain email validation. C++ retains the text page,
+rectangle calculation, public handles/copying, and one synchronous
+`FXSYS_iswalnum()` callback so platform Unicode classification does not drift.
+The candidate keeps no parallel C++ `link_array_`.
+
+URL retrieval now reconstructs a `WideString` before the already-linear public
+UTF-16 copy, so public time and output-memory complexity remain linear. Five
+native text tests, both existing web/mail oracle unit corpora, all five existing
+public web/annotation link cases, and a new same-process comparison of every
+multi-line URL code unit and text range pass. All 1,069 unit tests and
+`pdfium_all` also pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
