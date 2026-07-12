@@ -62,6 +62,16 @@ extern "C" bool pdfium_rust_text_is_hyphen_join(
     void* predicate_context,
     pdfium::rust::RustTextCharacterPredicateCallback character_predicate,
     bool* output);
+extern "C" bool pdfium_rust_text_generate_character_plan(
+    uint8_t generate_type,
+    size_t text_object_character_count,
+    uint32_t first_unicode,
+    size_t temporary_text_len,
+    void* context,
+    pdfium::rust::RustTextCodePointCallback get_temporary_character,
+    uint8_t* action,
+    size_t* trim_trailing_spaces,
+    bool* continue_processing);
 extern "C" bool pdfium_rust_text_index_at_position(
     size_t character_count,
     float point_x,
@@ -319,6 +329,33 @@ std::optional<bool> RustTextIsHyphenJoin(
     return std::nullopt;
   }
   return output;
+}
+
+std::optional<RustTextGenerateCharacterPlan> RustTextPlanGeneratedCharacter(
+    uint8_t generate_type,
+    size_t text_object_character_count,
+    uint32_t first_unicode,
+    WideStringView temporary_text) {
+  struct TextContext {
+    WideStringView text;
+  } context = {temporary_text};
+  auto get_character = [](void* context, size_t index, uint32_t* character) {
+    auto* text_context = static_cast<TextContext*>(context);
+    if (index >= text_context->text.GetLength()) {
+      return false;
+    }
+    *character = static_cast<uint32_t>(text_context->text[index]);
+    return true;
+  };
+  RustTextGenerateCharacterPlan plan = {};
+  if (!pdfium_rust_text_generate_character_plan(
+          generate_type, text_object_character_count, first_unicode,
+          temporary_text.GetLength(), &context, get_character, &plan.action,
+          &plan.trim_trailing_spaces, &plan.continue_processing) ||
+      plan.action > 3) {
+    return std::nullopt;
+  }
+  return plan;
 }
 
 std::optional<int> RustTextIndexAtPosition(

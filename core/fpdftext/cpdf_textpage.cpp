@@ -1717,6 +1717,55 @@ CPDF_TextPage::GenerateCharacter CPDF_TextPage::ProcessInsertObject(
 bool CPDF_TextPage::ProcessGenerateCharacter(GenerateCharacter type,
                                              const CPDF_TextObject* text_object,
                                              const CFX_Matrix& form_matrix) {
+  if (use_rust_) {
+    uint32_t first_unicode = 0;
+    if (type == GenerateCharacter::kHyphen &&
+        text_object->CharCount() == 1) {
+      const CPDF_TextObject::Item item = text_object->GetCharInfo(0);
+      WideString unicode =
+          text_object->GetFont()->UnicodeFromCharCode(item.char_code_);
+      if (unicode.IsEmpty()) {
+        unicode += static_cast<wchar_t>(item.char_code_);
+      }
+      first_unicode = static_cast<uint32_t>(unicode.Front());
+    }
+    const auto plan = pdfium::rust::RustTextPlanGeneratedCharacter(
+        static_cast<uint8_t>(type), text_object->CharCount(), first_unicode,
+        temp_text_buf_.AsStringView());
+    if (plan.has_value() &&
+        (plan->action != 3 ||
+         plan->trim_trailing_spaces < temp_char_list_.size())) {
+      switch (plan->action) {
+        case 0:
+          return plan->continue_processing;
+        case 1:
+          AppendGeneratedCharacter(L' ', form_matrix,
+                                   /*use_temp_buffer=*/true);
+          return plan->continue_processing;
+        case 2:
+          CloseTempLine();
+          if (text_buf_.GetSize()) {
+            AppendGeneratedCharacter(L'\r', form_matrix,
+                                     /*use_temp_buffer=*/false);
+            AppendGeneratedCharacter(L'\n', form_matrix,
+                                     /*use_temp_buffer=*/false);
+          }
+          return plan->continue_processing;
+        case 3:
+          for (size_t i = 0; i < plan->trim_trailing_spaces; ++i) {
+            temp_text_buf_.Delete(temp_text_buf_.GetLength() - 1, 1);
+            temp_char_list_.pop_back();
+          }
+          CharInfo& charinfo = temp_char_list_.back();
+          temp_text_buf_.Delete(temp_text_buf_.GetLength() - 1, 1);
+          charinfo.set_char_type(CharType::kHyphen);
+          charinfo.set_unicode(0x2);
+          temp_text_buf_.AppendChar(0xfffe);
+          return plan->continue_processing;
+      }
+    }
+  }
+
   switch (type) {
     case GenerateCharacter::kNone:
       return true;

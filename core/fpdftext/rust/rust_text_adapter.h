@@ -170,6 +170,18 @@ std::optional<bool> RustTextIsHyphenJoin(
     void* context,
     RustTextCharacterPredicateCallback character_predicate);
 
+struct RustTextGenerateCharacterPlan {
+  uint8_t action;
+  size_t trim_trailing_spaces;
+  bool continue_processing;
+};
+
+std::optional<RustTextGenerateCharacterPlan> RustTextPlanGeneratedCharacter(
+    uint8_t generate_type,
+    size_t text_object_character_count,
+    uint32_t first_unicode,
+    WideStringView temporary_text);
+
 class RustTextSelectionRects final {
  public:
   RustTextSelectionRects(size_t character_count,

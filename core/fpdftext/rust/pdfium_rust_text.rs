@@ -1506,6 +1506,57 @@ pub unsafe extern "C" fn pdfium_rust_text_is_hyphen_join(
     true
 }
 
+/// Plans the native action for an inter-object generated character.
+///
+/// # Safety
+/// The callback, context, and outputs must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_generate_character_plan(
+    generate_type: u8,
+    text_object_character_count: usize,
+    first_unicode: u32,
+    temporary_text_len: usize,
+    context: *mut core::ffi::c_void,
+    get_temporary_character: Option<TextCodePointCallback>,
+    action: *mut u8,
+    trim_trailing_spaces: *mut usize,
+    continue_processing: *mut bool,
+) -> bool {
+    let (
+        Some(get_temporary_character),
+        Some(action),
+        Some(trim_trailing_spaces),
+        Some(continue_processing),
+    ) = (
+        get_temporary_character,
+        unsafe { action.as_mut() },
+        unsafe { trim_trailing_spaces.as_mut() },
+        unsafe { continue_processing.as_mut() },
+    )
+    else {
+        return false;
+    };
+    let plan = generate_character_plan(
+        generate_type,
+        text_object_character_count,
+        first_unicode,
+        temporary_text_len,
+        |index| {
+            let mut character = 0;
+            // SAFETY: The caller guarantees that the callback and context
+            // remain valid for this synchronous call.
+            unsafe { get_temporary_character(context, index, &mut character) }.then_some(character)
+        },
+    );
+    let Some(plan) = plan else {
+        return false;
+    };
+    *action = plan.action;
+    *trim_trailing_spaces = plan.trim_trailing_spaces;
+    *continue_processing = plan.continue_processing;
+    true
+}
+
 /// Computes the character nearest to a point within the requested tolerance.
 ///
 /// # Safety
@@ -2368,6 +2419,32 @@ mod tests {
                 |index| text.get(index).copied(),
                 |_, _| false,
             )
+        );
+    }
+
+    #[test]
+    fn generate_character_plan_should_select_separator_actions() {
+        let empty: [u32; 0] = [];
+        let space = generate_character_plan(1, 2, 0, 0, |index| empty.get(index).copied())
+            .expect("the generated-space input is valid");
+        assert_eq!(
+            (1, 0, true),
+            (space.action, space.trim_trailing_spaces, space.continue_processing)
+        );
+
+        let suppressed =
+            generate_character_plan(3, 1, b'-' as u32, 0, |index| empty.get(index).copied())
+                .expect("the single-hyphen input is valid");
+        assert!(!suppressed.continue_processing);
+
+        let text = [b'A' as u32, b' ' as u32, b' ' as u32];
+        let hyphen = generate_character_plan(3, 2, b'B' as u32, text.len(), |index| {
+            text.get(index).copied()
+        })
+        .expect("the replacement input has a retained character");
+        assert_eq!(
+            (3, 2, true),
+            (hyphen.action, hyphen.trim_trailing_spaces, hyphen.continue_processing)
         );
     }
 
