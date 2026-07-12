@@ -159,6 +159,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `ddf10ee58` Phase 7 text-object-grouping slice | 23,393 | 16,582 | 241 | 6,504 | 6,570 | 290,954 | 8.04% | 7.79% | Rust owns zero-width/duplicate/empty-item actions, line-change thresholding, flush/append selection, and stable horizontal insertion index; C++ retains object/font/matrix lifetimes, transformed geometry callbacks, native vector mutation, and the separately selected oracle |
 | `01e74216d` Phase 7 public-redaction slice | 23,638 | 16,827 | 241 | 6,591 | 6,570 | 291,422 | 8.11% | 7.90% | Rust owns public redaction rectangle validation, intersection/containment policy, supported-object checks, atomic removal-index planning, and result status selection; C++ retains page/object lifetimes, applies the validated mutation, and preserves the complete separately selected oracle |
 | `764015ee2` Phase 7 indexed-object-insertion slice | 23,724 | 16,913 | 241 | 6,630 | 6,570 | 291,637 | 8.13% | 7.93% | Rust owns insertion-index validation, lazy neighbor lookup, content-stream inheritance, and dirty-stream selection; C++ retains page-object lifetimes, applies the validated deque/stream mutation, and preserves the complete separately selected oracle |
+| `aa090f3b1` Phase 7 page-object-matrix slice | 23,860 | 17,049 | 241 | 6,687 | 6,570 | 291,971 | 8.17% | 7.98% | Rust owns supported-object routing for public matrix access, exact image dirty-state selection, and rotated text/image QuadPoints geometry; C++ retains page-object lifetimes, native matrix storage/setters, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1687,6 +1688,24 @@ then repeats the comparison after content generation, save, and reload. The
 existing cross-stream regression independently proves exact stream ordering.
 All 40 parser-native tests, both focused public cases, all 1,069 unit tests,
 and `pdfium_all` pass.
+
+The thirty-fourth Phase 7 slice moves public page-object matrix policy and
+rotated-bounds geometry into Rust. Rust selects the supported text, path,
+image, and form matrix routes, preserves the image-specific comparison against
+the original matrix when choosing dirty state, and transforms the four
+original-rectangle corners into PDF QuadPoints order for text and image
+objects. C++ retains page-object lifetimes, native matrix storage and setters,
+and the complete original implementations as the separately selected oracle.
+
+Each route and geometry calculation remains O(1) in time and auxiliary
+storage. Two parser-native tests cover every supported and rejected object
+type, unchanged and changed image matrices, a non-axis-aligned transform, and
+exact corner ordering. A same-process public differential applies the same
+nontrivial text matrix under the C++ oracle and Rust candidate, compares all
+six matrix values and eight QuadPoints values exactly, then generates content,
+saves, reloads, and compares both pages again. The four existing public normal
+and rotated text/image coordinate tests also pass. All 42 parser-native tests,
+all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
