@@ -131,6 +131,79 @@ impl CrossRefTableState {
     }
 }
 
+#[derive(Default)]
+pub struct IndirectObjectIndexState {
+    last_object_number: u32,
+    objects: BTreeMap<u32, Option<usize>>,
+}
+
+impl IndirectObjectIndexState {
+    fn reserve_parse(&mut self, object_number: u32) -> (u8, usize) {
+        match self.objects.entry(object_number) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(None);
+                (0, 0)
+            }
+            std::collections::btree_map::Entry::Occupied(entry) => match entry.get() {
+                None => (1, 0),
+                Some(handle) => (2, *handle),
+            },
+        }
+    }
+
+    fn finish_parse(&mut self, object_number: u32, handle: usize) -> bool {
+        let Some(slot) = self.objects.get_mut(&object_number) else {
+            return false;
+        };
+        if slot.is_some() || handle == 0 {
+            return false;
+        }
+        *slot = Some(handle);
+        self.last_object_number = self.last_object_number.max(object_number);
+        true
+    }
+
+    fn cancel_parse(&mut self, object_number: u32) -> bool {
+        if self.objects.get(&object_number) != Some(&None) {
+            return false;
+        }
+        self.objects.remove(&object_number);
+        true
+    }
+
+    fn add(&mut self, handle: usize) -> Option<u32> {
+        if handle == 0 {
+            return None;
+        }
+        self.last_object_number = self.last_object_number.wrapping_add(1);
+        self.objects.insert(self.last_object_number, Some(handle));
+        Some(self.last_object_number)
+    }
+
+    fn replace(
+        &mut self,
+        object_number: u32,
+        handle: usize,
+        new_generation: u32,
+        old_generation: Option<u32>,
+    ) -> Option<Option<usize>> {
+        if object_number == 0 || handle == 0 {
+            return None;
+        }
+        if old_generation.is_some_and(|old| new_generation <= old) {
+            return None;
+        }
+        let old_handle = self.objects.insert(object_number, Some(handle)).flatten();
+        self.last_object_number = self.last_object_number.max(object_number);
+        Some(old_handle)
+    }
+
+    fn delete(&mut self, object_number: u32) -> Option<usize> {
+        self.objects.get(&object_number).copied().flatten()?;
+        self.objects.remove(&object_number).flatten()
+    }
+}
+
 fn cross_ref_index_pair(start: i32, count: i32) -> Option<(u32, u32)> {
     if start < 0 || count <= 0 {
         return None;
@@ -1115,6 +1188,35 @@ mod tests {
                 &mut archive_index,
             )
         });
+    }
+
+    #[test]
+    fn indirect_object_index_should_own_parse_replace_delete_and_numbering() {
+        let mut index = IndirectObjectIndexState::default();
+        assert_eq!((0, 0), index.reserve_parse(7));
+        assert_eq!((1, 0), index.reserve_parse(7));
+        assert!(!index.finish_parse(8, 100));
+        assert!(!index.finish_parse(7, 0));
+        assert!(index.finish_parse(7, 100));
+        assert_eq!((2, 100), index.reserve_parse(7));
+        assert_eq!(7, index.last_object_number);
+
+        assert_eq!(Some(8), index.add(200));
+        assert_eq!(None, index.add(0));
+        assert_eq!(None, index.replace(7, 300, 2, Some(2)));
+        assert_eq!(Some(Some(100)), index.replace(7, 300, 3, Some(2)));
+        assert_eq!(Some(None), index.replace(12, 400, 0, None));
+        assert_eq!(12, index.last_object_number);
+        assert_eq!(Some(300), index.delete(7));
+        assert_eq!(None, index.delete(7));
+
+        assert_eq!((0, 0), index.reserve_parse(5));
+        assert!(index.cancel_parse(5));
+        assert!(!index.cancel_parse(5));
+
+        index.last_object_number = u32::MAX;
+        assert_eq!(Some(0), index.add(500));
+        assert_eq!(Some(500), index.objects[&0]);
     }
 
     #[test]
