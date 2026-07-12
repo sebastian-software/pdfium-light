@@ -20,6 +20,7 @@
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fpdfdoc/cpdf_aaction.h"
 #include "core/fpdfdoc/cpdf_bookmark.h"
 #include "core/fpdfdoc/cpdf_bookmarktree.h"
@@ -221,6 +222,10 @@ FPDF_EXPORT unsigned long FPDF_CALLCONV FPDFAction_GetType(FPDF_ACTION action) {
   }
 
   CPDF_Action cAction(pdfium::WrapRetain(CPDFDictionaryFromFPDFAction(action)));
+  if (pdfium::rust::UseRustParserCandidate()) {
+    return pdfium::rust::RustPublicActionType(
+        static_cast<uint8_t>(cAction.GetType()));
+  }
   switch (cAction.GetType()) {
     case CPDF_Action::Type::kGoTo:
       return PDFACTION_GOTO;
@@ -245,8 +250,13 @@ FPDF_EXPORT FPDF_DEST FPDF_CALLCONV FPDFAction_GetDest(FPDF_DOCUMENT document,
   }
 
   unsigned long type = FPDFAction_GetType(action);
-  if (type != PDFACTION_GOTO && type != PDFACTION_REMOTEGOTO &&
-      type != PDFACTION_EMBEDDEDGOTO) {
+  const bool allowed = pdfium::rust::UseRustParserCandidate()
+                           ? pdfium::rust::RustPublicActionAllowsDestination(
+                                 static_cast<uint8_t>(type))
+                           : type == PDFACTION_GOTO ||
+                                 type == PDFACTION_REMOTEGOTO ||
+                                 type == PDFACTION_EMBEDDEDGOTO;
+  if (!allowed) {
     return nullptr;
   }
   CPDF_Action cAction(pdfium::WrapRetain(CPDFDictionaryFromFPDFAction(action)));
@@ -256,8 +266,12 @@ FPDF_EXPORT FPDF_DEST FPDF_CALLCONV FPDFAction_GetDest(FPDF_DOCUMENT document,
 FPDF_EXPORT unsigned long FPDF_CALLCONV
 FPDFAction_GetFilePath(FPDF_ACTION action, void* buffer, unsigned long buflen) {
   unsigned long type = FPDFAction_GetType(action);
-  if (type != PDFACTION_REMOTEGOTO && type != PDFACTION_EMBEDDEDGOTO &&
-      type != PDFACTION_LAUNCH) {
+  const bool allowed =
+      pdfium::rust::UseRustParserCandidate()
+          ? pdfium::rust::RustPublicActionAllowsFile(static_cast<uint8_t>(type))
+          : type == PDFACTION_REMOTEGOTO || type == PDFACTION_EMBEDDEDGOTO ||
+                type == PDFACTION_LAUNCH;
+  if (!allowed) {
     return 0;
   }
   CPDF_Action cAction(pdfium::WrapRetain(CPDFDictionaryFromFPDFAction(action)));
@@ -277,7 +291,11 @@ FPDFAction_GetURIPath(FPDF_DOCUMENT document,
     return 0;
   }
   unsigned long type = FPDFAction_GetType(action);
-  if (type != PDFACTION_URI) {
+  const bool allowed =
+      pdfium::rust::UseRustParserCandidate()
+          ? pdfium::rust::RustPublicActionAllowsUri(static_cast<uint8_t>(type))
+          : type == PDFACTION_URI;
+  if (!allowed) {
     return 0;
   }
   // SAFETY: required from caller.

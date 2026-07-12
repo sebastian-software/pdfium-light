@@ -302,6 +302,8 @@ extern "C" bool pdfium_rust_page_annotation_transform_rect(const float* matrix,
                                                            const float* rect,
                                                            float* output);
 extern "C" int32_t pdfium_rust_page_rotation_degrees(int32_t rotation);
+extern "C" uint8_t pdfium_rust_public_action_type(uint8_t internal_type);
+extern "C" uint8_t pdfium_rust_public_action_capabilities(uint8_t public_type);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -1076,6 +1078,22 @@ std::optional<std::array<float, 4>> RustTransformPageAnnotationRect(
 
 int RustPageRotationDegrees(int rotation) {
   return pdfium_rust_page_rotation_degrees(rotation);
+}
+
+uint8_t RustPublicActionType(uint8_t internal_type) {
+  return pdfium_rust_public_action_type(internal_type);
+}
+
+bool RustPublicActionAllowsDestination(uint8_t public_type) {
+  return pdfium_rust_public_action_capabilities(public_type) & 1;
+}
+
+bool RustPublicActionAllowsFile(uint8_t public_type) {
+  return pdfium_rust_public_action_capabilities(public_type) & 2;
+}
+
+bool RustPublicActionAllowsUri(uint8_t public_type) {
+  return pdfium_rust_public_action_capabilities(public_type) & 4;
 }
 
 std::optional<std::vector<size_t>> RustDocumentPageMutationPath(

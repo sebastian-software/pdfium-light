@@ -441,6 +441,10 @@ std::optional<std::array<float, 4>> RustTransformPageAnnotationRect(
     const RustPageObjectMatrix& matrix,
     const std::array<float, 4>& rect);
 int RustPageRotationDegrees(int rotation);
+uint8_t RustPublicActionType(uint8_t internal_type);
+bool RustPublicActionAllowsDestination(uint8_t public_type);
+bool RustPublicActionAllowsFile(uint8_t public_type);
+bool RustPublicActionAllowsUri(uint8_t public_type);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,

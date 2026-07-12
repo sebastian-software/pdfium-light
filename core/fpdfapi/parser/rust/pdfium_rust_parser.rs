@@ -484,6 +484,30 @@ fn page_rotation_degrees(rotation: i32) -> i32 {
     (rotation % 4) * 90
 }
 
+fn public_action_type(internal_type: u8) -> u8 {
+    match internal_type {
+        1 => 1,
+        2 => 2,
+        3 => 5,
+        4 => 4,
+        6 => 3,
+        _ => 0,
+    }
+}
+
+fn public_action_capabilities(public_type: u8) -> u8 {
+    const DEST: u8 = 1;
+    const FILE: u8 = 2;
+    const URI: u8 = 4;
+    match public_type {
+        1 => DEST,
+        2 | 5 => DEST | FILE,
+        3 => URI,
+        4 => FILE,
+        _ => 0,
+    }
+}
+
 impl Default for PdfNumberState {
     fn default() -> Self {
         Self { value: PdfNumberValue::Unsigned(0) }
@@ -3186,6 +3210,18 @@ pub extern "C" fn pdfium_rust_page_rotation_degrees(rotation: i32) -> i32 {
     page_rotation_degrees(rotation)
 }
 
+/// Maps an internal action type to the supported public action constant.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_public_action_type(internal_type: u8) -> u8 {
+    public_action_type(internal_type)
+}
+
+/// Returns the supported public action capability bitmask.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_public_action_capabilities(public_type: u8) -> u8 {
+    public_action_capabilities(public_type)
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -4859,5 +4895,28 @@ mod tests {
         );
         assert!(transformed[0].is_nan());
         assert!(transformed[2].is_nan());
+    }
+
+    #[test]
+    fn public_action_routing_should_map_types_and_capabilities() {
+        assert_eq!(
+            [0, 1, 2, 5, 4, 0, 3],
+            [
+                public_action_type(0),
+                public_action_type(1),
+                public_action_type(2),
+                public_action_type(3),
+                public_action_type(4),
+                public_action_type(5),
+                public_action_type(6),
+            ]
+        );
+        assert!((7..=19).all(|internal| public_action_type(internal) == 0));
+        assert_eq!(1, public_action_capabilities(1));
+        assert_eq!(3, public_action_capabilities(2));
+        assert_eq!(4, public_action_capabilities(3));
+        assert_eq!(2, public_action_capabilities(4));
+        assert_eq!(3, public_action_capabilities(5));
+        assert_eq!(0, public_action_capabilities(0));
     }
 }
