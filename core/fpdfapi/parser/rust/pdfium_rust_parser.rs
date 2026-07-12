@@ -2017,12 +2017,9 @@ fn count_document_pages(
         };
         if effective_type == 1 {
             visited.insert(child_handle);
-            count = count.checked_add(count_document_pages(
-                child_handle,
-                depth + 1,
-                visited,
-                callbacks,
-            )?)?;
+            let child_result = count_document_pages(child_handle, depth + 1, visited, callbacks);
+            visited.remove(&child_handle);
+            count = count.checked_add(child_result?)?;
         } else {
             count += 1;
         }
@@ -2373,6 +2370,30 @@ mod tests {
             (1, 0) => (2, 0, true),
             (1, 1) => (3, 2, false),
             (2, 0) => (4, 0, false),
+            _ => return false,
+        };
+        unsafe {
+            *child_handle = value.0;
+            *node_type = value.1;
+            *has_kids = value.2;
+        }
+        true
+    }
+
+    unsafe extern "C" fn describe_shared_page_child(
+        _context: *mut core::ffi::c_void,
+        handle: usize,
+        index: usize,
+        child_handle: *mut usize,
+        node_type: *mut u8,
+        has_kids: *mut bool,
+    ) -> bool {
+        if child_handle.is_null() || node_type.is_null() || has_kids.is_null() {
+            return false;
+        }
+        let value = match (handle, index) {
+            (1, 0 | 1) => (2, 1, true),
+            (2, 0) => (3, 2, false),
             _ => return false,
         };
         unsafe {
@@ -2887,6 +2908,31 @@ mod tests {
         assert_eq!(2, output);
         assert_eq!([(2, 1), (4, 2)], state.normalized[..state.normalized_count]);
         assert_eq!([(2, 1), (1, 2)], state.counts[..state.count_count]);
+    }
+
+    #[test]
+    fn document_page_count_should_only_guard_the_active_recursion_path() {
+        let mut state = PageCountState {
+            normalized: [(0, 0); 4],
+            normalized_count: 0,
+            counts: [(0, 0); 4],
+            count_count: 0,
+        };
+        let mut output = 0;
+        assert!(unsafe {
+            pdfium_rust_document_count_pages(
+                1,
+                (&mut state as *mut PageCountState).cast(),
+                Some(describe_page_node),
+                Some(describe_shared_page_child),
+                Some(normalize_page_node),
+                Some(set_page_count),
+                &mut output,
+            )
+        });
+        assert_eq!(2, output);
+        assert_eq!(0, state.normalized_count);
+        assert_eq!([(2, 1), (2, 1), (1, 2)], state.counts[..state.count_count]);
     }
 
     #[test]
