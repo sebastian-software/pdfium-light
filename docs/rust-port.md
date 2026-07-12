@@ -1535,8 +1535,11 @@ text-object and matrix lifetimes, the platform printability predicate, and
 native `CharInfo` construction; the complete original state and emission paths
 remain the separately selected oracle.
 
-The candidate performs O(n) work and stores O(n) validated emissions for the
-ActualText length. Nineteen native Rust text tests cover state selection,
+The candidate performs O(n) work and intentionally increases auxiliary storage
+from the original loop's O(1) to O(n) for the ActualText length: Rust retains
+the replacement plan and C++ stages a second validated emission list so an
+invalid plan cannot partially mutate native text buffers. Nineteen native Rust
+text tests cover state selection,
 control replacement, RTL ordering, and exact boxes. A same-process public
 differential compares every character's Unicode, origin availability/value,
 and box availability/value on mixed ActualText RTL content. All seven
