@@ -1250,16 +1250,38 @@ CPDF_TextPage::MarkedContentState CPDF_TextPage::PreMarkedContent(
       actual_text = temp->GetUnicodeText();
     }
   }
+  bool repeats_previous_mark = false;
+  if (prev_text_obj_) {
+    const CPDF_ContentMarks* prev_marks = prev_text_obj_->GetContentMarks();
+    repeats_previous_mark =
+        prev_marks->CountItems() == content_marks_count &&
+        prev_marks->GetItem(content_marks_count - 1)->GetParam() == dict;
+  }
+  if (use_rust_) {
+    auto character_predicate = [](void*, uint32_t character,
+                                  uint8_t predicate) {
+      return predicate == 2 && isprint(static_cast<int>(character));
+    };
+    const auto state = pdfium::rust::RustTextSelectMarkedContentState(
+        bExist, repeats_previous_mark, actual_text.AsStringView(), nullptr,
+        character_predicate);
+    if (state.has_value()) {
+      switch (*state) {
+        case pdfium::rust::RustTextMarkedContentState::kPass:
+          return MarkedContentState::kPass;
+        case pdfium::rust::RustTextMarkedContentState::kDone:
+          return MarkedContentState::kDone;
+        case pdfium::rust::RustTextMarkedContentState::kDelay:
+          return MarkedContentState::kDelay;
+      }
+    }
+  }
   if (!bExist) {
     return MarkedContentState::kPass;
   }
 
-  if (prev_text_obj_) {
-    const CPDF_ContentMarks* prev_marks = prev_text_obj_->GetContentMarks();
-    if (prev_marks->CountItems() == content_marks_count &&
-        prev_marks->GetItem(content_marks_count - 1)->GetParam() == dict) {
-      return MarkedContentState::kDone;
-    }
+  if (repeats_previous_mark) {
+    return MarkedContentState::kDone;
   }
 
   if (actual_text.IsEmpty()) {
@@ -1300,6 +1322,41 @@ void CPDF_TextPage::ProcessMarkedContent(const TransformedTextObject& obj) {
   const bool is_rtl = IsRightToLeft(*text_obj);
   CFX_Matrix matrix = text_obj->GetTextMatrix() * obj.form_matrix_;
   CFX_FloatRect rect = text_obj->GetRect();
+  if (use_rust_) {
+    auto character_predicate = [](void*, uint32_t character,
+                                  uint8_t predicate) {
+      return predicate == 2 && isprint(static_cast<int>(character));
+    };
+    pdfium::rust::RustTextMarkedContentPlan plan(
+        actual_text.AsStringView(), is_rtl,
+        pdfium::rust::RustTextRect{rect.left, rect.bottom, rect.right, rect.top},
+        nullptr, character_predicate);
+    if (plan.valid()) {
+      std::vector<pdfium::rust::RustTextMarkedContentEmission> emissions;
+      emissions.reserve(plan.size());
+      for (size_t index = 0; index < plan.size(); ++index) {
+        const auto emission = plan.GetEmission(index);
+        if (!emission.has_value()) {
+          emissions.clear();
+          break;
+        }
+        emissions.push_back(*emission);
+      }
+      if (emissions.size() == plan.size()) {
+        for (const auto& emission : emissions) {
+          temp_text_buf_.AppendChar(static_cast<wchar_t>(emission.unicode));
+          const auto& emission_rect = emission.rect;
+          temp_char_list_.push_back(CharInfo(
+              CharType::kPiece, CPDF_Font::kInvalidCharCode,
+              static_cast<wchar_t>(emission.unicode), text_obj->GetPos(),
+              CFX_FloatRect(emission_rect.left, emission_rect.bottom,
+                            emission_rect.right, emission_rect.top),
+              matrix, text_obj));
+        }
+        return;
+      }
+    }
+  }
   float step = 0;
 
   if (is_rtl) {

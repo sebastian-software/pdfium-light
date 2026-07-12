@@ -75,6 +75,15 @@ pub struct TextPredicateResultState {
     text: Vec<u32>,
 }
 
+struct TextMarkedContentEmission {
+    unicode: u32,
+    rect: [f32; 4],
+}
+
+pub struct TextMarkedContentPlanState {
+    emissions: Vec<TextMarkedContentEmission>,
+}
+
 pub struct TextLinePlanState {
     kept_indices: Vec<usize>,
     emissions: Vec<(usize, bool)>,
@@ -175,6 +184,78 @@ impl TextAddCharacterPlanState {
         };
         self.needs_normalization = false;
         true
+    }
+}
+
+fn marked_content_state(
+    has_actual_text: bool,
+    repeats_previous_mark: bool,
+    actual_text_len: usize,
+    mut get_character: impl FnMut(usize) -> Option<u32>,
+    mut character_predicate: impl FnMut(u32, u8) -> bool,
+) -> Option<u8> {
+    if !has_actual_text {
+        return Some(0);
+    }
+    if repeats_previous_mark {
+        return Some(1);
+    }
+    if actual_text_len == 0 {
+        return Some(0);
+    }
+    for index in 0..actual_text_len {
+        let character = get_character(index)?;
+        if (character > 0x80 && character < 0xfffd)
+            || (character <= 0x80 && character_predicate(character, 2))
+        {
+            return Some(2);
+        }
+    }
+    Some(1)
+}
+
+impl TextMarkedContentPlanState {
+    fn new(
+        actual_text_len: usize,
+        is_rtl: bool,
+        rect: [f32; 4],
+        mut get_character: impl FnMut(usize) -> Option<u32>,
+        mut character_predicate: impl FnMut(u32, u8) -> bool,
+    ) -> Option<Self> {
+        if actual_text_len == 0 {
+            return Some(Self { emissions: Vec::new() });
+        }
+        let width = rect[2] - rect[0];
+        let character_width = width / actual_text_len as f32;
+        let mut character_rect = rect;
+        let step = if is_rtl {
+            character_rect[0] = character_rect[2] - character_width;
+            -(character_rect[2] - character_rect[0])
+        } else {
+            character_rect[2] = character_rect[0] + character_width;
+            character_rect[2] - character_rect[0]
+        };
+        let mut emissions = Vec::with_capacity(actual_text_len);
+        for index in 0..actual_text_len {
+            let mut unicode = get_character(index)?;
+            if unicode <= 0x80 && !character_predicate(unicode, 2) {
+                unicode = b' ' as u32;
+            }
+            if unicode >= 0xfffd {
+                continue;
+            }
+            let offset = index as f32 * step;
+            emissions.push(TextMarkedContentEmission {
+                unicode,
+                rect: [
+                    character_rect[0] + offset,
+                    character_rect[1],
+                    character_rect[2] + offset,
+                    character_rect[3],
+                ],
+            });
+        }
+        Some(Self { emissions })
     }
 }
 
@@ -1827,6 +1908,135 @@ pub unsafe extern "C" fn pdfium_rust_text_predicate_result_copy(
     true
 }
 
+/// Selects pass, done, or delayed processing for ActualText marked content.
+///
+/// # Safety
+/// The callbacks, contexts, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_marked_content_state(
+    has_actual_text: bool,
+    repeats_previous_mark: bool,
+    actual_text_len: usize,
+    text_context: *mut core::ffi::c_void,
+    get_character: Option<TextCodePointCallback>,
+    predicate_context: *mut core::ffi::c_void,
+    character_predicate: Option<TextCharacterPredicateCallback>,
+    output: *mut u8,
+) -> bool {
+    let (Some(get_character), Some(character_predicate), Some(output)) =
+        (get_character, character_predicate, unsafe { output.as_mut() })
+    else {
+        return false;
+    };
+    let state = marked_content_state(
+        has_actual_text,
+        repeats_previous_mark,
+        actual_text_len,
+        |index| {
+            let mut character = 0;
+            // SAFETY: The caller guarantees that the callback and context
+            // remain valid for this synchronous call.
+            unsafe { get_character(text_context, index, &mut character) }.then_some(character)
+        },
+        |character, predicate| unsafe {
+            character_predicate(predicate_context, character, predicate)
+        },
+    );
+    let Some(state) = state else {
+        return false;
+    };
+    *output = state;
+    true
+}
+
+/// Builds and owns ActualText replacement character emissions.
+///
+/// # Safety
+/// The callbacks and contexts must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_marked_content_plan_new(
+    actual_text_len: usize,
+    is_rtl: bool,
+    left: f32,
+    bottom: f32,
+    right: f32,
+    top: f32,
+    text_context: *mut core::ffi::c_void,
+    get_character: Option<TextCodePointCallback>,
+    predicate_context: *mut core::ffi::c_void,
+    character_predicate: Option<TextCharacterPredicateCallback>,
+) -> *mut TextMarkedContentPlanState {
+    let (Some(get_character), Some(character_predicate)) = (get_character, character_predicate)
+    else {
+        return core::ptr::null_mut();
+    };
+    let plan = TextMarkedContentPlanState::new(
+        actual_text_len,
+        is_rtl,
+        [left, bottom, right, top],
+        |index| {
+            let mut character = 0;
+            // SAFETY: The caller guarantees that the callback and context
+            // remain valid for this synchronous call.
+            unsafe { get_character(text_context, index, &mut character) }.then_some(character)
+        },
+        |character, predicate| unsafe {
+            character_predicate(predicate_context, character, predicate)
+        },
+    );
+    plan.map_or(core::ptr::null_mut(), |plan| Box::into_raw(Box::new(plan)))
+}
+
+/// # Safety
+/// `state` must be null or returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_marked_content_plan_free(
+    state: *mut TextMarkedContentPlanState,
+) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_marked_content_plan_count(
+    state: *const TextMarkedContentPlanState,
+) -> usize {
+    unsafe { state.as_ref() }.map_or(0, |state| state.emissions.len())
+}
+
+/// # Safety
+/// State and output pointers must remain readable/writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_marked_content_plan_get(
+    state: *const TextMarkedContentPlanState,
+    index: usize,
+    unicode: *mut u32,
+    left: *mut f32,
+    bottom: *mut f32,
+    right: *mut f32,
+    top: *mut f32,
+) -> bool {
+    let (Some(emission), Some(unicode), Some(left), Some(bottom), Some(right), Some(top)) = (
+        unsafe { state.as_ref() }.and_then(|state| state.emissions.get(index)),
+        unsafe { unicode.as_mut() },
+        unsafe { left.as_mut() },
+        unsafe { bottom.as_mut() },
+        unsafe { right.as_mut() },
+        unsafe { top.as_mut() },
+    ) else {
+        return false;
+    };
+    *unicode = emission.unicode;
+    *left = emission.rect[0];
+    *bottom = emission.rect[1];
+    *right = emission.rect[2];
+    *top = emission.rect[3];
+    true
+}
+
 /// Creates the duplicate-space normalization and Bidi emission plan state.
 ///
 /// # Safety
@@ -2409,6 +2619,50 @@ mod tests {
         assert_eq!(
             Some(vec![b'A' as u32, b' ' as u32, b'B' as u32, 13, 10, b'C' as u32]),
             text_by_predicate(characters.len(), |index| characters.get(index).copied())
+        );
+    }
+
+    #[test]
+    fn marked_content_should_select_state_and_plan_replacement_geometry() {
+        let printable = |character: u32, _predicate: u8| (0x20..=0x7e).contains(&character);
+        let text = [b'A' as u32, 0x01];
+        assert_eq!(
+            Some(2),
+            marked_content_state(
+                true,
+                false,
+                text.len(),
+                |index| { text.get(index).copied() },
+                printable
+            )
+        );
+        assert_eq!(
+            Some(1),
+            marked_content_state(
+                true,
+                true,
+                text.len(),
+                |index| { text.get(index).copied() },
+                printable
+            )
+        );
+
+        let plan = TextMarkedContentPlanState::new(
+            text.len(),
+            true,
+            [0.0, 0.0, 20.0, 10.0],
+            |index| text.get(index).copied(),
+            printable,
+        )
+        .expect("the marked-content text is readable");
+        assert_eq!(2, plan.emissions.len());
+        assert_eq!(
+            (b'A' as u32, [10.0, 0.0, 20.0, 10.0]),
+            (plan.emissions[0].unicode, plan.emissions[0].rect)
+        );
+        assert_eq!(
+            (b' ' as u32, [0.0, 0.0, 10.0, 10.0]),
+            (plan.emissions[1].unicode, plan.emissions[1].rect)
         );
     }
 

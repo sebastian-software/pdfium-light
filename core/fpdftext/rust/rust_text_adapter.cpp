@@ -82,6 +82,36 @@ extern "C" bool pdfium_rust_text_object_base_space(
     void* context,
     pdfium::rust::RustTextFloatCallback get_kerning,
     float* output);
+extern "C" bool pdfium_rust_text_marked_content_state(
+    bool has_actual_text,
+    bool repeats_previous_mark,
+    size_t actual_text_len,
+    void* text_context,
+    pdfium::rust::RustTextCodePointCallback get_character,
+    void* predicate_context,
+    pdfium::rust::RustTextCharacterPredicateCallback character_predicate,
+    uint8_t* output);
+extern "C" void* pdfium_rust_text_marked_content_plan_new(
+    size_t actual_text_len,
+    bool is_rtl,
+    float left,
+    float bottom,
+    float right,
+    float top,
+    void* text_context,
+    pdfium::rust::RustTextCodePointCallback get_character,
+    void* predicate_context,
+    pdfium::rust::RustTextCharacterPredicateCallback character_predicate);
+extern "C" void pdfium_rust_text_marked_content_plan_free(void* state);
+extern "C" size_t pdfium_rust_text_marked_content_plan_count(
+    const void* state);
+extern "C" bool pdfium_rust_text_marked_content_plan_get(const void* state,
+                                                          size_t index,
+                                                          uint32_t* unicode,
+                                                          float* left,
+                                                          float* bottom,
+                                                          float* right,
+                                                          float* top);
 extern "C" bool pdfium_rust_text_index_at_position(
     size_t character_count,
     float point_x,
@@ -394,6 +424,76 @@ std::optional<float> RustTextObjectBaseSpace(
     return std::nullopt;
   }
   return output;
+}
+
+std::optional<RustTextMarkedContentState> RustTextSelectMarkedContentState(
+    bool has_actual_text,
+    bool repeats_previous_mark,
+    WideStringView actual_text,
+    void* context,
+    RustTextCharacterPredicateCallback character_predicate) {
+  struct TextContext {
+    WideStringView text;
+  } text_context = {actual_text};
+  auto get_character = [](void* context, size_t index, uint32_t* character) {
+    auto* text_context = static_cast<TextContext*>(context);
+    if (index >= text_context->text.GetLength()) {
+      return false;
+    }
+    *character = static_cast<uint32_t>(text_context->text[index]);
+    return true;
+  };
+  uint8_t output = 0;
+  if (!pdfium_rust_text_marked_content_state(
+          has_actual_text, repeats_previous_mark, actual_text.GetLength(),
+          &text_context, get_character, context, character_predicate,
+          &output) ||
+      output > static_cast<uint8_t>(RustTextMarkedContentState::kDelay)) {
+    return std::nullopt;
+  }
+  return static_cast<RustTextMarkedContentState>(output);
+}
+
+RustTextMarkedContentPlan::RustTextMarkedContentPlan(
+    WideStringView actual_text,
+    bool is_rtl,
+    const RustTextRect& rect,
+    void* context,
+    RustTextCharacterPredicateCallback character_predicate) {
+  struct TextContext {
+    WideStringView text;
+  } text_context = {actual_text};
+  auto get_character = [](void* context, size_t index, uint32_t* character) {
+    auto* text_context = static_cast<TextContext*>(context);
+    if (index >= text_context->text.GetLength()) {
+      return false;
+    }
+    *character = static_cast<uint32_t>(text_context->text[index]);
+    return true;
+  };
+  state_ = pdfium_rust_text_marked_content_plan_new(
+      actual_text.GetLength(), is_rtl, rect.left, rect.bottom, rect.right,
+      rect.top, &text_context, get_character, context, character_predicate);
+}
+
+RustTextMarkedContentPlan::~RustTextMarkedContentPlan() {
+  pdfium_rust_text_marked_content_plan_free(state_);
+}
+
+size_t RustTextMarkedContentPlan::size() const {
+  return state_ ? pdfium_rust_text_marked_content_plan_count(state_) : 0;
+}
+
+std::optional<RustTextMarkedContentEmission>
+RustTextMarkedContentPlan::GetEmission(size_t index) const {
+  RustTextMarkedContentEmission emission = {};
+  if (!state_ || !pdfium_rust_text_marked_content_plan_get(
+                     state_, index, &emission.unicode, &emission.rect.left,
+                     &emission.rect.bottom, &emission.rect.right,
+                     &emission.rect.top)) {
+    return std::nullopt;
+  }
+  return emission;
 }
 
 std::optional<int> RustTextIndexAtPosition(

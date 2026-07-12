@@ -193,6 +193,45 @@ std::optional<float> RustTextObjectBaseSpace(
     float font_size_h,
     pdfium::span<const float> kernings);
 
+enum class RustTextMarkedContentState : uint8_t {
+  kPass = 0,
+  kDone = 1,
+  kDelay = 2,
+};
+
+std::optional<RustTextMarkedContentState> RustTextSelectMarkedContentState(
+    bool has_actual_text,
+    bool repeats_previous_mark,
+    WideStringView actual_text,
+    void* context,
+    RustTextCharacterPredicateCallback character_predicate);
+
+struct RustTextMarkedContentEmission {
+  uint32_t unicode;
+  RustTextRect rect;
+};
+
+class RustTextMarkedContentPlan final {
+ public:
+  RustTextMarkedContentPlan(
+      WideStringView actual_text,
+      bool is_rtl,
+      const RustTextRect& rect,
+      void* context,
+      RustTextCharacterPredicateCallback character_predicate);
+  RustTextMarkedContentPlan(const RustTextMarkedContentPlan&) = delete;
+  RustTextMarkedContentPlan& operator=(const RustTextMarkedContentPlan&) =
+      delete;
+  ~RustTextMarkedContentPlan();
+
+  bool valid() const { return state_ != nullptr; }
+  size_t size() const;
+  std::optional<RustTextMarkedContentEmission> GetEmission(size_t index) const;
+
+ private:
+  void* state_;
+};
+
 class RustTextSelectionRects final {
  public:
   RustTextSelectionRects(size_t character_count,
