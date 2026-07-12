@@ -1250,7 +1250,9 @@ and verifies every lifetime token is released by clear. All 37 parser-native
 tests, all nine document tests, the public delete/move/save-reload cases, all
 1,069 unit tests, and `pdfium_all` pass. The full embedder gate remains 506/557
 with exactly the same 51 documented macOS AGG static-golden failures;
-`LargeImageDoesNotRenderBlank` passes after 189.6 seconds.
+`LargeImageDoesNotRenderBlank` passes after 189.6 seconds. The rebuilt public
+parser corpus also completes under ASan+LSan with leak detection and immediate
+failure enabled.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
