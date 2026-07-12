@@ -1104,6 +1104,70 @@ fn text_object_writing_mode(
     Some(if x_under_threshold { 2 } else { fallback_orientation })
 }
 
+fn text_objects_end_line(
+    writing_mode: u8,
+    this_rect: [f32; 4],
+    previous_rect: [f32; 4],
+    current_line_rect: [f32; 4],
+    this_font_size: f32,
+    previous_font_size: f32,
+) -> Option<bool> {
+    match writing_mode {
+        0 => Some(false),
+        1 => {
+            if this_rect[3] - this_rect[1] <= 4.5 || previous_rect[3] - previous_rect[1] <= 4.5 {
+                return Some(false);
+            }
+            Some(previous_rect[1].max(this_rect[1]) >= previous_rect[3].min(this_rect[3]))
+        }
+        2 => {
+            if this_rect[2] - this_rect[0] <= this_font_size * 0.1
+                || previous_rect[2] - previous_rect[0] <= previous_font_size * 0.1
+            {
+                return Some(false);
+            }
+            Some(this_rect[2].min(current_line_rect[2]) <= this_rect[0].max(current_line_rect[0]))
+        }
+        _ => None,
+    }
+}
+
+fn normalize_threshold(threshold: f32, first: i32, second: i32, third: i32) -> Option<f32> {
+    if first >= second || second >= third {
+        return None;
+    }
+    Some(if threshold < first as f32 {
+        threshold / 2.0
+    } else if threshold < second as f32 {
+        threshold / 4.0
+    } else if threshold < third as f32 {
+        threshold / 5.0
+    } else {
+        threshold / 6.0
+    })
+}
+
+fn should_generate_space(
+    position_x: f32,
+    last_position: f32,
+    this_width: f32,
+    last_width: f32,
+    threshold: f32,
+) -> bool {
+    if (last_position + last_width - position_x).abs() <= threshold {
+        return false;
+    }
+    let threshold_position = threshold + last_width;
+    let position_difference = position_x - last_position;
+    if position_difference.abs() > threshold_position {
+        return true;
+    }
+    if position_x < 0.0 && -threshold_position > position_difference {
+        return true;
+    }
+    position_difference > this_width + last_width
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -1222,6 +1286,88 @@ pub unsafe extern "C" fn pdfium_rust_text_object_writing_mode(
         return false;
     };
     *output = orientation;
+    true
+}
+
+/// Decides whether adjacent text-object rectangles end the current line.
+///
+/// # Safety
+/// The output must be valid for one bool.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_objects_end_line(
+    writing_mode: u8,
+    this_left: f32,
+    this_bottom: f32,
+    this_right: f32,
+    this_top: f32,
+    previous_left: f32,
+    previous_bottom: f32,
+    previous_right: f32,
+    previous_top: f32,
+    line_left: f32,
+    line_bottom: f32,
+    line_right: f32,
+    line_top: f32,
+    this_font_size: f32,
+    previous_font_size: f32,
+    output: *mut bool,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let Some(result) = text_objects_end_line(
+        writing_mode,
+        [this_left, this_bottom, this_right, this_top],
+        [previous_left, previous_bottom, previous_right, previous_top],
+        [line_left, line_bottom, line_right, line_top],
+        this_font_size,
+        previous_font_size,
+    ) else {
+        return false;
+    };
+    *output = result;
+    true
+}
+
+/// Normalizes a character-width threshold across the supplied ordered bands.
+///
+/// # Safety
+/// The output must be valid for one float.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_normalize_threshold(
+    threshold: f32,
+    first: i32,
+    second: i32,
+    third: i32,
+    output: *mut f32,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let Some(result) = normalize_threshold(threshold, first, second, third) else {
+        return false;
+    };
+    *output = result;
+    true
+}
+
+/// Decides whether the gap between adjacent text objects emits a space.
+///
+/// # Safety
+/// The output must be valid for one bool.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_should_generate_space(
+    position_x: f32,
+    last_position: f32,
+    this_width: f32,
+    last_width: f32,
+    threshold: f32,
+    output: *mut bool,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    *output = should_generate_space(position_x, last_position, this_width, last_width, threshold);
     true
 }
 
@@ -2030,6 +2176,35 @@ mod tests {
         assert_eq!(Some(2), text_object_writing_mode(2, 0, [0.0, 0.0], [0.0, 10.0]));
         assert_eq!(Some(1), text_object_writing_mode(1, 1, [0.0, 0.0], [0.0, 0.0]));
         assert_eq!(Some(0), text_object_writing_mode(2, 2, [5.0, 5.0], [5.0, 5.0]));
+    }
+
+    #[test]
+    fn text_object_separator_geometry_should_match_line_and_gap_rules() {
+        assert_eq!(
+            Some(true),
+            text_objects_end_line(
+                1,
+                [0.0, 20.0, 10.0, 30.0],
+                [0.0, 0.0, 10.0, 10.0],
+                [0.0; 4],
+                10.0,
+                10.0,
+            )
+        );
+        assert_eq!(
+            Some(true),
+            text_objects_end_line(
+                2,
+                [20.0, 0.0, 30.0, 10.0],
+                [0.0, 0.0, 10.0, 10.0],
+                [0.0, 0.0, 10.0, 10.0],
+                10.0,
+                10.0,
+            )
+        );
+        assert_eq!(Some(150.0), normalize_threshold(600.0, 400, 700, 800));
+        assert!(!should_generate_space(10.0, 0.0, 5.0, 10.0, 1.0));
+        assert!(should_generate_space(22.0, 0.0, 5.0, 10.0, 1.0));
     }
 
     #[test]

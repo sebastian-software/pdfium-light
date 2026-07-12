@@ -135,6 +135,25 @@ struct RustTextRect {
   float top;
 };
 
+std::optional<bool> RustTextObjectsEndLine(
+    RustTextOrientation writing_mode,
+    const RustTextRect& this_rect,
+    const RustTextRect& previous_rect,
+    const RustTextRect& current_line_rect,
+    float this_font_size,
+    float previous_font_size);
+
+std::optional<float> RustTextNormalizeThreshold(float threshold,
+                                                int32_t first,
+                                                int32_t second,
+                                                int32_t third);
+
+std::optional<bool> RustTextShouldGenerateSpace(float position_x,
+                                                float last_position,
+                                                float this_width,
+                                                float last_width,
+                                                float threshold);
+
 class RustTextSelectionRects final {
  public:
   RustTextSelectionRects(size_t character_count,

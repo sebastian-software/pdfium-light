@@ -23,6 +23,34 @@ extern "C" bool pdfium_rust_text_object_writing_mode(
     float last_x,
     float last_y,
     uint8_t* output);
+extern "C" bool pdfium_rust_text_objects_end_line(
+    uint8_t writing_mode,
+    float this_left,
+    float this_bottom,
+    float this_right,
+    float this_top,
+    float previous_left,
+    float previous_bottom,
+    float previous_right,
+    float previous_top,
+    float line_left,
+    float line_bottom,
+    float line_right,
+    float line_top,
+    float this_font_size,
+    float previous_font_size,
+    bool* output);
+extern "C" bool pdfium_rust_text_normalize_threshold(float threshold,
+                                                       int32_t first,
+                                                       int32_t second,
+                                                       int32_t third,
+                                                       float* output);
+extern "C" bool pdfium_rust_text_should_generate_space(float position_x,
+                                                         float last_position,
+                                                         float this_width,
+                                                         float last_width,
+                                                         float threshold,
+                                                         bool* output);
 extern "C" bool pdfium_rust_text_index_at_position(
     size_t character_count,
     float point_x,
@@ -205,6 +233,52 @@ std::optional<RustTextOrientation> RustTextObjectWritingMode(
     return std::nullopt;
   }
   return static_cast<RustTextOrientation>(output);
+}
+
+std::optional<bool> RustTextObjectsEndLine(
+    RustTextOrientation writing_mode,
+    const RustTextRect& this_rect,
+    const RustTextRect& previous_rect,
+    const RustTextRect& current_line_rect,
+    float this_font_size,
+    float previous_font_size) {
+  bool output = false;
+  if (!pdfium_rust_text_objects_end_line(
+          static_cast<uint8_t>(writing_mode), this_rect.left, this_rect.bottom,
+          this_rect.right, this_rect.top, previous_rect.left,
+          previous_rect.bottom, previous_rect.right, previous_rect.top,
+          current_line_rect.left, current_line_rect.bottom,
+          current_line_rect.right, current_line_rect.top, this_font_size,
+          previous_font_size, &output)) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+std::optional<float> RustTextNormalizeThreshold(float threshold,
+                                                int32_t first,
+                                                int32_t second,
+                                                int32_t third) {
+  float output = 0.0f;
+  if (!pdfium_rust_text_normalize_threshold(threshold, first, second, third,
+                                            &output)) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+std::optional<bool> RustTextShouldGenerateSpace(float position_x,
+                                                float last_position,
+                                                float this_width,
+                                                float last_width,
+                                                float threshold) {
+  bool output = false;
+  if (!pdfium_rust_text_should_generate_space(
+          position_x, last_position, this_width, last_width, threshold,
+          &output)) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 std::optional<int> RustTextIndexAtPosition(

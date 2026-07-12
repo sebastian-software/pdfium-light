@@ -1539,17 +1539,49 @@ CPDF_TextPage::GenerateCharacter CPDF_TextPage::ProcessInsertObject(
   }
 
   wchar_t current_char = unicode.Front();
-  if (WritingMode == TextOrientation::kHorizontal) {
-    if (EndHorizontalLine(this_rect, prev_rect)) {
-      return IsHyphen(current_char) ? GenerateCharacter::kHyphen
-                                    : GenerateCharacter::kLineBreak;
+  bool line_end_checked = false;
+  if (use_rust_) {
+    pdfium::rust::RustTextOrientation rust_writing_mode;
+    switch (WritingMode) {
+      case TextOrientation::kUnknown:
+        rust_writing_mode = pdfium::rust::RustTextOrientation::kUnknown;
+        break;
+      case TextOrientation::kHorizontal:
+        rust_writing_mode = pdfium::rust::RustTextOrientation::kHorizontal;
+        break;
+      case TextOrientation::kVertical:
+        rust_writing_mode = pdfium::rust::RustTextOrientation::kVertical;
+        break;
     }
-  } else if (WritingMode == TextOrientation::kVertical) {
-    if (EndVerticalLine(this_rect, prev_rect, curline_rect_,
-                        text_obj->GetFontSize(),
-                        prev_text_obj_->GetFontSize())) {
-      return IsHyphen(current_char) ? GenerateCharacter::kHyphen
-                                    : GenerateCharacter::kLineBreak;
+    auto to_rust_rect = [](const CFX_FloatRect& rect) {
+      return pdfium::rust::RustTextRect{rect.left, rect.bottom, rect.right,
+                                        rect.top};
+    };
+    const auto ends_line = pdfium::rust::RustTextObjectsEndLine(
+        rust_writing_mode, to_rust_rect(this_rect), to_rust_rect(prev_rect),
+        to_rust_rect(curline_rect_), text_obj->GetFontSize(),
+        prev_text_obj_->GetFontSize());
+    if (ends_line.has_value()) {
+      line_end_checked = true;
+      if (*ends_line) {
+        return IsHyphen(current_char) ? GenerateCharacter::kHyphen
+                                      : GenerateCharacter::kLineBreak;
+      }
+    }
+  }
+  if (!line_end_checked) {
+    if (WritingMode == TextOrientation::kHorizontal) {
+      if (EndHorizontalLine(this_rect, prev_rect)) {
+        return IsHyphen(current_char) ? GenerateCharacter::kHyphen
+                                      : GenerateCharacter::kLineBreak;
+      }
+    } else if (WritingMode == TextOrientation::kVertical) {
+      if (EndVerticalLine(this_rect, prev_rect, curline_rect_,
+                          text_obj->GetFontSize(),
+                          prev_text_obj_->GetFontSize())) {
+        return IsHyphen(current_char) ? GenerateCharacter::kHyphen
+                                      : GenerateCharacter::kLineBreak;
+      }
     }
   }
 
@@ -1625,7 +1657,15 @@ CPDF_TextPage::GenerateCharacter CPDF_TextPage::ProcessInsertObject(
 
   CFX_Matrix matrix = text_obj->GetTextMatrix() * form_matrix;
   float threshold2 = std::max(nLastWidth, nThisWidth);
-  threshold2 = NormalizeThreshold(threshold2, 400, 700, 800);
+  if (use_rust_) {
+    const auto normalized_threshold =
+        pdfium::rust::RustTextNormalizeThreshold(threshold2, 400, 700, 800);
+    threshold2 = normalized_threshold.has_value()
+                     ? *normalized_threshold
+                     : NormalizeThreshold(threshold2, 400, 700, 800);
+  } else {
+    threshold2 = NormalizeThreshold(threshold2, 400, 700, 800);
+  }
   if (nLastWidth >= nThisWidth) {
     threshold2 *= fabs(prev_text_obj_->GetFontSize());
   } else {
@@ -1637,6 +1677,14 @@ CPDF_TextPage::GenerateCharacter CPDF_TextPage::ProcessInsertObject(
   if ((threshold2 < 1.4881 && threshold2 > 1.4879) ||
       (threshold2 < 1.39001 && threshold2 > 1.38999)) {
     threshold2 *= 1.5;
+  }
+  if (use_rust_) {
+    const auto generate_space = pdfium::rust::RustTextShouldGenerateSpace(
+        pos.x, last_pos, this_width, last_width, threshold2);
+    if (generate_space.has_value()) {
+      return *generate_space ? GenerateCharacter::kSpace
+                             : GenerateCharacter::kNone;
+    }
   }
   return GenerateSpace(pos, last_pos, this_width, last_width, threshold2)
              ? GenerateCharacter::kSpace
