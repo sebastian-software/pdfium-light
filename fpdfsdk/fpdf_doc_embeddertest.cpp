@@ -356,6 +356,32 @@ TEST_F(FPDFDocEmbedderTest, Bug821454) {
   }
 }
 
+TEST_F(FPDFDocEmbedderTest, RustLinkHitTestingMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bug_821454.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    FPDF_LINK link;
+    int z_order;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [&](double x, double y, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    return Snapshot{FPDFLink_GetLinkAtPoint(page.get(), x, y),
+                    FPDFLink_GetLinkZOrderAtPoint(page.get(), x, y)};
+  };
+
+  static constexpr std::array<std::array<double, 2>, 4> kPoints = {
+      std::array{150.0, 360.0}, std::array{150.0, 420.0},
+      std::array{0.0, 0.0}, std::array{612.0, 792.0}};
+  for (const auto& point : kPoints) {
+    EXPECT_EQ(snapshot(point[0], point[1], false),
+              snapshot(point[0], point[1], true));
+  }
+}
+
 TEST_F(FPDFDocEmbedderTest, ActionBadArguments) {
   ASSERT_TRUE(OpenDocument("launch_action.pdf"));
   EXPECT_EQ(static_cast<unsigned long>(PDFACTION_UNSUPPORTED),
