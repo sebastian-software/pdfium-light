@@ -117,6 +117,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `38e8aea3e` Phase 6 PDF-number-value slice | 17,421 | 10,610 | 241 | 4,179 | 6,570 | 279,540 | 6.23% | 5.21% | Rust owns PDF number signed/unsigned/float representation, parsing, conversion, mutation, and clone state; C++ retains exact float-to-PDF text formatting and archive writes |
 | `65738ff47` Phase 6 PDF-boolean-value slice | 17,504 | 10,693 | 241 | 4,218 | 6,570 | 279,758 | 6.26% | 5.24% | Rust owns PDF boolean storage, keyword mutation, and clone state; C++ retains static text selection and archive writes |
 | `545ff9e45` Phase 6 PDF-reference-value slice | 17,573 | 10,762 | 241 | 4,257 | 6,570 | 279,977 | 6.28% | 5.27% | Rust owns referenced object-number storage, mutation, and clone state; C++ retains the non-owning holder pointer and object/archive adapters |
+| `30549ba0c` Phase 6 PDF-array-container slice | 17,744 | 10,933 | 241 | 4,344 | 6,570 | 280,423 | 6.33% | 5.35% | Rust owns ordered array slots and mutations; C++ retains object values in an opaque-handle registry and derives the legacy iterator view |
 
 ## Toolchain
 
@@ -952,6 +953,26 @@ missing, ordinary, and maximum object numbers, mutation, cloning, string and
 numeric forwarding, and serialized output. All 24 native Rust tests, the
 reference, boolean, and three number tests, all 1,061 unit tests, the retained
 parser fuzzer build, and `pdfium_all` pass in the full GN configuration.
+
+The twenty-first Phase 6 slice replaces `CPDF_Array`'s production object
+vector with a Rust-owned ordered handle vector. Rust owns size, indexed lookup,
+append, insert, replacement, removal, clear, and the canonical order used for
+cloning, serialization, and iteration. Array construction fixes the retained
+C++ oracle or Rust candidate for the full object lifetime.
+
+C++ retains `CPDF_Object` values in a native registry keyed by opaque pointer
+handles. Per-handle slot counts preserve duplicate objects without creating a
+second C++ index, and the existing cycle-breaking destructor still leaks only
+objects marked with the invalid cycle sentinel. `CPDF_ArrayLocker` rebuilds a
+read-only C++ vector lazily from the Rust order; every mutation clears it, so it
+is a derived compatibility view rather than mutation input. The existing
+`ByteStringPool` weak pointer remains C++-owned for child construction.
+
+The same-process scenario compares duplicate slots, order, append, insert,
+replacement, invalid indices, removal, clear, clone state, indexed reads, and
+the locker view. All 25 native Rust tests, 20 focused array tests, all 1,062
+unit tests, the retained parser fuzzer build, and `pdfium_all` pass in the full
+GN configuration.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

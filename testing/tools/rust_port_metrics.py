@@ -104,6 +104,7 @@ ACTIVE_SURFACES = (
     "PDF number value storage, parsing, conversion, and cloning",
     "PDF boolean value storage, mutation, and cloning",
     "PDF reference object-number storage, mutation, and cloning",
+    "PDF array slot ordering, mutation, lookup, and iteration",
 )
 CANDIDATE_SURFACES = (
     "remaining PDF object values and native RetainPtr lifetimes",
