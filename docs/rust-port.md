@@ -167,6 +167,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `9bf42fcc4` Phase 7 public-destination-policy slice | 24,311 | 17,500 | 241 | 6,880 | 6,570 | 293,025 | 8.30% | 8.16% | Rust owns destination zoom-mode mapping, fit-parameter bounds, and XYZ validity/presence/zero-zoom policy; C++ retains destination arrays and name/number lifetimes, conditional output writes, and the separately selected oracle |
 | `f9ec47468` Phase 7 public-bookmark-traversal slice | 24,431 | 17,620 | 241 | 6,910 | 6,570 | 293,244 | 8.33% | 8.21% | Rust owns depth-first child/sibling traversal order, visited-set state, and cycle guarding; C++ retains bookmark-tree, dictionary, and title lifetimes, supplies borrowed comparison/navigation callbacks, and preserves the separately selected oracle |
 | `4c170af21` Phase 7 public-page-label-formatting slice | 24,524 | 17,713 | 241 | 6,937 | 6,570 | 293,413 | 8.36% | 8.25% | Rust owns decimal, upper/lower Roman, upper/lower repeated-letter, modulo, and unknown-style formatting; C++ retains number-tree, label-dictionary, prefix, and string lifetimes plus the malformed-negative fallback oracle |
+| `99e2c736d` Phase 7 public-link-enumeration slice | 24,581 | 17,770 | 241 | 6,969 | 6,570 | 293,570 | 8.37% | 8.27% | Rust owns public annotation-cursor normalization, forward scan, first-link selection, and miss/error state; C++ retains annotation arrays, dictionary/subtype access, selected handles, and the separately selected oracle loop |
 
 ## Toolchain
 
@@ -1832,6 +1833,21 @@ same-process unit differential compares all 10,003 indices from -1 through
 required lengths, complete UTF-16 buffers, and untouched sentinels for indices
 -1 through 8. All three focused page-label unit cases, all three public cases,
 all 49 parser-native tests, all 1,070 unit tests, and `pdfium_all` pass.
+
+The forty-second Phase 7 slice moves public link-annotation enumeration into
+Rust. Rust owns signed cursor normalization, the forward annotation-index scan,
+first-link selection, and distinct miss/callback-failure states. C++ retains
+page and annotation-array lifetimes, dictionary and subtype access through a
+synchronous callback, selected public handles, and the complete original loop
+as the separately selected oracle.
+
+Each call remains O(n - cursor) in time and O(1) in auxiliary storage. One
+parser-native test covers skipped annotations, resumed enumeration, negative
+and end cursors, and callback failure. A same-process public differential
+compares all four selected handles, every advanced cursor, terminal state,
+negative cursor, and oversized cursor under the C++ oracle and Rust candidate.
+Both focused public link cases, all 50 parser-native tests, all 1,070 unit
+tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
