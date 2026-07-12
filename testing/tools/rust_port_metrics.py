@@ -101,9 +101,10 @@ ACTIVE_SURFACES = (
     "cross-reference stream mutation orchestration",
     "cross-reference table storage, mutation, sizing, and overlay",
     "indirect-object numbering, recursive parse state, indexing, and iteration",
+    "PDF number value storage, parsing, conversion, and cloning",
 )
 CANDIDATE_SURFACES = (
-    "PDF object values and native RetainPtr lifetimes",
+    "remaining PDF object values and native RetainPtr lifetimes",
 )
 
 

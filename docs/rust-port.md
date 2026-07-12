@@ -114,6 +114,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `b425794a2` Phase 6 xref-admission slice | 16,604 | 9,793 | 241 | 3,829 | 6,570 | 277,991 | 5.97% | 4.83% | Prior surfaces plus Rust-owned normal-generation precedence and compressed-object stream guards; C++ retains the single map storage and object lifetimes |
 | `00020e5e2` Phase 6 xref-storage slice | 16,767 | 9,956 | 241 | 3,898 | 6,570 | 278,243 | 6.03% | 4.91% | Rust `BTreeMap` is the production source of truth for cross-reference entries, mutation, sizing, and overlay; C++ retains the oracle map, a lazy derived view, trailers, and PDF object lifetimes |
 | `ae4185d3d` Phase 6 indirect-object-index slice | 17,133 | 10,322 | 241 | 4,099 | 6,570 | 279,067 | 6.14% | 5.07% | Rust owns indirect-object numbers, recursive parse placeholders, handle indexing, replacement, deletion, last-number state, and ordered iteration; C++ retains object values through a non-object-number-keyed `RetainPtr` registry and lazy view |
+| `38e8aea3e` Phase 6 PDF-number-value slice | 17,421 | 10,610 | 241 | 4,179 | 6,570 | 279,540 | 6.23% | 5.21% | Rust owns PDF number signed/unsigned/float representation, parsing, conversion, mutation, and clone state; C++ retains exact float-to-PDF text formatting and archive writes |
 
 ## Toolchain
 
@@ -901,6 +902,23 @@ compares numbering, lower/higher generation replacement, deletion, last-number
 state, and ordered iteration. All six indirect-object holder tests, four parser
 object snapshots, both simple-parser tests, all 1,058 unit tests, the retained
 parser fuzzer build, and `pdfium_all` pass in the full GN configuration.
+
+The eighteenth Phase 6 slice replaces `CPDF_Number`'s production `FX_Number`
+value with one Rust-owned signed, unsigned, or float variant. Rust preserves
+the unsigned permissions-value path, signed limit handling, deliberate integer
+overflow reset, token-prefix parsing, PDFium's multiple-leading-sign float
+rules, float rounding, saturated integer conversion, `SetString()`, and the
+value used by clones. Each number holds either the retained C++ oracle or the
+Rust value, never two synchronized representations.
+
+C++ retains `WriteFloat()` as the exact PDF text-formatting adapter and writes
+the resulting bytes to `IFX_ArchiveStream`. The same-process differential
+scenario compares integer classification, signed conversion, exact float bits,
+formatted strings, mutation, and clone results across empty, malformed,
+overflow, boundary, exponent-like, precision, multiple-sign, and infinity
+inputs. The focused Rust suite has 22 tests, all three `CPDFNumber` tests pass,
+all 1,059 unit tests pass, the parser fuzzer source builds, and `pdfium_all`
+builds in the full GN configuration.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
