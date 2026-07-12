@@ -275,6 +275,8 @@ type PageObjectStreamCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut i32) -> bool;
 type PageObjectDescribeCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut usize, *mut i32) -> bool;
+type PageObjectActiveCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool) -> bool;
 
 #[derive(Clone, Copy)]
 struct RedactionRect {
@@ -396,6 +398,23 @@ fn page_object_remove_plan(
         }
     }
     Some(PageObjectRemovePlan { found: false, index: 0, content_stream: -1 })
+}
+
+fn page_object_active_update(current: bool, requested: bool) -> (bool, bool) {
+    (requested, current != requested)
+}
+
+fn page_object_active_count(
+    object_count: usize,
+    mut get_active: impl FnMut(usize) -> Option<bool>,
+) -> Option<usize> {
+    let mut active_count = 0usize;
+    for index in 0..object_count {
+        if get_active(index)? {
+            active_count = active_count.checked_add(1)?;
+        }
+    }
+    Some(active_count)
 }
 
 fn page_object_matrix_route(object_type: u8) -> Option<u8> {
@@ -2997,6 +3016,51 @@ pub unsafe extern "C" fn pdfium_rust_page_object_remove_plan(
     true
 }
 
+/// Plans active-state mutation and whether it dirties the page object.
+///
+/// # Safety
+/// Outputs must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_page_object_active_update(
+    current: bool,
+    requested: bool,
+    active: *mut bool,
+    mark_dirty: *mut bool,
+) -> bool {
+    let (Some(active), Some(mark_dirty)) =
+        (unsafe { active.as_mut() }, unsafe { mark_dirty.as_mut() })
+    else {
+        return false;
+    };
+    (*active, *mark_dirty) = page_object_active_update(current, requested);
+    true
+}
+
+/// Counts active page objects through a synchronous borrowed-state callback.
+///
+/// # Safety
+/// The callback, context, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_page_object_active_count(
+    object_count: usize,
+    context: *mut core::ffi::c_void,
+    get_active: PageObjectActiveCallback,
+    output: *mut usize,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let Some(count) = page_object_active_count(object_count, |index| {
+        let mut active = false;
+        // SAFETY: The caller guarantees synchronous callback validity.
+        unsafe { get_active(context, index, &mut active) }.then_some(active)
+    }) else {
+        return false;
+    };
+    *output = count;
+    true
+}
+
 /// Selects the native matrix storage for a public page-object operation.
 ///
 /// # Safety
@@ -4684,6 +4748,15 @@ mod tests {
             page_object_remove_plan(objects.len(), 44, |index| objects.get(index).copied())
         );
         assert_eq!(None, page_object_remove_plan(1, 11, |_| None));
+    }
+
+    #[test]
+    fn page_object_active_state_should_dirty_only_changes_and_count_exactly() {
+        assert_eq!((false, false), page_object_active_update(false, false));
+        assert_eq!((true, true), page_object_active_update(false, true));
+        assert_eq!((false, true), page_object_active_update(true, false));
+        assert_eq!(Some(2), page_object_active_count(4, |index| Some(matches!(index, 0 | 3))));
+        assert_eq!(None, page_object_active_count(2, |index| (index == 0).then_some(true)));
     }
 
     #[test]

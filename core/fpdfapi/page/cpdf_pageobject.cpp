@@ -8,6 +8,7 @@
 
 #include <utility>
 
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/fx_coordinates.h"
 
 CPDF_PageObject::CPDF_PageObject(int32_t content_stream)
@@ -55,6 +56,17 @@ void CPDF_PageObject::InitializeOriginalMatrix(const CFX_Matrix& matrix) {
 }
 
 void CPDF_PageObject::SetIsActive(bool value) {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto update =
+        pdfium::rust::RustPlanPageObjectActiveUpdate(is_active_, value);
+    if (update.has_value()) {
+      is_active_ = update->active;
+      if (update->mark_dirty) {
+        dirty_ = true;
+      }
+      return;
+    }
+  }
   if (is_active_ != value) {
     is_active_ = value;
     dirty_ = true;

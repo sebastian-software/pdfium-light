@@ -279,6 +279,15 @@ extern "C" bool pdfium_rust_page_object_remove_plan(
     bool* found,
     size_t* index,
     int32_t* content_stream);
+extern "C" bool pdfium_rust_page_object_active_update(bool current,
+                                                      bool requested,
+                                                      bool* active,
+                                                      bool* mark_dirty);
+extern "C" bool pdfium_rust_page_object_active_count(
+    size_t object_count,
+    void* context,
+    pdfium::rust::RustPageObjectActiveCallback get_active,
+    size_t* output);
 extern "C" bool pdfium_rust_page_object_matrix_route(uint8_t object_type,
                                                      uint8_t* output);
 extern "C" bool pdfium_rust_page_object_matrix_dirty(uint8_t object_type,
@@ -992,6 +1001,29 @@ std::optional<RustPageObjectRemovePlan> RustPlanPageObjectRemove(
     return std::nullopt;
   }
   return plan;
+}
+
+std::optional<RustPageObjectActiveUpdate> RustPlanPageObjectActiveUpdate(
+    bool current,
+    bool requested) {
+  RustPageObjectActiveUpdate update = {};
+  if (!pdfium_rust_page_object_active_update(current, requested, &update.active,
+                                             &update.mark_dirty)) {
+    return std::nullopt;
+  }
+  return update;
+}
+
+std::optional<size_t> RustCountActivePageObjects(
+    size_t object_count,
+    void* context,
+    RustPageObjectActiveCallback get_active) {
+  size_t output = 0;
+  if (!pdfium_rust_page_object_active_count(object_count, context, get_active,
+                                            &output)) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 std::optional<uint8_t> RustPageObjectMatrixRoute(uint8_t object_type) {

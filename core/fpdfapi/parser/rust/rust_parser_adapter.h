@@ -410,6 +410,21 @@ std::optional<RustPageObjectRemovePlan> RustPlanPageObjectRemove(
     void* context,
     RustPageObjectDescribeCallback describe);
 
+struct RustPageObjectActiveUpdate {
+  bool active;
+  bool mark_dirty;
+};
+std::optional<RustPageObjectActiveUpdate> RustPlanPageObjectActiveUpdate(
+    bool current,
+    bool requested);
+using RustPageObjectActiveCallback = bool (*)(void* context,
+                                              size_t index,
+                                              bool* active);
+std::optional<size_t> RustCountActivePageObjects(
+    size_t object_count,
+    void* context,
+    RustPageObjectActiveCallback get_active);
+
 struct RustPageObjectMatrix {
   std::array<float, 6> values;
 };

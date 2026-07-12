@@ -168,6 +168,23 @@ void CPDF_PageObjectHolder::LoadTransparencyInfo() {
 }
 
 size_t CPDF_PageObjectHolder::GetActivePageObjectCount() const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    auto get_active = [](void* context, size_t index, bool* active) {
+      const auto* holder = static_cast<const CPDF_PageObjectHolder*>(context);
+      CPDF_PageObject* object = holder->GetPageObjectByIndex(index);
+      if (!object) {
+        return false;
+      }
+      *active = object->IsActive();
+      return true;
+    };
+    const auto count = pdfium::rust::RustCountActivePageObjects(
+        page_object_list_.size(), const_cast<CPDF_PageObjectHolder*>(this),
+        get_active);
+    if (count.has_value()) {
+      return *count;
+    }
+  }
   size_t count = 0;
   for (const auto& page_object : page_object_list_) {
     if (page_object->IsActive()) {
