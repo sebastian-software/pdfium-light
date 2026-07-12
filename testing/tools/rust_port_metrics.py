@@ -158,6 +158,7 @@ ACTIVE_SURFACES = (
     "document name-tree count and index traversal",
     "public link rectangle hit testing and topmost selection",
     "document name-tree name lookup, limits pruning, and cycle guarding",
+    "public bookmark color range and output admission",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",

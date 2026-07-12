@@ -173,6 +173,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `44894c359` Phase 7 document-name-tree-index slice | 25,202 | 18,391 | 241 | 7,153 | 6,570 | 294,599 | 8.55% | 8.52% | Rust owns name-tree pair counting, depth-first index traversal, cumulative leaf offsets, the depth bound, and count-cycle guarding; C++ retains dictionaries, arrays, decoded names, values, borrowed callbacks, and the separately selected oracle traversals |
 | `7df1198ab` Phase 7 public-link-hit-test slice | 25,308 | 18,497 | 241 | 7,188 | 6,570 | 294,805 | 8.58% | 8.57% | Rust owns reverse z-order scanning, rectangle normalization, inclusive containment, topmost selection, and miss/error state; C++ retains the per-page link cache, dictionaries, rectangle extraction, selected handles, and the separately selected oracle loop |
 | `ee43436fc` Phase 7 document-name-tree-search slice | 25,708 | 18,897 | 241 | 7,253 | 6,570 | 295,385 | 8.70% | 8.73% | Rust owns name-tree limits pruning, sorted-name scanning, depth-first child order, the depth bound, and exact object-number cycle guarding; C++ retains dictionaries, arrays, decoded Unicode comparisons, values, synchronous borrowed callbacks, mutation paths, and the separately selected lookup oracle |
+| `94022a215` Phase 7 public-bookmark-color slice | 25,734 | 18,923 | 241 | 7,261 | 6,570 | 295,456 | 8.71% | 8.74% | Rust owns public bookmark color range validation, historical NaN admission, and success selection; C++ retains bookmark dictionaries, optional color extraction, public output pointers, writes, and the separately selected oracle predicate |
 
 ## Toolchain
 
@@ -1939,6 +1940,20 @@ misses, alongside the existing count and indexed-lookup corpus. The Unicode
 BOM lookup, lookup-only limits behavior, all mutation cases, and five public
 named-destination cases also pass. Evidence includes all 56 parser-native
 tests, all 1,072 unit tests, and `pdfium_all`.
+
+The forty-eighth Phase 7 slice moves public bookmark color validation into
+Rust. Rust owns closed-unit-interval admission, preserves the historical C++
+comparison behavior that admits NaN components, and selects success or failure.
+C++ retains bookmark and dictionary lifetimes, optional color extraction, ABI
+output pointers and writes, and the separately selected original predicate.
+
+The candidate remains O(1) in time and auxiliary storage. Two parser-native
+tests cover interval endpoints, values immediately outside both bounds, and
+NaN. A same-process public differential compares the exact result and all
+three output values, including untouched distinct sentinels on failure, across
+the six existing malformed and valid bookmark-color fixtures. Both focused
+public cases, all 58 parser-native tests, all 1,072 unit tests, and
+`pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
