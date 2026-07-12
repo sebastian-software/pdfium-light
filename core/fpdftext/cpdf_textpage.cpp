@@ -2023,16 +2023,54 @@ void CPDF_TextPage::ProcessTextObjectItems(CPDF_TextObject* text_object,
     static constexpr float kTextCharRatioGapDelta = 0.07f;
     float threshold = charinfo.matrix().TransformXDistance(
         kTextCharRatioGapDelta * text_object->GetFontSize());
-    for (int n = fxcrt::CollectionSize<int>(temp_char_list_);
-         n > fxcrt::CollectionSize<int>(temp_char_list_) - count; --n) {
-      const CharInfo& charinfo1 = temp_char_list_[n - 1];
-      CFX_PointF diff = charinfo1.origin() - charinfo.origin();
-      if (charinfo1.char_code() == charinfo.char_code() &&
-          charinfo1.text_object()->GetFont() ==
-              charinfo.text_object()->GetFont() &&
-          fabs(diff.x) < threshold && fabs(diff.y) < threshold) {
-        add_unicode = false;
-        break;
+    bool used_rust_suppression = false;
+    if (use_rust_) {
+      auto get_character = [](void* context, size_t index, uint32_t* char_code,
+                              uintptr_t* font, float* origin_x,
+                              float* origin_y) {
+        const auto* characters =
+            static_cast<const std::vector<CharInfo>*>(context);
+        if (index >= characters->size()) {
+          return false;
+        }
+        const CharInfo& character = (*characters)[index];
+        *char_code = character.char_code();
+        *font = character.text_object()
+                    ? reinterpret_cast<uintptr_t>(
+                          character.text_object()->GetFont().Get())
+                    : 0;
+        *origin_x = character.origin().x;
+        *origin_y = character.origin().y;
+        return true;
+      };
+      WideStringView temporary_text = temp_text_buf_.AsStringView();
+      const auto action = pdfium::rust::RustTextCharacterSuppressionAction(
+          i, charinfo.char_code(), reinterpret_cast<uintptr_t>(font.Get()),
+          charinfo.origin().x, charinfo.origin().y, threshold,
+          temp_char_list_.size(),
+          !temporary_text.IsEmpty() && temporary_text.Back() == L' ',
+          &temp_char_list_, get_character);
+      if (action.has_value()) {
+        used_rust_suppression = true;
+        add_unicode = *action == 0;
+        if (*action == 2) {
+          temp_text_buf_.Delete(temp_text_buf_.GetLength() - 1, 1);
+          temp_char_list_.pop_back();
+        }
+      }
+    }
+    if (!used_rust_suppression) {
+      for (int n = fxcrt::CollectionSize<int>(temp_char_list_);
+           n > fxcrt::CollectionSize<int>(temp_char_list_) - count; --n) {
+        const CharInfo& charinfo1 = temp_char_list_[n - 1];
+        CFX_PointF diff = charinfo1.origin() - charinfo.origin();
+        if (charinfo1.char_code() == charinfo.char_code() &&
+            charinfo1.text_object()->GetFont() ==
+                charinfo.text_object()->GetFont() &&
+            fabs(diff.x) < threshold && fabs(diff.y) < threshold) {
+          add_unicode = false;
+          break;
+        }
       }
     }
     if (add_unicode) {

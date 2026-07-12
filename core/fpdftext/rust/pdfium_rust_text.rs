@@ -30,6 +30,14 @@ type TextCharacterPredicateCallback = unsafe extern "C" fn(*mut core::ffi::c_voi
 type TextCodePointCallback = unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut u32) -> bool;
 type TextFloatCallback = unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut f32) -> bool;
 type TextWidthCallback = unsafe extern "C" fn(*mut core::ffi::c_void, *mut i32) -> bool;
+type TextRecentCharacterCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    *mut u32,
+    *mut usize,
+    *mut f32,
+    *mut f32,
+) -> bool;
 type TextSameObjectItemCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut u32, *mut u32) -> bool;
 type TextOrientationObjectCallback = unsafe extern "C" fn(
@@ -1542,6 +1550,31 @@ fn generated_character_origin(
     [previous_origin[0] + width as f32 * font_size / 1000.0, previous_origin[1]]
 }
 
+#[allow(clippy::too_many_arguments)]
+fn text_character_suppression_action(
+    item_index: usize,
+    current_char_code: u32,
+    current_font: usize,
+    current_origin: [f32; 2],
+    threshold: f32,
+    recent_character_count: usize,
+    temporary_text_ends_space: bool,
+    mut get_character: impl FnMut(usize) -> Option<(u32, usize, [f32; 2])>,
+) -> Option<u8> {
+    let first = recent_character_count.saturating_sub(7);
+    for index in (first..recent_character_count).rev() {
+        let (char_code, font, origin) = get_character(index)?;
+        if char_code == current_char_code
+            && font == current_font
+            && (origin[0] - current_origin[0]).abs() < threshold
+            && (origin[1] - current_origin[1]).abs() < threshold
+        {
+            return Some(if item_index == 0 && temporary_text_ends_space { 2 } else { 1 });
+        }
+    }
+    Some(0)
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -2044,6 +2077,60 @@ pub unsafe extern "C" fn pdfium_rust_text_generated_character_origin(
     );
     *output_x = origin[0];
     *output_y = origin[1];
+    true
+}
+
+/// Selects emit, suppress, or suppress-and-trim-space for one text item.
+///
+/// # Safety
+/// The callback, context, and output must remain valid for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_character_suppression_action(
+    item_index: usize,
+    current_char_code: u32,
+    current_font: usize,
+    current_origin_x: f32,
+    current_origin_y: f32,
+    threshold: f32,
+    recent_character_count: usize,
+    temporary_text_ends_space: bool,
+    context: *mut core::ffi::c_void,
+    get_character: TextRecentCharacterCallback,
+    output: *mut u8,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let Some(action) = text_character_suppression_action(
+        item_index,
+        current_char_code,
+        current_font,
+        [current_origin_x, current_origin_y],
+        threshold,
+        recent_character_count,
+        temporary_text_ends_space,
+        |index| {
+            let mut char_code = 0;
+            let mut font = 0;
+            let mut origin_x = 0.0;
+            let mut origin_y = 0.0;
+            // SAFETY: The caller guarantees synchronous callback validity.
+            unsafe {
+                get_character(
+                    context,
+                    index,
+                    &mut char_code,
+                    &mut font,
+                    &mut origin_x,
+                    &mut origin_y,
+                )
+            }
+            .then_some((char_code, font, [origin_x, origin_y]))
+        },
+    ) else {
+        return false;
+    };
+    *output = action;
     true
 }
 
@@ -3226,6 +3313,37 @@ mod tests {
         assert_eq!(
             [10.0, 20.0],
             generated_character_origin(false, true, 600, 10.0, 0.0, [10.0, 20.0])
+        );
+    }
+
+    #[test]
+    fn text_character_suppression_should_scan_seven_recent_characters() {
+        let recent = [(65, 1, [0.0, 0.0]), (66, 1, [1.0, 0.0]), (65, 1, [10.02, 20.02])];
+        assert_eq!(
+            Some(2),
+            text_character_suppression_action(
+                0,
+                65,
+                1,
+                [10.0, 20.0],
+                0.07,
+                recent.len(),
+                true,
+                |index| recent.get(index).copied(),
+            )
+        );
+        assert_eq!(
+            Some(0),
+            text_character_suppression_action(
+                1,
+                65,
+                2,
+                [10.0, 20.0],
+                0.07,
+                recent.len(),
+                false,
+                |index| recent.get(index).copied(),
+            )
         );
     }
 

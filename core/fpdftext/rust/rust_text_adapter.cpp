@@ -133,6 +133,18 @@ extern "C" bool pdfium_rust_text_generated_character_origin(
     float previous_origin_y,
     float* output_x,
     float* output_y);
+extern "C" bool pdfium_rust_text_character_suppression_action(
+    size_t item_index,
+    uint32_t current_char_code,
+    uintptr_t current_font,
+    float current_origin_x,
+    float current_origin_y,
+    float threshold,
+    size_t recent_character_count,
+    bool temporary_text_ends_space,
+    void* context,
+    pdfium::rust::RustTextRecentCharacterCallback get_character,
+    uint8_t* output);
 extern "C" bool pdfium_rust_text_marked_content_state(
     bool has_actual_text,
     bool repeats_previous_mark,
@@ -558,6 +570,28 @@ std::optional<std::pair<float, float>> RustTextGeneratedCharacterOrigin(
     return std::nullopt;
   }
   return std::make_pair(output_x, output_y);
+}
+
+std::optional<uint8_t> RustTextCharacterSuppressionAction(
+    size_t item_index,
+    uint32_t current_char_code,
+    uintptr_t current_font,
+    float current_origin_x,
+    float current_origin_y,
+    float threshold,
+    size_t recent_character_count,
+    bool temporary_text_ends_space,
+    void* context,
+    RustTextRecentCharacterCallback get_character) {
+  uint8_t output = 0;
+  if (!pdfium_rust_text_character_suppression_action(
+          item_index, current_char_code, current_font, current_origin_x,
+          current_origin_y, threshold, recent_character_count,
+          temporary_text_ends_space, context, get_character, &output) ||
+      output > 2) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 std::optional<RustTextMarkedContentState> RustTextSelectMarkedContentState(

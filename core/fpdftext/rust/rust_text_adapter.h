@@ -168,6 +168,12 @@ using RustTextSameObjectItemCallback = bool (*)(void* context,
                                                 size_t index,
                                                 uint32_t* previous,
                                                 uint32_t* current);
+using RustTextRecentCharacterCallback = bool (*)(void* context,
+                                                 size_t index,
+                                                 uint32_t* char_code,
+                                                 uintptr_t* font,
+                                                 float* origin_x,
+                                                 float* origin_y);
 
 std::optional<bool> RustTextIsHyphenJoin(
     WideStringView current_text,
@@ -244,6 +250,18 @@ std::optional<std::pair<float, float>> RustTextGeneratedCharacterOrigin(
     float previous_box_height,
     float previous_origin_x,
     float previous_origin_y);
+
+std::optional<uint8_t> RustTextCharacterSuppressionAction(
+    size_t item_index,
+    uint32_t current_char_code,
+    uintptr_t current_font,
+    float current_origin_x,
+    float current_origin_y,
+    float threshold,
+    size_t recent_character_count,
+    bool temporary_text_ends_space,
+    void* context,
+    RustTextRecentCharacterCallback get_character);
 
 enum class RustTextMarkedContentState : uint8_t {
   kPass = 0,
