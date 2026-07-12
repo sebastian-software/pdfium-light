@@ -24,6 +24,10 @@ extern "C" bool pdfium_rust_run_cross_ref_entry_mutation(
     bool archive_object_valid,
     void* context,
     pdfium::rust::CrossRefMutationCallback callback);
+extern "C" bool pdfium_rust_run_cross_ref_map_size(
+    uint32_t size,
+    void* context,
+    pdfium::rust::CrossRefMapSizeCallback callback);
 extern "C" bool pdfium_rust_cross_ref_index_pair(int32_t start,
                                                  int32_t count,
                                                  uint32_t* output_start,
@@ -120,6 +124,13 @@ bool RunRustCrossRefEntryMutation(uint8_t type_code,
          pdfium_rust_run_cross_ref_entry_mutation(
              type_code, normal_offset_fits, generation, archive_object_valid,
              context, callback);
+}
+
+bool RunRustCrossRefMapSize(uint32_t size,
+                            void* context,
+                            CrossRefMapSizeCallback callback) {
+  return context && callback &&
+         pdfium_rust_run_cross_ref_map_size(size, context, callback);
 }
 
 std::optional<CrossRefIndexPair> RustCrossRefIndexPair(int32_t start,

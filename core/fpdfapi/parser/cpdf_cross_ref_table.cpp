@@ -8,6 +8,7 @@
 
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/check_op.h"
 #include "core/fxcrt/containers/contains.h"
 
@@ -105,6 +106,31 @@ void CPDF_CrossRefTable::Update(
 }
 
 void CPDF_CrossRefTable::SetObjectMapSize(uint32_t size) {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto apply_map_size = [](void* raw_context, uint8_t action,
+                                   uint32_t value) -> bool {
+      auto* table = static_cast<CPDF_CrossRefTable*>(raw_context);
+      switch (action) {
+        case 0:
+          table->objects_info_.clear();
+          return true;
+        case 1:
+          table->objects_info_.erase(table->objects_info_.lower_bound(value),
+                                     table->objects_info_.end());
+          return true;
+        case 2:
+          if (!pdfium::Contains(table->objects_info_, value)) {
+            table->objects_info_[value].pos = 0;
+          }
+          return true;
+        default:
+          return false;
+      }
+    };
+    CHECK(pdfium::rust::RunRustCrossRefMapSize(size, this, apply_map_size));
+    return;
+  }
+
   if (size == 0) {
     objects_info_.clear();
     return;

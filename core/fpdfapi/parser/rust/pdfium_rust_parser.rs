@@ -188,6 +188,7 @@ fn scan_pdf_token(input: &[u8], position: usize) -> PdfTokenScan {
 }
 
 type CrossRefSegmentCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
+type CrossRefMapSizeCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u8, u32) -> bool;
 type CrossRefMutationCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u8) -> bool;
 
 /// Reads a variable-width big-endian cross-reference field.
@@ -328,6 +329,38 @@ pub unsafe extern "C" fn pdfium_rust_run_cross_ref_entry_mutation(
     // SAFETY: The caller guarantees a live context and synchronous callback
     // for this single selected mutation.
     unsafe { callback(context, action) }
+}
+
+/// Runs the ordered mutations that resize a cross-reference object map.
+///
+/// A zero size clears the map. A nonzero size first removes object numbers at
+/// or above the limit and then ensures that the final in-range object exists.
+///
+/// # Safety
+///
+/// `context` and `callback` must remain valid for the synchronous calls.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_run_cross_ref_map_size(
+    size: u32,
+    context: *mut core::ffi::c_void,
+    callback: Option<CrossRefMapSizeCallback>,
+) -> bool {
+    const CLEAR: u8 = 0;
+    const TRUNCATE: u8 = 1;
+    const ENSURE_LAST: u8 = 2;
+
+    if context.is_null() {
+        return false;
+    }
+    let Some(callback) = callback else {
+        return false;
+    };
+    if size == 0 {
+        // SAFETY: The caller guarantees a live context and synchronous callback.
+        return unsafe { callback(context, CLEAR, 0) };
+    }
+    // SAFETY: The caller guarantees a live context and synchronous callback.
+    unsafe { callback(context, TRUNCATE, size) && callback(context, ENSURE_LAST, size - 1) }
 }
 
 /// Validates and normalizes one `/Index` start/count pair.
@@ -594,12 +627,31 @@ mod tests {
         calls: usize,
     }
 
+    struct MapSizeState {
+        actions: [(u8, u32); 2],
+        calls: usize,
+        fail_at: Option<usize>,
+    }
+
     unsafe extern "C" fn record_mutation(context: *mut core::ffi::c_void, action: u8) -> bool {
         // SAFETY: The test passes one live `MutationState` for the call.
         let state = unsafe { &mut *context.cast::<MutationState>() };
         state.action = action;
         state.calls += 1;
         true
+    }
+
+    unsafe extern "C" fn record_map_size(
+        context: *mut core::ffi::c_void,
+        action: u8,
+        value: u32,
+    ) -> bool {
+        // SAFETY: The test passes one live `MapSizeState` for the call.
+        let state = unsafe { &mut *context.cast::<MapSizeState>() };
+        let call = state.calls;
+        state.actions[call] = (action, value);
+        state.calls += 1;
+        state.fail_at != Some(call)
     }
 
     unsafe extern "C" fn record_entry(context: *mut core::ffi::c_void, entry_index: u32) -> bool {
@@ -712,6 +764,53 @@ mod tests {
             )
         });
         assert_eq!(0, state.calls);
+    }
+
+    #[test]
+    fn cross_ref_map_size_should_sequence_clear_truncate_and_ensure() {
+        let mut state = MapSizeState { actions: [(u8::MAX, u32::MAX); 2], calls: 0, fail_at: None };
+        // SAFETY: The context remains live for the synchronous callback.
+        assert!(unsafe {
+            pdfium_rust_run_cross_ref_map_size(
+                0,
+                (&mut state as *mut MapSizeState).cast(),
+                Some(record_map_size),
+            )
+        });
+        assert_eq!([(0, 0), (u8::MAX, u32::MAX)], state.actions);
+        assert_eq!(1, state.calls);
+
+        state.calls = 0;
+        // SAFETY: The context remains live for both synchronous callbacks.
+        assert!(unsafe {
+            pdfium_rust_run_cross_ref_map_size(
+                7,
+                (&mut state as *mut MapSizeState).cast(),
+                Some(record_map_size),
+            )
+        });
+        assert_eq!([(1, 7), (2, 6)], state.actions);
+        assert_eq!(2, state.calls);
+
+        state.calls = 0;
+        state.fail_at = Some(0);
+        // SAFETY: The context remains live; failure stops before ensure-last.
+        assert!(!unsafe {
+            pdfium_rust_run_cross_ref_map_size(
+                u32::MAX,
+                (&mut state as *mut MapSizeState).cast(),
+                Some(record_map_size),
+            )
+        });
+        assert_eq!([(1, u32::MAX), (2, 6)], state.actions);
+        assert_eq!(1, state.calls);
+
+        assert!(!unsafe {
+            pdfium_rust_run_cross_ref_map_size(1, core::ptr::null_mut(), Some(record_map_size))
+        });
+        assert!(!unsafe {
+            pdfium_rust_run_cross_ref_map_size(1, (&mut state as *mut MapSizeState).cast(), None)
+        });
     }
 
     #[test]

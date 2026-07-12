@@ -25,6 +25,12 @@ bool RunRustCrossRefEntryMutation(uint8_t type_code,
                                   bool archive_object_valid,
                                   void* context,
                                   CrossRefMutationCallback callback);
+using CrossRefMapSizeCallback = bool (*)(void* context,
+                                         uint8_t action,
+                                         uint32_t value);
+bool RunRustCrossRefMapSize(uint32_t size,
+                            void* context,
+                            CrossRefMapSizeCallback callback);
 struct CrossRefIndexPair {
   uint32_t start;
   uint32_t count;
