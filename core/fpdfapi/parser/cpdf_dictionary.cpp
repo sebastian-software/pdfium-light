@@ -328,7 +328,7 @@ void CPDF_Dictionary::ConvertToIndirectObjectFor(
     const ByteString& key,
     CPDF_IndirectObjectHolder* pHolder) {
   CHECK(!IsLocked());
-  RetainPtr<CPDF_Object> object = GetMutableObjectFor(key);
+  RetainPtr<CPDF_Object> object = GetMutableObjectFor(key.AsStringView());
   if (!object || object->IsReference()) {
     return;
   }
@@ -449,7 +449,7 @@ void CPDF_Dictionary::EnsureMapView() const {
   }
   const auto append = [](void* context, const uint8_t* key, size_t key_len,
                          uintptr_t handle) {
-    auto* dictionary = static_cast<const CPDF_Dictionary*>(context);
+    auto* dictionary = static_cast<CPDF_Dictionary*>(context);
     ByteString key_string(ByteStringView(pdfium::span(key, key_len)));
     dictionary->map_.emplace(
         dictionary->pool_ ? dictionary->pool_->Intern(key_string)
