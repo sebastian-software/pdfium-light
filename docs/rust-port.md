@@ -135,6 +135,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `6c858cf2e` Phase 7 SDK-NUL-output slice | 19,322 | 12,511 | 241 | 4,915 | 6,570 | 283,613 | 6.81% | 6.04% | Rust owns required-length calculation and complete NUL-terminated byte-string copies for public SDK getters; C++ retains source strings, API wrappers, and checked public length conversion |
 | `44e5d54fb` Phase 7 incremental-page-traversal slice | 19,763 | 12,952 | 241 | 5,034 | 6,570 | 284,343 | 6.95% | 6.24% | Rust owns the persistent traversal stack, child cursors, next-page cursor, depth state, and cache scheduling; C++ retains dictionary access and one unordered `RetainPtr` lifetime token per active Rust stack entry |
 | `85aab3743` Phase 7 public-text-search slice | 20,193 | 13,382 | 241 | 5,195 | 6,570 | 285,051 | 7.08% | 6.43% | A dedicated Rust text crate owns page/word search data, forward/backward cursors, match results, whole-word, spacing, and overlap policy; C++ retains case folding, query tokenization, and text/character index mapping |
+| `6f70ec2d4` Phase 7 text-query-tokenization slice | 20,258 | 13,447 | 241 | 5,185 | 6,570 | 285,113 | 7.11% | 6.46% | Rust owns leading/trailing-space markers, collapsed separators, script-boundary splitting, and right-apostrophe preservation; C++ retains only case folding and the separately selected tokenization oracle |
 
 ## Toolchain
 
@@ -1271,6 +1272,20 @@ sentinel (`res_end = -1`), fixed separately by preserving its wrapping ABI
 conversion. Both native text tests, all 62 public text embedder cases, the
 five-scenario same-process Oracle/Candidate forward/backward matrix, all 1,069
 unit tests, and `pdfium_all` pass.
+
+The tenth Phase 7 slice moves search-query tokenization into the Rust text
+domain. Candidate construction now passes one normalized query and never builds
+or retains the C++ `find_what_array_`. Rust preserves the special all-space
+query, one leading/trailing empty marker, collapsed internal ASCII spaces,
+single-character splitting for the historical script ranges, and U+2019 inside
+a word. C++ retains case folding and `ExtractFindWhat()` only for the separately
+selected oracle.
+
+Three native text tests cover spaces, Han boundaries, and the right apostrophe.
+The initial build caught the now-oracle-only temporary constructor in
+`FindPrev()` and its compile fix is isolated. All 62 public text cases, the
+same-process forward/backward matrix, all 1,069 unit tests, and `pdfium_all`
+pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

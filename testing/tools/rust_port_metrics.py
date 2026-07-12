@@ -120,6 +120,7 @@ ACTIVE_SURFACES = (
     "public SDK byte-string length, complete-copy, and NUL termination",
     "incremental document page-tree stack, cursor, caching, and depth state",
     "public text-search forward/backward state, whole-word, spacing, and overlap semantics",
+    "public text-search query tokenization and script-boundary splitting",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
