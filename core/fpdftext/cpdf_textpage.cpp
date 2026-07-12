@@ -680,6 +680,15 @@ WideString CPDF_TextPage::GetPageText(int start, int count) const {
     return WideString();
   }
 
+  if (use_rust_) {
+    const auto range = rust_index_map_->PageTextRange(start, count, CountChars());
+    if (!range.has_value()) {
+      return WideString();
+    }
+    return WideString(
+        text_buf_.AsStringView().Substr(range->first, range->second));
+  }
+
   const int count_chars = CountChars();
   int text_start = TextIndexFromCharIndex(start);
 

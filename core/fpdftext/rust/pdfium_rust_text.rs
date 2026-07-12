@@ -105,6 +105,38 @@ impl TextIndexMapState {
         }
         -1
     }
+
+    fn page_text_range(
+        &self,
+        mut start: i32,
+        count: i32,
+        character_count: i32,
+    ) -> Option<(i32, i32)> {
+        if start < 0 || start >= character_count || count <= 0 {
+            return None;
+        }
+
+        let mut text_start = self.text_from_character(start);
+        while text_start < 0 {
+            if start >= character_count {
+                return None;
+            }
+            start += 1;
+            text_start = self.text_from_character(start);
+        }
+
+        let count = count.min(character_count - start);
+        let mut last = start + count - 1;
+        let mut text_last = self.text_from_character(last);
+        while text_last < 0 {
+            if last < text_start {
+                return None;
+            }
+            last -= 1;
+            text_last = self.text_from_character(last);
+        }
+        (text_last >= text_start).then_some((text_start, text_last - text_start + 1))
+    }
 }
 
 fn is_ignored_space_character(character: u32) -> bool {
@@ -974,6 +1006,33 @@ pub unsafe extern "C" fn pdfium_rust_text_index_map_text_from_character(
     unsafe { state.as_ref() }.map_or(-1, |state| state.text_from_character(character_index))
 }
 
+/// Selects the visible text-buffer range for a character range.
+///
+/// # Safety
+/// State and outputs must remain readable/writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_index_map_page_text_range(
+    state: *const TextIndexMapState,
+    start: i32,
+    count: i32,
+    character_count: i32,
+    text_start: *mut i32,
+    text_count: *mut i32,
+) -> bool {
+    let (Some(state), Some(text_start), Some(text_count)) =
+        (unsafe { state.as_ref() }, unsafe { text_start.as_mut() }, unsafe { text_count.as_mut() })
+    else {
+        return false;
+    };
+    let Some((range_start, range_count)) = state.page_text_range(start, count, character_count)
+    else {
+        return false;
+    };
+    *text_start = range_start;
+    *text_count = range_count;
+    true
+}
+
 /// # Safety
 /// Both code-point spans must remain readable for this call.
 #[unsafe(no_mangle)]
@@ -1204,6 +1263,15 @@ mod tests {
             vec![0, 1, -1, 2, -1, -1, 3, -1],
             (0..=7).map(|index| state.text_from_character(index)).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn page_text_range_should_trim_excluded_range_edges() {
+        let state = TextIndexMapState::new(&[0, 1, 1, 0, 1])
+            .expect("the test input fits the index representation");
+        assert_eq!(Some((0, 3)), state.page_text_range(0, 5, 5));
+        assert_eq!(Some((0, 2)), state.page_text_range(0, 4, 5));
+        assert_eq!(Some((0, 1)), state.page_text_range(0, 1, 5));
     }
 
     #[test]

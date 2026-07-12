@@ -26,6 +26,13 @@ extern "C" int32_t pdfium_rust_text_index_map_character_from_text(
 extern "C" int32_t pdfium_rust_text_index_map_text_from_character(
     const void* state,
     int32_t character_index);
+extern "C" bool pdfium_rust_text_index_map_page_text_range(
+    const void* state,
+    int32_t start,
+    int32_t count,
+    int32_t character_count,
+    int32_t* text_start,
+    int32_t* text_count);
 extern "C" void* pdfium_rust_text_selection_rects_new(
     size_t character_count,
     int32_t start,
@@ -131,6 +138,20 @@ int RustTextIndexMap::TextFromCharacter(int character_index) const {
   return state_ ? pdfium_rust_text_index_map_text_from_character(
                       state_, character_index)
                 : -1;
+}
+
+std::optional<std::pair<int, int>> RustTextIndexMap::PageTextRange(
+    int start,
+    int count,
+    int character_count) const {
+  int32_t text_start = 0;
+  int32_t text_count = 0;
+  if (!state_ || !pdfium_rust_text_index_map_page_text_range(
+                     state_, start, count, character_count, &text_start,
+                     &text_count)) {
+    return std::nullopt;
+  }
+  return std::make_pair(text_start, text_count);
 }
 
 RustTextSelectionRects::RustTextSelectionRects(

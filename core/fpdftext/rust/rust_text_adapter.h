@@ -42,6 +42,9 @@ class RustTextIndexMap final {
   bool valid() const { return state_ != nullptr; }
   int CharacterFromText(int text_index) const;
   int TextFromCharacter(int character_index) const;
+  std::optional<std::pair<int, int>> PageTextRange(int start,
+                                                   int count,
+                                                   int character_count) const;
 
  private:
   void* state_;
