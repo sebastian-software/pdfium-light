@@ -2348,7 +2348,7 @@ fn plan_document_page_mutation(
         }
         if node_type == 2 {
             if *pages_to_go != 0 {
-                *pages_to_go -= 1;
+                *pages_to_go = (*pages_to_go).checked_sub(1).ok_or(())?;
                 continue;
             }
             return Ok(Some(vec![index]));
@@ -2357,7 +2357,7 @@ fn plan_document_page_mutation(
             return Err(());
         }
         if *pages_to_go >= page_count {
-            *pages_to_go -= page_count;
+            *pages_to_go = (*pages_to_go).checked_sub(page_count).ok_or(())?;
             continue;
         }
         if child_handle == 0 || !active_path.insert(child_handle) {
@@ -2852,6 +2852,7 @@ mod tests {
         }
         let count = match handle {
             1 | 2 => 2,
+            6 => 1,
             _ => return false,
         };
         unsafe { *child_count = count };
@@ -2874,6 +2875,7 @@ mod tests {
             (1, 1) => (5, 2, 0),
             (2, 0) => (3, 2, 0),
             (2, 1) => (4, 2, 0),
+            (6, 0) => (7, 1, i32::MIN),
             _ => return false,
         };
         unsafe {
@@ -3491,6 +3493,19 @@ mod tests {
             });
             assert_eq!(expected, output);
         }
+        let mut len = 0;
+        assert!(!unsafe {
+            pdfium_rust_document_page_mutation_path(
+                6,
+                1,
+                core::ptr::null_mut(),
+                Some(describe_page_mutation_node),
+                Some(describe_page_mutation_child),
+                core::ptr::null_mut(),
+                0,
+                &mut len,
+            )
+        });
     }
 
     #[test]
