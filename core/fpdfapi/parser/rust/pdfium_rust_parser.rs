@@ -1265,7 +1265,8 @@ pub unsafe extern "C" fn pdfium_rust_pdf_boolean_set_string(
     let data = if len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { data };
     // SAFETY: The caller guarantees a readable span when nonempty.
     let input = unsafe { core::slice::from_raw_parts(data, len) };
-    state.value = input == b"true";
+    let c_string = input.split(|byte| *byte == 0).next().unwrap_or_default();
+    state.value = c_string == b"true";
     true
 }
 
@@ -1840,7 +1841,8 @@ mod tests {
             (b"true".as_slice(), true),
             (b"false".as_slice(), false),
             (b"True".as_slice(), false),
-            (b"true\0".as_slice(), false),
+            (b"true\0".as_slice(), true),
+            (b"true\0false".as_slice(), true),
             (b"".as_slice(), false),
         ] {
             let mut state = PdfBooleanState { value: !expected };
