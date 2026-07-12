@@ -63,6 +63,26 @@ int CPDF_Dest::GetDestPageIndex(CPDF_Document* doc) const {
     return -1;
   }
 
+  if (pdfium::rust::UseRustParserCandidate()) {
+    uint8_t target_kind = 0;
+    if (pPage->IsNumber()) {
+      target_kind = 1;
+    } else if (pPage->IsDictionary()) {
+      target_kind = 2;
+    }
+    auto lookup_page = [](void* context, uint32_t object_number,
+                          int32_t* page_index) {
+      *page_index =
+          static_cast<CPDF_Document*>(context)->GetPageIndex(object_number);
+      return true;
+    };
+    std::optional<int32_t> result = pdfium::rust::RustDestinationPageIndex(
+        target_kind, pPage->GetInteger(), pPage->GetObjNum(), doc, lookup_page);
+    if (result.has_value()) {
+      return result.value();
+    }
+  }
+
   if (pPage->IsNumber()) {
     return pPage->GetInteger();
   }

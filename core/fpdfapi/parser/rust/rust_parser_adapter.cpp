@@ -361,6 +361,13 @@ extern "C" bool pdfium_rust_number_tree_lower_bound(
     bool* found,
     int32_t* key,
     uintptr_t* value);
+extern "C" bool pdfium_rust_destination_page_index(
+    uint8_t target_kind,
+    int32_t direct_page,
+    uint32_t object_number,
+    void* context,
+    pdfium::rust::RustDestinationPageCallback lookup_page,
+    int32_t* output);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -1252,6 +1259,21 @@ std::optional<RustNumberTreeLowerBoundResult> RustNumberTreeLowerBound(
     return std::nullopt;
   }
   return result;
+}
+
+std::optional<int32_t> RustDestinationPageIndex(
+    uint8_t target_kind,
+    int32_t direct_page,
+    uint32_t object_number,
+    void* context,
+    RustDestinationPageCallback lookup_page) {
+  int32_t output = -1;
+  if (!pdfium_rust_destination_page_index(target_kind, direct_page,
+                                          object_number, context, lookup_page,
+                                          &output)) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 std::optional<std::vector<size_t>> RustDocumentPageMutationPath(

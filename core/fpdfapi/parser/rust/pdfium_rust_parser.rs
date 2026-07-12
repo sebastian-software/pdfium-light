@@ -296,6 +296,7 @@ type NumberTreeNumberCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut i32, *mut usize) -> bool;
 type NumberTreeKidCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut usize) -> bool;
+type DestinationPageCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32, *mut i32) -> bool;
 
 #[derive(Clone, Copy)]
 struct RedactionRect {
@@ -724,6 +725,19 @@ fn number_tree_lower_bound(
         }
     }
     Some(None)
+}
+
+fn destination_page_index(
+    target_kind: u8,
+    direct_page: i32,
+    object_number: u32,
+    lookup_page: &mut impl FnMut(u32) -> Option<i32>,
+) -> Option<i32> {
+    match target_kind {
+        1 => Some(direct_page),
+        2 => lookup_page(object_number),
+        _ => Some(-1),
+    }
 }
 
 impl Default for PdfNumberState {
@@ -3788,6 +3802,35 @@ pub unsafe extern "C" fn pdfium_rust_number_tree_lower_bound(
     true
 }
 
+/// Resolves a public destination's numeric or dictionary page target.
+///
+/// # Safety
+/// Callback, context, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_destination_page_index(
+    target_kind: u8,
+    direct_page: i32,
+    object_number: u32,
+    context: *mut core::ffi::c_void,
+    lookup_page: DestinationPageCallback,
+    output: *mut i32,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let mut lookup = |object_number| {
+        let mut page_index = -1;
+        // SAFETY: The caller guarantees synchronous callback validity.
+        unsafe { lookup_page(context, object_number, &mut page_index) }.then_some(page_index)
+    };
+    let Some(result) = destination_page_index(target_kind, direct_page, object_number, &mut lookup)
+    else {
+        return false;
+    };
+    *output = result;
+    true
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -5699,5 +5742,21 @@ mod tests {
                 &mut |_, _| Some(1),
             )
         );
+    }
+
+    #[test]
+    fn destination_page_index_should_route_numbers_dictionaries_and_invalid_targets() {
+        let requested = std::cell::RefCell::new(Vec::new());
+        let mut lookup = |object_number| {
+            requested.borrow_mut().push(object_number);
+            Some(7)
+        };
+        assert_eq!(Some(11), destination_page_index(1, 11, 42, &mut lookup));
+        assert!(requested.borrow().is_empty());
+        assert_eq!(Some(7), destination_page_index(2, 11, 42, &mut lookup));
+        assert_eq!(vec![42], *requested.borrow());
+        assert_eq!(Some(-1), destination_page_index(0, 11, 42, &mut lookup));
+        assert_eq!(vec![42], *requested.borrow());
+        assert_eq!(None, destination_page_index(2, 0, 42, &mut |_| None));
     }
 }

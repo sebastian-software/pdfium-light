@@ -525,6 +525,15 @@ std::optional<RustNumberTreeLowerBoundResult> RustNumberTreeLowerBound(
     RustNumberTreeDescribeCallback describe,
     RustNumberTreeNumberCallback read_number,
     RustNumberTreeKidCallback read_kid);
+using RustDestinationPageCallback = bool (*)(void* context,
+                                             uint32_t object_number,
+                                             int32_t* page_index);
+std::optional<int32_t> RustDestinationPageIndex(
+    uint8_t target_kind,
+    int32_t direct_page,
+    uint32_t object_number,
+    void* context,
+    RustDestinationPageCallback lookup_page);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,
