@@ -206,6 +206,14 @@ extern "C" bool pdfium_rust_document_count_pages(
     pdfium::rust::RustDocumentPageNormalizeCallback normalize,
     pdfium::rust::RustDocumentPageSetCountCallback set_count,
     int32_t* output);
+extern "C" bool pdfium_rust_document_find_page_index(
+    uintptr_t root_handle,
+    uint32_t target_object_number,
+    uint32_t initial_skip_count,
+    void* context,
+    pdfium::rust::RustDocumentPageFindDescribeCallback describe,
+    pdfium::rust::RustDocumentPageFindChildCallback child,
+    int32_t* output);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -744,6 +752,22 @@ std::optional<int> RustDocumentCountPages(
   int32_t result = 0;
   if (!pdfium_rust_document_count_pages(root_handle, context, describe, child,
                                         normalize, set_count, &result)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<int> RustDocumentFindPageIndex(
+    uintptr_t root_handle,
+    uint32_t target_object_number,
+    uint32_t initial_skip_count,
+    void* context,
+    RustDocumentPageFindDescribeCallback describe,
+    RustDocumentPageFindChildCallback child) {
+  int32_t result = -1;
+  if (!pdfium_rust_document_find_page_index(
+          root_handle, target_object_number, initial_skip_count, context,
+          describe, child, &result)) {
     return std::nullopt;
   }
   return result;

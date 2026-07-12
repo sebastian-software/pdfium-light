@@ -264,6 +264,25 @@ std::optional<int> RustDocumentCountPages(
     RustDocumentPageNormalizeCallback normalize,
     RustDocumentPageSetCountCallback set_count);
 
+using RustDocumentPageFindDescribeCallback = bool (*)(void* context,
+                                                       uintptr_t handle,
+                                                       bool* has_kids,
+                                                       int32_t* count_hint,
+                                                       uint32_t* object_number,
+                                                       size_t* child_count);
+using RustDocumentPageFindChildCallback = bool (*)(void* context,
+                                                    uintptr_t handle,
+                                                    size_t child_index,
+                                                    uintptr_t* child_handle,
+                                                    uint32_t* reference_object_number);
+std::optional<int> RustDocumentFindPageIndex(
+    uintptr_t root_handle,
+    uint32_t target_object_number,
+    uint32_t initial_skip_count,
+    void* context,
+    RustDocumentPageFindDescribeCallback describe,
+    RustDocumentPageFindChildCallback child);
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);

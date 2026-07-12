@@ -173,6 +173,46 @@ bool SetPageTreeNodeCount(void*, uintptr_t handle, int32_t count) {
   return true;
 }
 
+bool DescribePageIndexNode(void*,
+                           uintptr_t handle,
+                           bool* has_kids,
+                           int32_t* count_hint,
+                           uint32_t* object_number,
+                           size_t* child_count) {
+  auto* dictionary = reinterpret_cast<const CPDF_Dictionary*>(handle);
+  if (!dictionary || !has_kids || !count_hint || !object_number ||
+      !child_count) {
+    return false;
+  }
+  *has_kids = dictionary->KeyExist("Kids");
+  *count_hint = dictionary->GetIntegerFor("Count");
+  *object_number = dictionary->GetObjNum();
+  RetainPtr<const CPDF_Array> kids = dictionary->GetArrayFor("Kids");
+  *child_count = kids ? kids->size() : 0;
+  return !*has_kids || !!kids;
+}
+
+bool DescribePageIndexChild(void*,
+                            uintptr_t handle,
+                            size_t child_index,
+                            uintptr_t* child_handle,
+                            uint32_t* reference_object_number) {
+  auto* dictionary = reinterpret_cast<const CPDF_Dictionary*>(handle);
+  if (!dictionary || !child_handle || !reference_object_number) {
+    return false;
+  }
+  RetainPtr<const CPDF_Array> kids = dictionary->GetArrayFor("Kids");
+  if (!kids || child_index >= kids->size()) {
+    return false;
+  }
+  RetainPtr<const CPDF_Reference> reference =
+      ToReference(kids->GetObjectAt(child_index));
+  *reference_object_number = reference ? reference->GetRefObjNum() : 0;
+  RetainPtr<const CPDF_Dictionary> child = kids->GetDictAt(child_index);
+  *child_handle = reinterpret_cast<uintptr_t>(child.Get());
+  return true;
+}
+
 int FindPageIndex(const CPDF_Dictionary* pNode,
                   uint32_t* skip_count,
                   uint32_t objnum,
@@ -505,8 +545,21 @@ int CPDF_Document::GetPageIndex(uint32_t objnum) {
     return -1;
   }
 
-  int start_index = 0;
-  int found_index = FindPageIndex(pPages, &skip_count, objnum, &start_index, 0);
+  int found_index = -1;
+  if (use_rust_page_index_) {
+    std::optional<int> result = pdfium::rust::RustDocumentFindPageIndex(
+        reinterpret_cast<uintptr_t>(pPages.Get()), objnum, skip_count, nullptr,
+        DescribePageIndexNode, DescribePageIndexChild);
+    if (result.has_value()) {
+      found_index = *result;
+    } else {
+      int start_index = 0;
+      found_index = FindPageIndex(pPages, &skip_count, objnum, &start_index, 0);
+    }
+  } else {
+    int start_index = 0;
+    found_index = FindPageIndex(pPages, &skip_count, objnum, &start_index, 0);
+  }
 
   // Corrupt page tree may yield out-of-range results.
   if (!IsPageIndexValid(found_index)) {

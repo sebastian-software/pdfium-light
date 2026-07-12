@@ -197,6 +197,16 @@ type DocumentPageNormalizeCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, u8) -> bool;
 type DocumentPageSetCountCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, i32) -> bool;
+type DocumentPageFindDescribeCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    *mut bool,
+    *mut i32,
+    *mut u32,
+    *mut usize,
+) -> bool;
+type DocumentPageFindChildCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut usize, *mut u32) -> bool;
 
 impl Default for PdfNumberState {
     fn default() -> Self {
@@ -2059,6 +2069,144 @@ pub unsafe extern "C" fn pdfium_rust_document_count_pages(
     true
 }
 
+struct DocumentPageFindCallbacks {
+    context: *mut core::ffi::c_void,
+    describe: DocumentPageFindDescribeCallback,
+    child: DocumentPageFindChildCallback,
+}
+
+fn find_document_page_index(
+    handle: usize,
+    target_object_number: u32,
+    skip_count: &mut u32,
+    index: &mut i32,
+    depth: usize,
+    callbacks: &DocumentPageFindCallbacks,
+) -> Option<i32> {
+    const LEVEL_MAX: usize = 1024;
+    let mut has_kids = false;
+    let mut count_hint = 0;
+    let mut object_number = 0;
+    let mut child_count = 0;
+    if handle == 0
+        || !unsafe {
+            (callbacks.describe)(
+                callbacks.context,
+                handle,
+                &mut has_kids,
+                &mut count_hint,
+                &mut object_number,
+                &mut child_count,
+            )
+        }
+    {
+        return None;
+    }
+    if !has_kids {
+        if object_number == target_object_number {
+            return Some(*index);
+        }
+        if *skip_count != 0 {
+            *skip_count -= 1;
+        }
+        *index += 1;
+        return Some(-1);
+    }
+    if depth >= LEVEL_MAX {
+        return Some(-1);
+    }
+
+    let count = count_hint as usize;
+    if count <= *skip_count as usize {
+        *skip_count -= count as u32;
+        *index += count as i32;
+        return Some(-1);
+    }
+    if count != 0 && count == child_count {
+        for child_index in 0..count {
+            let mut child_handle = 0;
+            let mut reference_object_number = 0;
+            if !unsafe {
+                (callbacks.child)(
+                    callbacks.context,
+                    handle,
+                    child_index,
+                    &mut child_handle,
+                    &mut reference_object_number,
+                )
+            } {
+                return None;
+            }
+            if reference_object_number == target_object_number {
+                return Some(*index + child_index as i32);
+            }
+        }
+    }
+    for child_index in 0..child_count {
+        let mut child_handle = 0;
+        let mut reference_object_number = 0;
+        if !unsafe {
+            (callbacks.child)(
+                callbacks.context,
+                handle,
+                child_index,
+                &mut child_handle,
+                &mut reference_object_number,
+            )
+        } {
+            return None;
+        }
+        if child_handle == 0 || child_handle == handle {
+            continue;
+        }
+        let found = find_document_page_index(
+            child_handle,
+            target_object_number,
+            skip_count,
+            index,
+            depth + 1,
+            callbacks,
+        )?;
+        if found >= 0 {
+            return Some(found);
+        }
+    }
+    Some(-1)
+}
+
+/// # Safety
+/// All callbacks and `output` must remain valid for the synchronous call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_find_page_index(
+    root_handle: usize,
+    target_object_number: u32,
+    initial_skip_count: u32,
+    context: *mut core::ffi::c_void,
+    describe: Option<DocumentPageFindDescribeCallback>,
+    child: Option<DocumentPageFindChildCallback>,
+    output: *mut i32,
+) -> bool {
+    let (Some(describe), Some(child), Some(output)) = (describe, child, unsafe { output.as_mut() })
+    else {
+        return false;
+    };
+    let callbacks = DocumentPageFindCallbacks { context, describe, child };
+    let mut skip_count = initial_skip_count;
+    let mut index = 0;
+    let Some(found) = find_document_page_index(
+        root_handle,
+        target_object_number,
+        &mut skip_count,
+        &mut index,
+        0,
+        &callbacks,
+    ) else {
+        return false;
+    };
+    *output = found;
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -2423,6 +2571,58 @@ mod tests {
         let state = unsafe { &mut *context.cast::<PageCountState>() };
         state.counts[state.count_count] = (handle, count);
         state.count_count += 1;
+        true
+    }
+
+    unsafe extern "C" fn describe_page_index_node(
+        _context: *mut core::ffi::c_void,
+        handle: usize,
+        has_kids: *mut bool,
+        count_hint: *mut i32,
+        object_number: *mut u32,
+        child_count: *mut usize,
+    ) -> bool {
+        if has_kids.is_null()
+            || count_hint.is_null()
+            || object_number.is_null()
+            || child_count.is_null()
+        {
+            return false;
+        }
+        let (kids, count, object, children) = match handle {
+            1 => (true, 2, 1, 2),
+            2 => (false, 0, 10, 0),
+            3 => (false, 0, 11, 0),
+            _ => return false,
+        };
+        unsafe {
+            *has_kids = kids;
+            *count_hint = count;
+            *object_number = object;
+            *child_count = children;
+        }
+        true
+    }
+
+    unsafe extern "C" fn describe_page_index_child(
+        _context: *mut core::ffi::c_void,
+        handle: usize,
+        child_index: usize,
+        child_handle: *mut usize,
+        reference_object_number: *mut u32,
+    ) -> bool {
+        if child_handle.is_null() || reference_object_number.is_null() || handle != 1 {
+            return false;
+        }
+        let (child, object) = match child_index {
+            0 => (2, 10),
+            1 => (3, 11),
+            _ => return false,
+        };
+        unsafe {
+            *child_handle = child;
+            *reference_object_number = object;
+        }
         true
     }
 
@@ -2933,6 +3133,25 @@ mod tests {
         assert_eq!(2, output);
         assert_eq!(0, state.normalized_count);
         assert_eq!([(2, 1), (2, 1), (1, 2)], state.counts[..state.count_count]);
+    }
+
+    #[test]
+    fn document_page_index_should_find_direct_references_and_misses() {
+        for (target, expected) in [(11, 1), (12, -1)] {
+            let mut output = -2;
+            assert!(unsafe {
+                pdfium_rust_document_find_page_index(
+                    1,
+                    target,
+                    0,
+                    core::ptr::null_mut(),
+                    Some(describe_page_index_node),
+                    Some(describe_page_index_child),
+                    &mut output,
+                )
+            });
+            assert_eq!(expected, output);
+        }
     }
 
     #[test]
