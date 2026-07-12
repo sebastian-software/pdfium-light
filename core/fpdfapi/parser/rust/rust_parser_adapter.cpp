@@ -198,6 +198,14 @@ extern "C" bool pdfium_rust_document_move_page_plan(const int32_t* page_indices,
                                                     size_t num_pages,
                                                     int32_t destination,
                                                     int32_t* deletion_order);
+extern "C" bool pdfium_rust_document_count_pages(
+    uintptr_t root_handle,
+    void* context,
+    pdfium::rust::RustDocumentPageDescribeCallback describe,
+    pdfium::rust::RustDocumentPageChildCallback child,
+    pdfium::rust::RustDocumentPageNormalizeCallback normalize,
+    pdfium::rust::RustDocumentPageSetCountCallback set_count,
+    int32_t* output);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -721,6 +729,21 @@ std::optional<std::vector<int>> RustDocumentMovePageDeletionOrder(
   if (!pdfium_rust_document_move_page_plan(page_indices.data(),
                                            page_indices.size(), num_pages,
                                            destination, result.data())) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<int> RustDocumentCountPages(
+    uintptr_t root_handle,
+    void* context,
+    RustDocumentPageDescribeCallback describe,
+    RustDocumentPageChildCallback child,
+    RustDocumentPageNormalizeCallback normalize,
+    RustDocumentPageSetCountCallback set_count) {
+  int32_t result = 0;
+  if (!pdfium_rust_document_count_pages(root_handle, context, describe, child,
+                                        normalize, set_count, &result)) {
     return std::nullopt;
   }
   return result;

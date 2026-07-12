@@ -239,6 +239,31 @@ std::optional<std::vector<int>> RustDocumentMovePageDeletionOrder(
     size_t num_pages,
     int destination);
 
+using RustDocumentPageDescribeCallback = bool (*)(void* context,
+                                                  uintptr_t handle,
+                                                  int32_t* count_hint,
+                                                  size_t* child_count);
+using RustDocumentPageChildCallback = bool (*)(void* context,
+                                               uintptr_t handle,
+                                               size_t child_index,
+                                               uintptr_t* child_handle,
+                                               uint8_t* node_type,
+                                               bool* has_kids);
+using RustDocumentPageNormalizeCallback = bool (*)(void* context,
+                                                   uintptr_t handle,
+                                                   uint8_t node_type);
+using RustDocumentPageSetCountCallback = bool (*)(void* context,
+                                                  uintptr_t handle,
+                                                  int32_t count);
+
+std::optional<int> RustDocumentCountPages(
+    uintptr_t root_handle,
+    void* context,
+    RustDocumentPageDescribeCallback describe,
+    RustDocumentPageChildCallback child,
+    RustDocumentPageNormalizeCallback normalize,
+    RustDocumentPageSetCountCallback set_count);
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);

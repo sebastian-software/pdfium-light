@@ -113,6 +113,66 @@ std::optional<int> CountPages(
   return count;
 }
 
+bool DescribePageTreeNode(void*,
+                          uintptr_t handle,
+                          int32_t* count_hint,
+                          size_t* child_count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || !count_hint || !child_count) {
+    return false;
+  }
+  *count_hint = dictionary->GetIntegerFor("Count");
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  *child_count = kids ? kids->size() : 0;
+  return true;
+}
+
+bool DescribePageTreeChild(void*,
+                           uintptr_t handle,
+                           size_t child_index,
+                           uintptr_t* child_handle,
+                           uint8_t* node_type,
+                           bool* has_kids) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || !child_handle || !node_type || !has_kids) {
+    return false;
+  }
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids || child_index >= kids->size()) {
+    return false;
+  }
+  RetainPtr<CPDF_Dictionary> child = kids->GetMutableDictAt(child_index);
+  if (!child) {
+    *child_handle = 0;
+    *node_type = 0;
+    *has_kids = false;
+    return true;
+  }
+  *child_handle = reinterpret_cast<uintptr_t>(child.Get());
+  const ByteString type = child->GetNameFor("Type");
+  *node_type = type == "Pages" ? 1 : type == "Page" ? 2 : 0;
+  *has_kids = child->KeyExist("Kids");
+  return true;
+}
+
+bool NormalizePageTreeNode(void*, uintptr_t handle, uint8_t node_type) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || (node_type != 1 && node_type != 2)) {
+    return false;
+  }
+  dictionary->SetNewFor<CPDF_Name>("Type", node_type == 1 ? "Pages" : "Page");
+  return true;
+}
+
+bool SetPageTreeNodeCount(void*, uintptr_t handle, int32_t count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary) {
+    return false;
+  }
+  dictionary->SetNewFor<CPDF_Number>("Count", count);
+  return true;
+}
+
 int FindPageIndex(const CPDF_Dictionary* pNode,
                   uint32_t* skip_count,
                   uint32_t objnum,
@@ -527,6 +587,16 @@ int CPDF_Document::RetrievePageCount() {
 
   if (!pPages->KeyExist("Kids")) {
     return 1;
+  }
+
+  if (use_rust_page_index_) {
+    std::optional<int> result = pdfium::rust::RustDocumentCountPages(
+        reinterpret_cast<uintptr_t>(pPages.Get()), nullptr,
+        DescribePageTreeNode, DescribePageTreeChild, NormalizePageTreeNode,
+        SetPageTreeNodeCount);
+    if (result.has_value()) {
+      return *result;
+    }
   }
 
   std::set<RetainPtr<CPDF_Dictionary>> visited_pages = {pPages};

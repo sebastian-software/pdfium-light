@@ -183,6 +183,21 @@ pub struct DocumentPageIndexState {
 type PdfDictionarySnapshotCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, usize) -> bool;
 
+type DocumentPageDescribeCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut i32, *mut usize) -> bool;
+type DocumentPageChildCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    usize,
+    *mut usize,
+    *mut u8,
+    *mut bool,
+) -> bool;
+type DocumentPageNormalizeCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, u8) -> bool;
+type DocumentPageSetCountCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, i32) -> bool;
+
 impl Default for PdfNumberState {
     fn default() -> Self {
         Self { value: PdfNumberValue::Unsigned(0) }
@@ -1939,6 +1954,114 @@ pub unsafe extern "C" fn pdfium_rust_document_move_page_plan(
     true
 }
 
+struct DocumentPageCountCallbacks {
+    context: *mut core::ffi::c_void,
+    describe: DocumentPageDescribeCallback,
+    child: DocumentPageChildCallback,
+    normalize: DocumentPageNormalizeCallback,
+    set_count: DocumentPageSetCountCallback,
+}
+
+fn count_document_pages(
+    handle: usize,
+    depth: usize,
+    visited: &mut std::collections::BTreeSet<usize>,
+    callbacks: &DocumentPageCountCallbacks,
+) -> Option<i32> {
+    const PAGE_MAX: i32 = 0xF_FFFF;
+    const LEVEL_MAX: usize = 1024;
+    if handle == 0 || depth >= LEVEL_MAX {
+        return None;
+    }
+    let mut count_hint = 0;
+    let mut child_count = 0;
+    if !unsafe {
+        (callbacks.describe)(callbacks.context, handle, &mut count_hint, &mut child_count)
+    } {
+        return None;
+    }
+    if count_hint > 0 && count_hint < PAGE_MAX {
+        return Some(count_hint);
+    }
+
+    let mut count: i32 = 0;
+    for index in 0..child_count {
+        let mut child_handle = 0;
+        let mut node_type = 0;
+        let mut has_kids = false;
+        if !unsafe {
+            (callbacks.child)(
+                callbacks.context,
+                handle,
+                index,
+                &mut child_handle,
+                &mut node_type,
+                &mut has_kids,
+            )
+        } {
+            return None;
+        }
+        if child_handle == 0 || visited.contains(&child_handle) {
+            continue;
+        }
+        let effective_type = match node_type {
+            1 => 1,
+            2 => 2,
+            _ => {
+                let value = if has_kids { 1 } else { 2 };
+                if !unsafe { (callbacks.normalize)(callbacks.context, child_handle, value) } {
+                    return None;
+                }
+                value
+            }
+        };
+        if effective_type == 1 {
+            visited.insert(child_handle);
+            count = count.checked_add(count_document_pages(
+                child_handle,
+                depth + 1,
+                visited,
+                callbacks,
+            )?)?;
+        } else {
+            count += 1;
+        }
+        if count >= PAGE_MAX {
+            return None;
+        }
+    }
+    if !unsafe { (callbacks.set_count)(callbacks.context, handle, count) } {
+        return None;
+    }
+    Some(count)
+}
+
+/// # Safety
+/// All callbacks and `output` must remain valid for the synchronous call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_count_pages(
+    root_handle: usize,
+    context: *mut core::ffi::c_void,
+    describe: Option<DocumentPageDescribeCallback>,
+    child: Option<DocumentPageChildCallback>,
+    normalize: Option<DocumentPageNormalizeCallback>,
+    set_count: Option<DocumentPageSetCountCallback>,
+    output: *mut i32,
+) -> bool {
+    let (Some(describe), Some(child), Some(normalize), Some(set_count), Some(output)) =
+        (describe, child, normalize, set_count, unsafe { output.as_mut() })
+    else {
+        return false;
+    };
+    let callbacks = DocumentPageCountCallbacks { context, describe, child, normalize, set_count };
+    let mut visited = std::collections::BTreeSet::from([root_handle]);
+    let Some(count) = count_document_pages(root_handle, 0, &mut visited, &callbacks) else {
+        return false;
+    };
+    *output = count;
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -2206,6 +2329,80 @@ mod tests {
     struct SnapshotState {
         object_numbers: [u32; 4],
         count: usize,
+    }
+
+    struct PageCountState {
+        normalized: [(usize, u8); 4],
+        normalized_count: usize,
+        counts: [(usize, i32); 4],
+        count_count: usize,
+    }
+
+    unsafe extern "C" fn describe_page_node(
+        _context: *mut core::ffi::c_void,
+        handle: usize,
+        count_hint: *mut i32,
+        child_count: *mut usize,
+    ) -> bool {
+        if count_hint.is_null() || child_count.is_null() {
+            return false;
+        }
+        unsafe {
+            *count_hint = 0;
+            *child_count = match handle {
+                1 => 2,
+                2 => 1,
+                _ => return false,
+            };
+        }
+        true
+    }
+
+    unsafe extern "C" fn describe_page_child(
+        _context: *mut core::ffi::c_void,
+        handle: usize,
+        index: usize,
+        child_handle: *mut usize,
+        node_type: *mut u8,
+        has_kids: *mut bool,
+    ) -> bool {
+        if child_handle.is_null() || node_type.is_null() || has_kids.is_null() {
+            return false;
+        }
+        let value = match (handle, index) {
+            (1, 0) => (2, 0, true),
+            (1, 1) => (3, 2, false),
+            (2, 0) => (4, 0, false),
+            _ => return false,
+        };
+        unsafe {
+            *child_handle = value.0;
+            *node_type = value.1;
+            *has_kids = value.2;
+        }
+        true
+    }
+
+    unsafe extern "C" fn normalize_page_node(
+        context: *mut core::ffi::c_void,
+        handle: usize,
+        node_type: u8,
+    ) -> bool {
+        let state = unsafe { &mut *context.cast::<PageCountState>() };
+        state.normalized[state.normalized_count] = (handle, node_type);
+        state.normalized_count += 1;
+        true
+    }
+
+    unsafe extern "C" fn set_page_count(
+        context: *mut core::ffi::c_void,
+        handle: usize,
+        count: i32,
+    ) -> bool {
+        let state = unsafe { &mut *context.cast::<PageCountState>() };
+        state.counts[state.count_count] = (handle, count);
+        state.count_count += 1;
+        true
     }
 
     unsafe extern "C" fn record_mutation(context: *mut core::ffi::c_void, action: u8) -> bool {
@@ -2665,6 +2862,31 @@ mod tests {
                 deletion_order.as_mut_ptr(),
             )
         });
+    }
+
+    #[test]
+    fn document_page_count_should_own_traversal_normalization_and_counts() {
+        let mut state = PageCountState {
+            normalized: [(0, 0); 4],
+            normalized_count: 0,
+            counts: [(0, 0); 4],
+            count_count: 0,
+        };
+        let mut output = 0;
+        assert!(unsafe {
+            pdfium_rust_document_count_pages(
+                1,
+                (&mut state as *mut PageCountState).cast(),
+                Some(describe_page_node),
+                Some(describe_page_child),
+                Some(normalize_page_node),
+                Some(set_page_count),
+                &mut output,
+            )
+        });
+        assert_eq!(2, output);
+        assert_eq!([(2, 1), (4, 2)], state.normalized[..state.normalized_count]);
+        assert_eq!([(2, 1), (1, 2)], state.counts[..state.count_count]);
     }
 
     #[test]
