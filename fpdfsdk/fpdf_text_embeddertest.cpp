@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "build/build_config.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/notreached.h"
 #include "core/fxge/fx_font.h"
 #include "public/cpp/fpdf_scopers.h"
@@ -443,6 +444,45 @@ TEST_F(FPDFTextEmbedderTest, TextSearch) {
         textpage.get(), world_substr.get(), FPDF_MATCHWHOLEWORD, 0));
     EXPECT_FALSE(FPDFText_FindNext(search.get()));
     // TODO(tsepez): investigate strange index/count values in this state.
+  }
+}
+
+TEST_F(FPDFTextEmbedderTest, RustSearchMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+  ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+  ASSERT_TRUE(text_page);
+
+  struct Case {
+    const wchar_t* term;
+    unsigned long flags;
+    int start;
+  };
+  static constexpr Case kCases[] = {
+      {L"world", 0, 2},
+      {L"WORLD", 0, 0},
+      {L"world", FPDF_MATCHCASE | FPDF_MATCHWHOLEWORD, 0},
+      {L" world", 0, 0},
+      {L"world ", FPDF_CONSECUTIVE, 0},
+  };
+  for (const auto& test_case : kCases) {
+    ScopedFPDFWideString term = GetFPDFWideString(test_case.term);
+    auto run = [&](bool use_rust) {
+      pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+          use_rust);
+      ScopedFPDFTextFind search(FPDFText_FindStart(
+          text_page.get(), term.get(), test_case.flags, test_case.start));
+      std::vector<std::array<int, 3>> snapshots;
+      for (bool forward : {true, true, true, false, false}) {
+        const bool matched = forward ? FPDFText_FindNext(search.get())
+                                     : FPDFText_FindPrev(search.get());
+        snapshots.push_back({matched, FPDFText_GetSchResultIndex(search.get()),
+                             FPDFText_GetSchCount(search.get())});
+      }
+      return snapshots;
+    };
+    EXPECT_EQ(run(false), run(true));
   }
 }
 
