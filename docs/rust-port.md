@@ -163,6 +163,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `feacb5472` Phase 7 page-object-removal slice | 23,935 | 17,124 | 241 | 6,724 | 6,570 | 292,171 | 8.19% | 8.01% | Rust owns stable handle lookup, removal-index selection, non-member results, and dirty content-stream selection; C++ retains page-object lifetimes, unique ownership transfer, deque erasure, dirty-set mutation, and the separately selected oracle |
 | `c7e2eadb6` Phase 7 page-object-active-state slice | 24,008 | 17,197 | 241 | 6,771 | 6,570 | 292,373 | 8.21% | 8.04% | Rust owns active-state update and exact dirty decision plus active-object counting orchestration; C++ retains page-object storage/lifetimes, borrowed callbacks, and the separately selected oracle |
 | `4d64144fa` Phase 7 annotation-geometry slice | 24,084 | 17,273 | 241 | 6,794 | 6,570 | 292,547 | 8.23% | 8.07% | Rust owns public annotation rectangle corner transformation/reduction and signed page-rotation planning; C++ retains annotation/dictionary lifetimes, native writes, and the separately selected oracle |
+| `0649cbf37` Phase 7 public-action-routing slice | 24,143 | 17,332 | 241 | 6,816 | 6,570 | 292,699 | 8.25% | 8.09% | Rust owns internal-to-public action type mapping and destination/file/URI capability routing; C++ retains action dictionaries, destinations, path/URI byte storage, public copying, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1760,6 +1761,22 @@ affine transform under the C++ oracle and Rust candidate, compares rectangle
 and rotation exactly, then saves, reloads, and compares both pages again. The
 existing public rotation and annotation-transform regressions also pass. All
 45 parser-native tests, all 1,069 unit tests, and `pdfium_all` pass.
+
+The thirty-eighth Phase 7 slice moves public action type and capability routing
+into Rust. Rust maps every internal `CPDF_Action::Type` to the supported public
+constant and owns the exact eligibility matrix for destination, file-path,
+and URI access. C++ retains action dictionaries, document/destination
+lifetimes, file/URI extraction and byte storage, public buffer copying, and the
+complete original switch and predicates as the separately selected oracle.
+
+The mapping remains O(1) in time and auxiliary storage. One parser-native test
+covers all nineteen internal action values, all five public types, unsupported
+values, and every capability combination. A same-process public differential
+loads Launch, URI, non-ASCII URI, GoTo, Embedded-GoTo, and unsupported action
+fixtures and compares public type, destination availability, and complete file
+and URI bytes including terminators under the C++ oracle and Rust candidate.
+All eight public action cases, all 46 parser-native tests, all 1,069 unit tests,
+and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
