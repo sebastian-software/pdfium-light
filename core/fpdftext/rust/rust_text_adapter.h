@@ -163,6 +163,7 @@ using RustTextCodePointCallback = bool (*)(void* context,
 using RustTextFloatCallback = bool (*)(void* context,
                                        size_t index,
                                        float* value);
+using RustTextWidthCallback = bool (*)(void* context, int32_t* width);
 
 std::optional<bool> RustTextIsHyphenJoin(
     WideStringView current_text,
@@ -192,6 +193,13 @@ std::optional<float> RustTextObjectBaseSpace(
     float transformed_absolute_character_space,
     float font_size_h,
     pdfium::span<const float> kernings);
+
+std::optional<float> RustTextSpaceThreshold(
+    float font_size_h,
+    bool has_space_character,
+    int32_t space_character_width,
+    void* context,
+    RustTextWidthCallback get_fallback_width);
 
 enum class RustTextMarkedContentState : uint8_t {
   kPass = 0,

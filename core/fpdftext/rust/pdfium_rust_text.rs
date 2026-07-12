@@ -29,6 +29,7 @@ type TextPredicateCharacterCallback =
 type TextCharacterPredicateCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32, u8) -> bool;
 type TextCodePointCallback = unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut u32) -> bool;
 type TextFloatCallback = unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut f32) -> bool;
+type TextWidthCallback = unsafe extern "C" fn(*mut core::ffi::c_void, *mut i32) -> bool;
 type TextOrientationObjectCallback = unsafe extern "C" fn(
     *mut core::ffi::c_void,
     usize,
@@ -1380,6 +1381,27 @@ fn text_object_base_space(
     Some(base_space + adjustment)
 }
 
+fn text_space_threshold(
+    font_size_h: f32,
+    has_space_character: bool,
+    space_character_width: i32,
+    mut get_fallback_width: impl FnMut() -> Option<i32>,
+) -> Option<f32> {
+    let mut threshold =
+        if has_space_character { font_size_h * space_character_width as f32 / 1000.0 } else { 0.0 };
+    if threshold > font_size_h / 3.0 {
+        threshold = 0.0;
+    } else {
+        threshold /= 2.0;
+    }
+    if threshold == 0.0 {
+        threshold = get_fallback_width()? as f32;
+        threshold = normalize_threshold(threshold, 300, 500, 700)?;
+        threshold = font_size_h * threshold / 1000.0;
+    }
+    Some(threshold)
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -1710,6 +1732,37 @@ pub unsafe extern "C" fn pdfium_rust_text_object_base_space(
             unsafe { get_kerning(context, index, &mut value) }.then_some(value)
         },
     );
+    let Some(result) = result else {
+        return false;
+    };
+    *output = result;
+    true
+}
+
+/// Computes the per-character generated-space threshold.
+///
+/// # Safety
+/// The callback, context, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_space_threshold(
+    font_size_h: f32,
+    has_space_character: bool,
+    space_character_width: i32,
+    context: *mut core::ffi::c_void,
+    get_fallback_width: Option<TextWidthCallback>,
+    output: *mut f32,
+) -> bool {
+    let (Some(get_fallback_width), Some(output)) = (get_fallback_width, unsafe { output.as_mut() })
+    else {
+        return false;
+    };
+    let result =
+        text_space_threshold(font_size_h, has_space_character, space_character_width, || {
+            let mut width = 0;
+            // SAFETY: The caller guarantees that the callback and context
+            // remain valid for this synchronous call.
+            unsafe { get_fallback_width(context, &mut width) }.then_some(width)
+        });
     let Some(result) = result else {
         return false;
     };
@@ -2795,6 +2848,13 @@ mod tests {
             text_object_base_space(2, 10.0, 10.0, 10.0, 1000.0, 1, |_| Some(2.0))
         );
         assert_eq!(Some(2.0), text_object_base_space(1, -2.0, 2.0, 2.0, 1000.0, 0, |_| None));
+    }
+
+    #[test]
+    fn text_space_threshold_should_cap_space_width_and_request_fallback() {
+        assert_eq!(Some(1.5), text_space_threshold(12.0, true, 250, || None));
+        assert_eq!(Some(1.44), text_space_threshold(12.0, true, 500, || Some(600)));
+        assert_eq!(Some(1.2), text_space_threshold(12.0, false, 0, || Some(200)));
     }
 
     #[test]

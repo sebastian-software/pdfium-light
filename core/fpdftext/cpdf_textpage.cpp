@@ -1904,8 +1904,34 @@ void CPDF_TextPage::ProcessTextObjectItems(CPDF_TextObject* text_object,
     spacing -= base_space;
 
     if (spacing && i > 0) {
-      const float threshold = CalculateSpaceThreshold(
-          font, text_object->text_state().GetFontSizeH(), item.char_code_);
+      float threshold = 0.0f;
+      if (use_rust_) {
+        const uint32_t space_char_code = font->CharCodeFromUnicode(' ');
+        const bool has_space_character =
+            space_char_code != CPDF_Font::kInvalidCharCode;
+        const int32_t space_character_width =
+            has_space_character ? font->GetCharWidth(space_char_code) : 0;
+        struct WidthContext {
+          CPDF_Font* font;
+          uint32_t char_code;
+        } context = {font.Get(), item.char_code_};
+        auto get_fallback_width = [](void* context, int32_t* width) {
+          auto* width_context = static_cast<WidthContext*>(context);
+          *width = GetCharWidth(width_context->char_code, width_context->font);
+          return true;
+        };
+        const auto rust_threshold = pdfium::rust::RustTextSpaceThreshold(
+            text_object->text_state().GetFontSizeH(), has_space_character,
+            space_character_width, &context, get_fallback_width);
+        threshold = rust_threshold.has_value()
+                        ? *rust_threshold
+                        : CalculateSpaceThreshold(
+                              font, text_object->text_state().GetFontSizeH(),
+                              item.char_code_);
+      } else {
+        threshold = CalculateSpaceThreshold(
+            font, text_object->text_state().GetFontSizeH(), item.char_code_);
+      }
       if (threshold && spacing && spacing >= threshold) {
         temp_text_buf_.AppendChar(L' ');
         CFX_PointF origin = matrix.Transform(item.origin_);

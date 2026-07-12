@@ -82,6 +82,13 @@ extern "C" bool pdfium_rust_text_object_base_space(
     void* context,
     pdfium::rust::RustTextFloatCallback get_kerning,
     float* output);
+extern "C" bool pdfium_rust_text_space_threshold(
+    float font_size_h,
+    bool has_space_character,
+    int32_t space_character_width,
+    void* context,
+    pdfium::rust::RustTextWidthCallback get_fallback_width,
+    float* output);
 extern "C" bool pdfium_rust_text_marked_content_state(
     bool has_actual_text,
     bool repeats_previous_mark,
@@ -421,6 +428,21 @@ std::optional<float> RustTextObjectBaseSpace(
           item_count, character_space, transformed_character_space,
           transformed_absolute_character_space, font_size_h, kernings.size(),
           &context, get_kerning, &output)) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+std::optional<float> RustTextSpaceThreshold(
+    float font_size_h,
+    bool has_space_character,
+    int32_t space_character_width,
+    void* context,
+    RustTextWidthCallback get_fallback_width) {
+  float output = 0.0f;
+  if (!pdfium_rust_text_space_threshold(
+          font_size_h, has_space_character, space_character_width, context,
+          get_fallback_width, &output)) {
     return std::nullopt;
   }
   return output;
