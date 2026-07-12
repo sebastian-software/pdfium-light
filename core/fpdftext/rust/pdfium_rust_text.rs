@@ -1078,6 +1078,32 @@ fn text_flow_orientation(
     })
 }
 
+fn text_object_writing_mode(
+    character_count: usize,
+    fallback_orientation: u8,
+    first_origin: [f32; 2],
+    last_origin: [f32; 2],
+) -> Option<u8> {
+    if fallback_orientation > 2 {
+        return None;
+    }
+    if character_count <= 1 {
+        return Some(fallback_orientation);
+    }
+
+    let difference_x = (last_origin[0] - first_origin[0]).abs();
+    let difference_y = (last_origin[1] - first_origin[1]).abs();
+    if difference_x <= 0.0001 && difference_y <= 0.0001 {
+        return Some(0);
+    }
+    let length = (difference_x * difference_x + difference_y * difference_y).sqrt();
+    let x_under_threshold = difference_x / length <= 0.0872;
+    if difference_y / length <= 0.0872 {
+        return Some(if x_under_threshold { fallback_orientation } else { 1 });
+    }
+    Some(if x_under_threshold { 2 } else { fallback_orientation })
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -1164,6 +1190,35 @@ pub unsafe extern "C" fn pdfium_rust_text_flow_orientation(
         Some((active, is_text, rect))
     });
     let Some(orientation) = orientation else {
+        return false;
+    };
+    *output = orientation;
+    true
+}
+
+/// Selects the writing mode for a transformed text object's endpoint origins.
+///
+/// # Safety
+/// The output must be valid for one byte.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_object_writing_mode(
+    character_count: usize,
+    fallback_orientation: u8,
+    first_x: f32,
+    first_y: f32,
+    last_x: f32,
+    last_y: f32,
+    output: *mut u8,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let Some(orientation) = text_object_writing_mode(
+        character_count,
+        fallback_orientation,
+        [first_x, first_y],
+        [last_x, last_y],
+    ) else {
         return false;
     };
     *output = orientation;
@@ -1967,6 +2022,14 @@ mod tests {
                 vertical.get(index).copied()
             })
         );
+    }
+
+    #[test]
+    fn text_object_writing_mode_should_use_endpoints_and_fallback() {
+        assert_eq!(Some(1), text_object_writing_mode(2, 0, [0.0, 0.0], [10.0, 0.0]));
+        assert_eq!(Some(2), text_object_writing_mode(2, 0, [0.0, 0.0], [0.0, 10.0]));
+        assert_eq!(Some(1), text_object_writing_mode(1, 1, [0.0, 0.0], [0.0, 0.0]));
+        assert_eq!(Some(0), text_object_writing_mode(2, 2, [5.0, 5.0], [5.0, 5.0]));
     }
 
     #[test]

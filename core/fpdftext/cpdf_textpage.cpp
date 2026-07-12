@@ -1413,6 +1413,42 @@ void CPDF_TextPage::ProcessTextObject(const TransformedTextObject& obj) {
 CPDF_TextPage::TextOrientation CPDF_TextPage::GetTextObjectWritingMode(
     const CPDF_TextObject* text_obj) const {
   size_t char_count = text_obj->CharCount();
+  if (use_rust_) {
+    CFX_PointF first_origin;
+    CFX_PointF last_origin;
+    if (char_count > 1) {
+      CPDF_TextObject::Item first = text_obj->GetCharInfo(0);
+      CPDF_TextObject::Item last = text_obj->GetCharInfo(char_count - 1);
+      const CFX_Matrix text_matrix = text_obj->GetTextMatrix();
+      first_origin = text_matrix.Transform(first.origin_);
+      last_origin = text_matrix.Transform(last.origin_);
+    }
+    pdfium::rust::RustTextOrientation fallback_orientation;
+    switch (textline_dir_) {
+      case TextOrientation::kUnknown:
+        fallback_orientation = pdfium::rust::RustTextOrientation::kUnknown;
+        break;
+      case TextOrientation::kHorizontal:
+        fallback_orientation = pdfium::rust::RustTextOrientation::kHorizontal;
+        break;
+      case TextOrientation::kVertical:
+        fallback_orientation = pdfium::rust::RustTextOrientation::kVertical;
+        break;
+    }
+    const auto orientation = pdfium::rust::RustTextObjectWritingMode(
+        char_count, fallback_orientation, first_origin.x, first_origin.y,
+        last_origin.x, last_origin.y);
+    if (orientation.has_value()) {
+      switch (*orientation) {
+        case pdfium::rust::RustTextOrientation::kUnknown:
+          return TextOrientation::kUnknown;
+        case pdfium::rust::RustTextOrientation::kHorizontal:
+          return TextOrientation::kHorizontal;
+        case pdfium::rust::RustTextOrientation::kVertical:
+          return TextOrientation::kVertical;
+      }
+    }
+  }
   if (char_count <= 1) {
     return textline_dir_;
   }

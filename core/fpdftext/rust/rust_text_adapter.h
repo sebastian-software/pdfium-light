@@ -38,6 +38,14 @@ std::optional<RustTextOrientation> RustTextFlowOrientation(
     void* context,
     RustTextOrientationObjectCallback get_object);
 
+std::optional<RustTextOrientation> RustTextObjectWritingMode(
+    size_t character_count,
+    RustTextOrientation fallback_orientation,
+    float first_x,
+    float first_y,
+    float last_x,
+    float last_y);
+
 using RustTextRectCallback = bool (*)(void* context,
                                       size_t index,
                                       float* left,

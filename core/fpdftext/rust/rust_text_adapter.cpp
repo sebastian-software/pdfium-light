@@ -15,6 +15,14 @@ extern "C" bool pdfium_rust_text_flow_orientation(
     void* context,
     pdfium::rust::RustTextOrientationObjectCallback get_object,
     uint8_t* output);
+extern "C" bool pdfium_rust_text_object_writing_mode(
+    size_t character_count,
+    uint8_t fallback_orientation,
+    float first_x,
+    float first_y,
+    float last_x,
+    float last_y,
+    uint8_t* output);
 extern "C" bool pdfium_rust_text_index_at_position(
     size_t character_count,
     float point_x,
@@ -176,6 +184,23 @@ std::optional<RustTextOrientation> RustTextFlowOrientation(
   uint8_t output = 0;
   if (!pdfium_rust_text_flow_orientation(page_width, page_height, object_count,
                                          context, get_object, &output) ||
+      output > static_cast<uint8_t>(RustTextOrientation::kVertical)) {
+    return std::nullopt;
+  }
+  return static_cast<RustTextOrientation>(output);
+}
+
+std::optional<RustTextOrientation> RustTextObjectWritingMode(
+    size_t character_count,
+    RustTextOrientation fallback_orientation,
+    float first_x,
+    float first_y,
+    float last_x,
+    float last_y) {
+  uint8_t output = 0;
+  if (!pdfium_rust_text_object_writing_mode(
+          character_count, static_cast<uint8_t>(fallback_orientation), first_x,
+          first_y, last_x, last_y, &output) ||
       output > static_cast<uint8_t>(RustTextOrientation::kVertical)) {
     return std::nullopt;
   }
