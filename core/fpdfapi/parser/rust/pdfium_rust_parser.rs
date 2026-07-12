@@ -138,6 +138,14 @@ pub struct IndirectObjectIndexState {
 }
 
 impl IndirectObjectIndexState {
+    fn lookup(&self, object_number: u32) -> (u8, usize) {
+        match self.objects.get(&object_number) {
+            None => (0, 0),
+            Some(None) => (1, 0),
+            Some(Some(handle)) => (2, *handle),
+        }
+    }
+
     fn reserve_parse(&mut self, object_number: u32) -> (u8, usize) {
         match self.objects.entry(object_number) {
             std::collections::btree_map::Entry::Vacant(entry) => {
@@ -171,13 +179,13 @@ impl IndirectObjectIndexState {
         true
     }
 
-    fn add(&mut self, handle: usize) -> Option<u32> {
+    fn add(&mut self, handle: usize) -> Option<(u32, Option<usize>)> {
         if handle == 0 {
             return None;
         }
         self.last_object_number = self.last_object_number.wrapping_add(1);
-        self.objects.insert(self.last_object_number, Some(handle));
-        Some(self.last_object_number)
+        let old_handle = self.objects.insert(self.last_object_number, Some(handle)).flatten();
+        Some((self.last_object_number, old_handle))
     }
 
     fn replace(
@@ -187,7 +195,7 @@ impl IndirectObjectIndexState {
         new_generation: u32,
         old_generation: Option<u32>,
     ) -> Option<Option<usize>> {
-        if object_number == 0 || handle == 0 {
+        if handle == 0 {
             return None;
         }
         if old_generation.is_some_and(|old| new_generation <= old) {
@@ -680,6 +688,262 @@ pub unsafe extern "C" fn pdfium_rust_cross_ref_table_snapshot(
                 info.archive_object_index,
             )
         } {
+            return false;
+        }
+    }
+    true
+}
+
+type IndirectObjectSnapshotCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, u32, usize) -> bool;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_indirect_object_index_new() -> *mut IndirectObjectIndexState {
+    Box::into_raw(Box::new(IndirectObjectIndexState::default()))
+}
+
+/// # Safety
+///
+/// `state` must be null or a uniquely owned pointer returned by
+/// `pdfium_rust_indirect_object_index_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_destroy(
+    state: *mut IndirectObjectIndexState,
+) {
+    if !state.is_null() {
+        // SAFETY: The caller transfers the unique allocation back to Rust.
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+///
+/// `state` and both output pointers must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_lookup(
+    state: *const IndirectObjectIndexState,
+    object_number: u32,
+    output_status: *mut u8,
+    output_handle: *mut usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    if output_status.is_null() || output_handle.is_null() {
+        return false;
+    }
+    let (status, handle) = state.lookup(object_number);
+    // SAFETY: Both checked outputs point to writable scalars.
+    unsafe {
+        *output_status = status;
+        *output_handle = handle;
+    }
+    true
+}
+
+/// # Safety
+///
+/// `state` and both output pointers must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_reserve_parse(
+    state: *mut IndirectObjectIndexState,
+    object_number: u32,
+    output_status: *mut u8,
+    output_handle: *mut usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    if output_status.is_null() || output_handle.is_null() {
+        return false;
+    }
+    let (status, handle) = state.reserve_parse(object_number);
+    // SAFETY: Both checked outputs point to writable scalars.
+    unsafe {
+        *output_status = status;
+        *output_handle = handle;
+    }
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live index.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_finish_parse(
+    state: *mut IndirectObjectIndexState,
+    object_number: u32,
+    handle: usize,
+) -> bool {
+    unsafe { state.as_mut() }.is_some_and(|state| state.finish_parse(object_number, handle))
+}
+
+/// # Safety
+///
+/// `state` must point to a live index.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_cancel_parse(
+    state: *mut IndirectObjectIndexState,
+    object_number: u32,
+) -> bool {
+    unsafe { state.as_mut() }.is_some_and(|state| state.cancel_parse(object_number))
+}
+
+/// # Safety
+///
+/// `state` and `output_object_number` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_add(
+    state: *mut IndirectObjectIndexState,
+    handle: usize,
+    output_object_number: *mut u32,
+    output_had_old_handle: *mut bool,
+    output_old_handle: *mut usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    if output_object_number.is_null()
+        || output_had_old_handle.is_null()
+        || output_old_handle.is_null()
+    {
+        return false;
+    }
+    let Some((object_number, old_handle)) = state.add(handle) else {
+        return false;
+    };
+    // SAFETY: Every checked output points to one writable scalar.
+    unsafe {
+        *output_object_number = object_number;
+        *output_had_old_handle = old_handle.is_some();
+        *output_old_handle = old_handle.unwrap_or(0);
+    }
+    true
+}
+
+/// # Safety
+///
+/// `state` and every output pointer must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_replace(
+    state: *mut IndirectObjectIndexState,
+    object_number: u32,
+    handle: usize,
+    new_generation: u32,
+    has_old_generation: bool,
+    old_generation: u32,
+    output_applied: *mut bool,
+    output_had_old_handle: *mut bool,
+    output_old_handle: *mut usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    if output_applied.is_null() || output_had_old_handle.is_null() || output_old_handle.is_null() {
+        return false;
+    }
+    let result = state.replace(
+        object_number,
+        handle,
+        new_generation,
+        has_old_generation.then_some(old_generation),
+    );
+    let (applied, old_handle) = match result {
+        None => (false, None),
+        Some(old_handle) => (true, old_handle),
+    };
+    // SAFETY: Every checked output points to one writable scalar.
+    unsafe {
+        *output_applied = applied;
+        *output_had_old_handle = old_handle.is_some();
+        *output_old_handle = old_handle.unwrap_or(0);
+    }
+    true
+}
+
+/// # Safety
+///
+/// `state` and both output pointers must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_delete(
+    state: *mut IndirectObjectIndexState,
+    object_number: u32,
+    output_deleted: *mut bool,
+    output_handle: *mut usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    if output_deleted.is_null() || output_handle.is_null() {
+        return false;
+    }
+    let handle = state.delete(object_number);
+    // SAFETY: Both checked outputs point to writable scalars.
+    unsafe {
+        *output_deleted = handle.is_some();
+        *output_handle = handle.unwrap_or(0);
+    }
+    true
+}
+
+/// # Safety
+///
+/// `state` and `output` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_get_last(
+    state: *const IndirectObjectIndexState,
+    output: *mut u32,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The checked output points to one writable scalar.
+    unsafe { *output = state.last_object_number };
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live index.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_set_last(
+    state: *mut IndirectObjectIndexState,
+    object_number: u32,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    state.last_object_number = object_number;
+    true
+}
+
+/// Visits every slot in object-number order. A zero handle denotes the
+/// recursive-parse placeholder.
+///
+/// # Safety
+///
+/// `state`, `context`, and `callback` must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_snapshot(
+    state: *const IndirectObjectIndexState,
+    context: *mut core::ffi::c_void,
+    callback: Option<IndirectObjectSnapshotCallback>,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    if context.is_null() {
+        return false;
+    }
+    let Some(callback) = callback else {
+        return false;
+    };
+    for (&object_number, handle) in &state.objects {
+        // SAFETY: The caller guarantees a live synchronous callback boundary.
+        if !unsafe { callback(context, object_number, handle.unwrap_or(0)) } {
             return false;
         }
     }
@@ -1201,7 +1465,7 @@ mod tests {
         assert_eq!((2, 100), index.reserve_parse(7));
         assert_eq!(7, index.last_object_number);
 
-        assert_eq!(Some(8), index.add(200));
+        assert_eq!(Some((8, None)), index.add(200));
         assert_eq!(None, index.add(0));
         assert_eq!(None, index.replace(7, 300, 2, Some(2)));
         assert_eq!(Some(Some(100)), index.replace(7, 300, 3, Some(2)));
@@ -1215,7 +1479,7 @@ mod tests {
         assert!(!index.cancel_parse(5));
 
         index.last_object_number = u32::MAX;
-        assert_eq!(Some(0), index.add(500));
+        assert_eq!(Some((0, None)), index.add(500));
         assert_eq!(Some(500), index.objects[&0]);
     }
 

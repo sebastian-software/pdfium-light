@@ -46,6 +46,52 @@ class RustCrossRefTable final {
   void* state_;
 };
 
+struct RustIndirectObjectLookup {
+  uint8_t status;
+  uintptr_t handle;
+};
+
+struct RustIndirectObjectReplaceResult {
+  bool applied;
+  std::optional<uintptr_t> old_handle;
+};
+
+struct RustIndirectObjectAddResult {
+  uint32_t object_number;
+  std::optional<uintptr_t> old_handle;
+};
+
+using RustIndirectObjectSnapshotCallback = bool (*)(void* context,
+                                                    uint32_t object_number,
+                                                    uintptr_t handle);
+
+class RustIndirectObjectIndex final {
+ public:
+  RustIndirectObjectIndex();
+  RustIndirectObjectIndex(const RustIndirectObjectIndex&) = delete;
+  RustIndirectObjectIndex& operator=(const RustIndirectObjectIndex&) = delete;
+  ~RustIndirectObjectIndex();
+
+  std::optional<RustIndirectObjectLookup> Lookup(uint32_t object_number) const;
+  std::optional<RustIndirectObjectLookup> ReserveParse(uint32_t object_number);
+  bool FinishParse(uint32_t object_number, uintptr_t handle);
+  bool CancelParse(uint32_t object_number);
+  std::optional<RustIndirectObjectAddResult> Add(uintptr_t handle);
+  std::optional<RustIndirectObjectReplaceResult> Replace(
+      uint32_t object_number,
+      uintptr_t handle,
+      uint32_t new_generation,
+      std::optional<uint32_t> old_generation);
+  std::optional<std::optional<uintptr_t>> Delete(uint32_t object_number);
+  std::optional<uint32_t> GetLastObjectNumber() const;
+  bool SetLastObjectNumber(uint32_t object_number);
+  bool Snapshot(void* context,
+                RustIndirectObjectSnapshotCallback callback) const;
+
+ private:
+  void* state_;
+};
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);

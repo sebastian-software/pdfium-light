@@ -35,6 +35,53 @@ extern "C" bool pdfium_rust_cross_ref_table_snapshot(
     const void* state,
     void* context,
     RawCrossRefSnapshotCallback callback);
+extern "C" void* pdfium_rust_indirect_object_index_new();
+extern "C" void pdfium_rust_indirect_object_index_destroy(void* state);
+extern "C" bool pdfium_rust_indirect_object_index_lookup(const void* state,
+                                                         uint32_t object_number,
+                                                         uint8_t* output_status,
+                                                         size_t* output_handle);
+extern "C" bool pdfium_rust_indirect_object_index_reserve_parse(
+    void* state,
+    uint32_t object_number,
+    uint8_t* output_status,
+    size_t* output_handle);
+extern "C" bool pdfium_rust_indirect_object_index_finish_parse(
+    void* state,
+    uint32_t object_number,
+    size_t handle);
+extern "C" bool pdfium_rust_indirect_object_index_cancel_parse(
+    void* state,
+    uint32_t object_number);
+extern "C" bool pdfium_rust_indirect_object_index_add(
+    void* state,
+    size_t handle,
+    uint32_t* output_object_number,
+    bool* output_had_old_handle,
+    size_t* output_old_handle);
+extern "C" bool pdfium_rust_indirect_object_index_replace(
+    void* state,
+    uint32_t object_number,
+    size_t handle,
+    uint32_t new_generation,
+    bool has_old_generation,
+    uint32_t old_generation,
+    bool* output_applied,
+    bool* output_had_old_handle,
+    size_t* output_old_handle);
+extern "C" bool pdfium_rust_indirect_object_index_delete(void* state,
+                                                         uint32_t object_number,
+                                                         bool* output_deleted,
+                                                         size_t* output_handle);
+extern "C" bool pdfium_rust_indirect_object_index_get_last(const void* state,
+                                                           uint32_t* output);
+extern "C" bool pdfium_rust_indirect_object_index_set_last(
+    void* state,
+    uint32_t object_number);
+extern "C" bool pdfium_rust_indirect_object_index_snapshot(
+    const void* state,
+    void* context,
+    pdfium::rust::RustIndirectObjectSnapshotCallback callback);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -162,6 +209,114 @@ bool RustCrossRefTable::Snapshot(void* context,
   };
   return pdfium_rust_cross_ref_table_snapshot(state_, &snapshot_context,
                                               forward);
+}
+
+RustIndirectObjectIndex::RustIndirectObjectIndex()
+    : state_(pdfium_rust_indirect_object_index_new()) {}
+
+RustIndirectObjectIndex::~RustIndirectObjectIndex() {
+  pdfium_rust_indirect_object_index_destroy(state_);
+}
+
+std::optional<RustIndirectObjectLookup> RustIndirectObjectIndex::Lookup(
+    uint32_t object_number) const {
+  RustIndirectObjectLookup result = {};
+  if (!pdfium_rust_indirect_object_index_lookup(
+          state_, object_number, &result.status, &result.handle) ||
+      result.status > 2 || (result.status == 2 && result.handle == 0)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<RustIndirectObjectLookup> RustIndirectObjectIndex::ReserveParse(
+    uint32_t object_number) {
+  RustIndirectObjectLookup result = {};
+  if (!pdfium_rust_indirect_object_index_reserve_parse(
+          state_, object_number, &result.status, &result.handle) ||
+      result.status > 2 || (result.status == 2 && result.handle == 0)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+bool RustIndirectObjectIndex::FinishParse(uint32_t object_number,
+                                          uintptr_t handle) {
+  return pdfium_rust_indirect_object_index_finish_parse(state_, object_number,
+                                                        handle);
+}
+
+bool RustIndirectObjectIndex::CancelParse(uint32_t object_number) {
+  return pdfium_rust_indirect_object_index_cancel_parse(state_, object_number);
+}
+
+std::optional<RustIndirectObjectAddResult> RustIndirectObjectIndex::Add(
+    uintptr_t handle) {
+  uint32_t object_number = 0;
+  bool had_old_handle = false;
+  uintptr_t old_handle = 0;
+  if (!pdfium_rust_indirect_object_index_add(state_, handle, &object_number,
+                                             &had_old_handle, &old_handle) ||
+      (had_old_handle && old_handle == 0)) {
+    return std::nullopt;
+  }
+  return RustIndirectObjectAddResult{
+      .object_number = object_number,
+      .old_handle = had_old_handle ? std::optional(old_handle) : std::nullopt,
+  };
+}
+
+std::optional<RustIndirectObjectReplaceResult> RustIndirectObjectIndex::Replace(
+    uint32_t object_number,
+    uintptr_t handle,
+    uint32_t new_generation,
+    std::optional<uint32_t> old_generation) {
+  bool applied = false;
+  bool had_old_handle = false;
+  uintptr_t old_handle = 0;
+  if (!pdfium_rust_indirect_object_index_replace(
+          state_, object_number, handle, new_generation,
+          old_generation.has_value(), old_generation.value_or(0), &applied,
+          &had_old_handle, &old_handle) ||
+      (had_old_handle && old_handle == 0)) {
+    return std::nullopt;
+  }
+  return RustIndirectObjectReplaceResult{
+      .applied = applied,
+      .old_handle = had_old_handle ? std::optional(old_handle) : std::nullopt,
+  };
+}
+
+std::optional<std::optional<uintptr_t>> RustIndirectObjectIndex::Delete(
+    uint32_t object_number) {
+  bool deleted = false;
+  uintptr_t handle = 0;
+  if (!pdfium_rust_indirect_object_index_delete(state_, object_number, &deleted,
+                                                &handle) ||
+      (deleted && handle == 0)) {
+    return std::nullopt;
+  }
+  return deleted ? std::optional<std::optional<uintptr_t>>(handle)
+                 : std::optional<std::optional<uintptr_t>>(std::nullopt);
+}
+
+std::optional<uint32_t> RustIndirectObjectIndex::GetLastObjectNumber() const {
+  uint32_t result = 0;
+  if (!pdfium_rust_indirect_object_index_get_last(state_, &result)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+bool RustIndirectObjectIndex::SetLastObjectNumber(uint32_t object_number) {
+  return pdfium_rust_indirect_object_index_set_last(state_, object_number);
+}
+
+bool RustIndirectObjectIndex::Snapshot(
+    void* context,
+    RustIndirectObjectSnapshotCallback callback) const {
+  return context && callback &&
+         pdfium_rust_indirect_object_index_snapshot(state_, context, callback);
 }
 
 std::optional<uint32_t> RustReadBigEndianVarInt(
