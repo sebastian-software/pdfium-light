@@ -1,5 +1,7 @@
 //! Narrow parser primitives that preserve the retained C++ parser's behavior.
 
+use std::collections::BTreeMap;
+
 fn read_big_endian_var_int(input: &[u8]) -> u32 {
     input.iter().fold(0_u32, |value, byte| value.wrapping_mul(256).wrapping_add(u32::from(*byte)))
 }
@@ -76,6 +78,98 @@ fn cross_ref_table_add_action(
             APPLY_AND_MARK_ARCHIVE
         }),
         _ => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct CrossRefObjectInfo {
+    object_type: u8,
+    is_object_stream: bool,
+    generation: u16,
+    position: i64,
+    archive_object_number: u32,
+    archive_object_index: u32,
+}
+
+#[derive(Default)]
+pub struct CrossRefTableState {
+    objects: BTreeMap<u32, CrossRefObjectInfo>,
+}
+
+impl CrossRefTableState {
+    fn add_compressed(
+        &mut self,
+        object_number: u32,
+        archive_object_number: u32,
+        archive_object_index: u32,
+    ) {
+        let info = self.objects.entry(object_number).or_default();
+        if info.generation > 0 || info.is_object_stream {
+            return;
+        }
+        info.object_type = 2;
+        info.archive_object_number = archive_object_number;
+        info.archive_object_index = archive_object_index;
+        info.generation = 0;
+        self.objects.entry(archive_object_number).or_default().is_object_stream = true;
+    }
+
+    fn add_normal(
+        &mut self,
+        object_number: u32,
+        generation: u16,
+        is_object_stream: bool,
+        position: i64,
+    ) {
+        let info = self.objects.entry(object_number).or_default();
+        if info.generation > generation {
+            return;
+        }
+        info.object_type = 1;
+        info.is_object_stream |= is_object_stream;
+        info.generation = generation;
+        info.position = position;
+    }
+
+    fn set_free(&mut self, object_number: u32, generation: u16) {
+        let info = self.objects.entry(object_number).or_default();
+        info.object_type = 0;
+        info.generation = generation;
+        info.position = 0;
+    }
+
+    fn set_size(&mut self, size: u32) {
+        if size == 0 {
+            self.objects.clear();
+            return;
+        }
+        drop(self.objects.split_off(&size));
+        self.objects.entry(size - 1).or_default().position = 0;
+    }
+
+    fn overlay(&mut self, top: &mut Self) {
+        if top.objects.is_empty() {
+            return;
+        }
+        if self.objects.is_empty() {
+            self.objects = std::mem::take(&mut top.objects);
+            return;
+        }
+        for (&object_number, &current) in &self.objects {
+            match top.objects.entry(object_number) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(current);
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let new = entry.get_mut();
+                    if new.object_type == 1 && current.object_type == 1 && current.is_object_stream
+                    {
+                        new.is_object_stream = true;
+                    }
+                }
+            }
+        }
+        self.objects = std::mem::take(&mut top.objects);
     }
 }
 
@@ -462,6 +556,195 @@ pub unsafe extern "C" fn pdfium_rust_cross_ref_table_add_action(
     true
 }
 
+type CrossRefSnapshotCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, u32, u8, bool, u16, i64, u32, u32) -> bool;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_cross_ref_table_new() -> *mut CrossRefTableState {
+    Box::into_raw(Box::new(CrossRefTableState::default()))
+}
+
+/// # Safety
+///
+/// `state` must be null or a pointer returned by
+/// `pdfium_rust_cross_ref_table_new` that has not previously been destroyed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_table_destroy(state: *mut CrossRefTableState) {
+    if !state.is_null() {
+        // SAFETY: The caller transfers the unique allocation back to Rust.
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+///
+/// `state` must point to a live Rust cross-reference table.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_table_add_compressed(
+    state: *mut CrossRefTableState,
+    object_number: u32,
+    archive_object_number: u32,
+    archive_object_index: u32,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    state.add_compressed(object_number, archive_object_number, archive_object_index);
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live Rust cross-reference table.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_table_add_normal(
+    state: *mut CrossRefTableState,
+    object_number: u32,
+    generation: u16,
+    is_object_stream: bool,
+    position: i64,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    state.add_normal(object_number, generation, is_object_stream, position);
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live Rust cross-reference table.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_table_set_free(
+    state: *mut CrossRefTableState,
+    object_number: u32,
+    generation: u16,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    state.set_free(object_number, generation);
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live Rust cross-reference table.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_table_set_size(
+    state: *mut CrossRefTableState,
+    size: u32,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    state.set_size(size);
+    true
+}
+
+/// Moves the top table's object entries over the current table.
+///
+/// # Safety
+///
+/// Both pointers must identify distinct live Rust cross-reference tables.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_table_overlay(
+    current: *mut CrossRefTableState,
+    top: *mut CrossRefTableState,
+) -> bool {
+    if current.is_null() || top.is_null() || current == top {
+        return false;
+    }
+    // SAFETY: The caller guarantees two distinct live allocations.
+    let (current, top) = unsafe { (&mut *current, &mut *top) };
+    current.overlay(top);
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live table. A present entry requires every output
+/// pointer to refer to one writable scalar.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_table_get(
+    state: *const CrossRefTableState,
+    object_number: u32,
+    output_type: *mut u8,
+    output_is_object_stream: *mut bool,
+    output_generation: *mut u16,
+    output_position: *mut i64,
+    output_archive_object_number: *mut u32,
+    output_archive_object_index: *mut u32,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    let Some(info) = state.objects.get(&object_number) else {
+        return false;
+    };
+    if output_type.is_null()
+        || output_is_object_stream.is_null()
+        || output_generation.is_null()
+        || output_position.is_null()
+        || output_archive_object_number.is_null()
+        || output_archive_object_index.is_null()
+    {
+        return false;
+    }
+    // SAFETY: Every output pointer was checked and the caller guarantees it is
+    // writable.
+    unsafe {
+        *output_type = info.object_type;
+        *output_is_object_stream = info.is_object_stream;
+        *output_generation = info.generation;
+        *output_position = info.position;
+        *output_archive_object_number = info.archive_object_number;
+        *output_archive_object_index = info.archive_object_index;
+    }
+    true
+}
+
+/// Visits the complete table in ascending object-number order.
+///
+/// # Safety
+///
+/// `state`, `context`, and `callback` must remain valid for the synchronous
+/// walk.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_table_snapshot(
+    state: *const CrossRefTableState,
+    context: *mut core::ffi::c_void,
+    callback: Option<CrossRefSnapshotCallback>,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    if context.is_null() {
+        return false;
+    }
+    let Some(callback) = callback else {
+        return false;
+    };
+    for (&object_number, info) in &state.objects {
+        // SAFETY: The caller guarantees a synchronous live callback boundary.
+        if !unsafe {
+            callback(
+                context,
+                object_number,
+                info.object_type,
+                info.is_object_stream,
+                info.generation,
+                info.position,
+                info.archive_object_number,
+                info.archive_object_index,
+            )
+        } {
+            return false;
+        }
+    }
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -732,6 +1015,11 @@ mod tests {
         fail_at: Option<usize>,
     }
 
+    struct SnapshotState {
+        object_numbers: [u32; 4],
+        count: usize,
+    }
+
     unsafe extern "C" fn record_mutation(context: *mut core::ffi::c_void, action: u8) -> bool {
         // SAFETY: The test passes one live `MutationState` for the call.
         let state = unsafe { &mut *context.cast::<MutationState>() };
@@ -751,6 +1039,23 @@ mod tests {
         state.actions[call] = (action, value);
         state.calls += 1;
         state.fail_at != Some(call)
+    }
+
+    unsafe extern "C" fn record_snapshot(
+        context: *mut core::ffi::c_void,
+        object_number: u32,
+        _object_type: u8,
+        _is_object_stream: bool,
+        _generation: u16,
+        _position: i64,
+        _archive_object_number: u32,
+        _archive_object_index: u32,
+    ) -> bool {
+        // SAFETY: The test passes one live `SnapshotState` for the walk.
+        let state = unsafe { &mut *context.cast::<SnapshotState>() };
+        state.object_numbers[state.count] = object_number;
+        state.count += 1;
+        true
     }
 
     unsafe extern "C" fn record_entry(context: *mut core::ffi::c_void, entry_index: u32) -> bool {
@@ -951,6 +1256,104 @@ mod tests {
         assert_eq!(2, output);
         assert!(!unsafe {
             pdfium_rust_cross_ref_table_add_action(1, 0, false, 0, core::ptr::null_mut())
+        });
+    }
+
+    #[test]
+    fn cross_ref_table_state_should_own_mutation_size_and_overlay_semantics() {
+        let mut current = CrossRefTableState::default();
+        current.add_normal(3, 4, true, 90);
+        current.add_normal(3, 3, false, 12);
+        assert_eq!(
+            Some(&CrossRefObjectInfo {
+                object_type: 1,
+                is_object_stream: true,
+                generation: 4,
+                position: 90,
+                ..CrossRefObjectInfo::default()
+            }),
+            current.objects.get(&3)
+        );
+        current.set_free(3, 0);
+        assert!(current.objects[&3].is_object_stream);
+        current.add_compressed(5, 9, 2);
+        assert_eq!(2, current.objects[&5].object_type);
+        assert!(current.objects[&9].is_object_stream);
+        current.add_normal(10, 0, true, 200);
+
+        let mut top = CrossRefTableState::default();
+        top.add_normal(3, 0, false, 120);
+        top.add_normal(7, 0, false, 140);
+        top.add_normal(10, 0, false, 220);
+        current.overlay(&mut top);
+        assert_eq!(1, current.objects[&3].object_type);
+        assert!(!current.objects[&3].is_object_stream);
+        assert!(current.objects.contains_key(&5));
+        assert!(current.objects.contains_key(&7));
+        assert!(current.objects[&10].is_object_stream);
+        assert!(top.objects.is_empty());
+
+        current.set_size(7);
+        assert!(current.objects.contains_key(&6));
+        assert!(!current.objects.contains_key(&7));
+        current.set_size(0);
+        assert!(current.objects.is_empty());
+    }
+
+    #[test]
+    fn cross_ref_table_ffi_should_round_trip_and_snapshot_order() {
+        let table = pdfium_rust_cross_ref_table_new();
+        assert!(!table.is_null());
+        // SAFETY: `table` remains live until the final destroy call.
+        unsafe {
+            assert!(pdfium_rust_cross_ref_table_add_normal(table, 8, 2, false, 88));
+            assert!(pdfium_rust_cross_ref_table_add_compressed(table, 4, 8, 1));
+        }
+
+        let (mut object_type, mut is_stream, mut generation, mut position) = (0, false, 0, 0);
+        let (mut archive_number, mut archive_index) = (0, 0);
+        // SAFETY: The table and every output remain live for the call.
+        assert!(unsafe {
+            pdfium_rust_cross_ref_table_get(
+                table,
+                4,
+                &mut object_type,
+                &mut is_stream,
+                &mut generation,
+                &mut position,
+                &mut archive_number,
+                &mut archive_index,
+            )
+        });
+        assert_eq!(
+            (2, false, 0, 0, 8, 1),
+            (object_type, is_stream, generation, position, archive_number, archive_index)
+        );
+
+        let mut snapshot = SnapshotState { object_numbers: [0; 4], count: 0 };
+        // SAFETY: The table and callback context remain live synchronously.
+        assert!(unsafe {
+            pdfium_rust_cross_ref_table_snapshot(
+                table,
+                (&mut snapshot as *mut SnapshotState).cast(),
+                Some(record_snapshot),
+            )
+        });
+        assert_eq!(&[4, 8], &snapshot.object_numbers[..snapshot.count]);
+        // SAFETY: This transfers the live allocation back to Rust exactly once.
+        unsafe { pdfium_rust_cross_ref_table_destroy(table) };
+
+        assert!(!unsafe {
+            pdfium_rust_cross_ref_table_get(
+                core::ptr::null(),
+                0,
+                &mut object_type,
+                &mut is_stream,
+                &mut generation,
+                &mut position,
+                &mut archive_number,
+                &mut archive_index,
+            )
         });
     }
 
