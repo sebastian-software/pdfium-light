@@ -205,6 +205,47 @@ TEST_F(FPDFDocEmbedderTest, DestGetLocationInPage) {
   EXPECT_EQ(1, zoom);
 }
 
+TEST_F(FPDFDocEmbedderTest, RustDestinationPolicyMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("named_dests.pdf"));
+
+  struct Snapshot {
+    unsigned long view;
+    unsigned long parameter_count;
+    std::array<float, 4> parameters;
+    bool location_valid;
+    std::array<int, 3> has_values;
+    std::array<float, 3> location;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [](FPDF_DEST destination, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    Snapshot result = {};
+    result.parameter_count = 42;
+    result.parameters.fill(42.4242f);
+    result.view = FPDFDest_GetView(destination, &result.parameter_count,
+                                   result.parameters.data());
+    FPDF_BOOL has_x = 7;
+    FPDF_BOOL has_y = 7;
+    FPDF_BOOL has_zoom = 7;
+    result.location.fill(-1.0f);
+    result.location_valid = !!FPDFDest_GetLocationInPage(
+        destination, &has_x, &has_y, &has_zoom, &result.location[0],
+        &result.location[1], &result.location[2]);
+    result.has_values = {has_x, has_y, has_zoom};
+    return result;
+  };
+
+  static constexpr const char* kNames[] = {"First", "Next", "FirstAlternate",
+                                           "LastAlternate"};
+  for (const char* name : kNames) {
+    FPDF_DEST destination = FPDF_GetNamedDestByName(document(), name);
+    ASSERT_TRUE(destination) << name;
+    EXPECT_EQ(snapshot(destination, false), snapshot(destination, true))
+        << name;
+  }
+}
+
 TEST_F(FPDFDocEmbedderTest, Bug1506First) {
   ASSERT_TRUE(OpenDocument("bug_1506.pdf"));
 
