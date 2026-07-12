@@ -477,6 +477,18 @@ std::optional<uintptr_t> RustFindBookmark(
 std::optional<std::vector<uint8_t>> RustPageLabelNumber(
     int32_t number,
     pdfium::span<const uint8_t> style);
+using RustLinkEnumerationCallback = bool (*)(void* context,
+                                             size_t index,
+                                             bool* is_link);
+struct RustLinkEnumerationResult {
+  bool found;
+  size_t index;
+};
+std::optional<RustLinkEnumerationResult> RustFindNextLink(
+    int32_t start_position,
+    size_t annotation_count,
+    void* context,
+    RustLinkEnumerationCallback is_link);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,

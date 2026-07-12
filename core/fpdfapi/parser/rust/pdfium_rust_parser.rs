@@ -280,6 +280,8 @@ type PageObjectActiveCallback =
 type BookmarkMatchCallback = unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool) -> bool;
 type BookmarkNavigateCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut usize) -> bool;
+type LinkEnumerationCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool) -> bool;
 
 #[derive(Clone, Copy)]
 struct RedactionRect {
@@ -596,6 +598,22 @@ fn find_bookmark(
         child = next_sibling(child)?;
     }
     Some(0)
+}
+
+fn find_next_link(
+    start_position: i32,
+    annotation_count: usize,
+    is_link: &mut impl FnMut(usize) -> Option<bool>,
+) -> Option<Option<usize>> {
+    let Ok(start_position) = usize::try_from(start_position) else {
+        return Some(None);
+    };
+    for index in start_position..annotation_count {
+        if is_link(index)? {
+            return Some(Some(index));
+        }
+    }
+    Some(None)
 }
 
 impl Default for PdfNumberState {
@@ -3513,6 +3531,35 @@ pub unsafe extern "C" fn pdfium_rust_find_bookmark(
     true
 }
 
+/// Finds the next link annotation at or after the public enumeration cursor.
+///
+/// # Safety
+/// Callback, context, and outputs must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_find_next_link(
+    start_position: i32,
+    annotation_count: usize,
+    context: *mut core::ffi::c_void,
+    is_link: LinkEnumerationCallback,
+    found: *mut bool,
+    index: *mut usize,
+) -> bool {
+    let (Some(found), Some(index)) = (unsafe { found.as_mut() }, unsafe { index.as_mut() }) else {
+        return false;
+    };
+    let mut callback = |candidate| {
+        let mut result = false;
+        // SAFETY: The caller guarantees synchronous callback validity.
+        unsafe { is_link(context, candidate, &mut result) }.then_some(result)
+    };
+    let Some(result) = find_next_link(start_position, annotation_count, &mut callback) else {
+        return false;
+    };
+    *found = result.is_some();
+    *index = result.unwrap_or_default();
+    true
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -5299,5 +5346,15 @@ mod tests {
         assert_eq!(Some(Vec::new()), page_label_number(0, b"a"));
         assert_eq!(Some(Vec::new()), page_label_number(42, b"unknown"));
         assert_eq!(None, page_label_number(-1, b"A"));
+    }
+
+    #[test]
+    fn link_enumeration_should_preserve_cursor_order_and_callback_failures() {
+        let links = [false, true, false, true];
+        assert_eq!(Some(Some(1)), find_next_link(0, links.len(), &mut |index| Some(links[index])));
+        assert_eq!(Some(Some(3)), find_next_link(2, links.len(), &mut |index| Some(links[index])));
+        assert_eq!(Some(None), find_next_link(-1, links.len(), &mut |_| Some(true)));
+        assert_eq!(Some(None), find_next_link(4, links.len(), &mut |_| Some(true)));
+        assert_eq!(None, find_next_link(0, 1, &mut |_| None));
     }
 }

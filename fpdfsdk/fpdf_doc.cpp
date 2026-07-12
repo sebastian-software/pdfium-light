@@ -489,6 +489,32 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFLink_Enumerate(FPDF_PAGE page,
   if (!pAnnots) {
     return false;
   }
+  if (pdfium::rust::UseRustParserCandidate()) {
+    auto is_link = [](void* opaque, size_t index, bool* result) {
+      auto* annotations = static_cast<CPDF_Array*>(opaque);
+      RetainPtr<CPDF_Dictionary> dictionary =
+          ToDictionary(annotations->GetMutableDirectObjectAt(index));
+      *result =
+          dictionary && dictionary->GetByteStringFor("Subtype") == "Link";
+      return true;
+    };
+    std::optional<pdfium::rust::RustLinkEnumerationResult> result =
+        pdfium::rust::RustFindNextLink(*start_pos, pAnnots->size(),
+                                      pAnnots.Get(), is_link);
+    if (result.has_value()) {
+      if (!result->found) {
+        return false;
+      }
+      RetainPtr<CPDF_Dictionary> dictionary = ToDictionary(
+          pAnnots->GetMutableDirectObjectAt(result->index));
+      if (!dictionary) {
+        return false;
+      }
+      *start_pos = pdfium::checked_cast<int>(result->index + 1);
+      *link_annot = FPDFLinkFromCPDFDictionary(dictionary.Get());
+      return true;
+    }
+  }
   for (size_t i = *start_pos; i < pAnnots->size(); i++) {
     RetainPtr<CPDF_Dictionary> dict =
         ToDictionary(pAnnots->GetMutableDirectObjectAt(i));

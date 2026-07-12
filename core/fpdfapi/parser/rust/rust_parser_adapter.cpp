@@ -336,6 +336,13 @@ extern "C" bool pdfium_rust_find_bookmark(
     pdfium::rust::RustBookmarkNavigateCallback first_child,
     pdfium::rust::RustBookmarkNavigateCallback next_sibling,
     uintptr_t* output);
+extern "C" bool pdfium_rust_find_next_link(
+    int32_t start_position,
+    size_t annotation_count,
+    void* context,
+    pdfium::rust::RustLinkEnumerationCallback is_link,
+    bool* found,
+    size_t* index);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -1180,6 +1187,19 @@ std::optional<std::vector<uint8_t>> RustPageLabelNumber(
       !pdfium_rust_page_label_number(number, style.data(), style.size(),
                                      result.data(), result.size(),
                                      &output_len)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<RustLinkEnumerationResult> RustFindNextLink(
+    int32_t start_position,
+    size_t annotation_count,
+    void* context,
+    RustLinkEnumerationCallback is_link) {
+  RustLinkEnumerationResult result = {};
+  if (!pdfium_rust_find_next_link(start_position, annotation_count, context,
+                                  is_link, &result.found, &result.index)) {
     return std::nullopt;
   }
   return result;
