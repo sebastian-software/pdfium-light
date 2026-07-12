@@ -83,6 +83,7 @@ class RustIndirectObjectIndex final {
       uint32_t new_generation,
       std::optional<uint32_t> old_generation);
   std::optional<std::optional<uintptr_t>> Delete(uint32_t object_number);
+  bool ContainsHandle(uintptr_t handle) const;
   std::optional<uint32_t> GetLastObjectNumber() const;
   bool SetLastObjectNumber(uint32_t object_number);
   bool Snapshot(void* context,
@@ -154,6 +155,7 @@ class RustPdfArray final {
   bool Insert(size_t index, uintptr_t handle);
   std::optional<uintptr_t> Remove(size_t index);
   bool Clear();
+  bool ContainsHandle(uintptr_t handle) const;
 
  private:
   void* state_;
@@ -176,6 +178,7 @@ class RustPdfDictionary final {
   std::optional<uintptr_t> Set(pdfium::span<const uint8_t> key,
                                uintptr_t handle);
   std::optional<uintptr_t> Remove(pdfium::span<const uint8_t> key);
+  bool ContainsHandle(uintptr_t handle) const;
   bool Snapshot(void* context,
                 RustPdfDictionarySnapshotCallback callback) const;
 

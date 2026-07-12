@@ -75,6 +75,9 @@ extern "C" bool pdfium_rust_indirect_object_index_delete(void* state,
                                                          uint32_t object_number,
                                                          bool* output_deleted,
                                                          size_t* output_handle);
+extern "C" bool pdfium_rust_indirect_object_index_contains_handle(
+    const void* state,
+    size_t handle);
 extern "C" bool pdfium_rust_indirect_object_index_get_last(const void* state,
                                                            uint32_t* output);
 extern "C" bool pdfium_rust_indirect_object_index_set_last(
@@ -129,6 +132,8 @@ extern "C" bool pdfium_rust_pdf_array_remove(void* state,
                                              size_t index,
                                              uintptr_t* old_handle);
 extern "C" bool pdfium_rust_pdf_array_clear(void* state);
+extern "C" bool pdfium_rust_pdf_array_contains_handle(const void* state,
+                                                      uintptr_t handle);
 extern "C" void* pdfium_rust_pdf_dictionary_new();
 extern "C" void pdfium_rust_pdf_dictionary_destroy(void* state);
 extern "C" bool pdfium_rust_pdf_dictionary_len(const void* state,
@@ -150,6 +155,8 @@ extern "C" bool pdfium_rust_pdf_dictionary_snapshot(
     const void* state,
     void* context,
     pdfium::rust::RustPdfDictionarySnapshotCallback callback);
+extern "C" bool pdfium_rust_pdf_dictionary_contains_handle(const void* state,
+                                                           uintptr_t handle);
 extern "C" void* pdfium_rust_pdf_string_new(const uint8_t* data,
                                             size_t len,
                                             bool output_is_hex);
@@ -385,6 +392,10 @@ std::optional<std::optional<uintptr_t>> RustIndirectObjectIndex::Delete(
                  : std::optional<std::optional<uintptr_t>>(std::nullopt);
 }
 
+bool RustIndirectObjectIndex::ContainsHandle(uintptr_t handle) const {
+  return pdfium_rust_indirect_object_index_contains_handle(state_, handle);
+}
+
 std::optional<uint32_t> RustIndirectObjectIndex::GetLastObjectNumber() const {
   uint32_t result = 0;
   if (!pdfium_rust_indirect_object_index_get_last(state_, &result)) {
@@ -535,6 +546,10 @@ bool RustPdfArray::Clear() {
   return pdfium_rust_pdf_array_clear(state_);
 }
 
+bool RustPdfArray::ContainsHandle(uintptr_t handle) const {
+  return pdfium_rust_pdf_array_contains_handle(state_, handle);
+}
+
 RustPdfDictionary::RustPdfDictionary()
     : state_(pdfium_rust_pdf_dictionary_new()) {
   CHECK(state_);
@@ -576,6 +591,10 @@ std::optional<uintptr_t> RustPdfDictionary::Remove(
     return std::nullopt;
   }
   return old_handle;
+}
+
+bool RustPdfDictionary::ContainsHandle(uintptr_t handle) const {
+  return pdfium_rust_pdf_dictionary_contains_handle(state_, handle);
 }
 
 bool RustPdfDictionary::Snapshot(

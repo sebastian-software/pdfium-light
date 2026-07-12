@@ -300,6 +300,9 @@ fn parse_pdf_float(input: &[u8]) -> f32 {
 }
 
 impl IndirectObjectIndexState {
+    fn contains_handle(&self, handle: usize) -> bool {
+        self.objects.values().any(|value| *value == Some(handle))
+    }
     fn lookup(&self, object_number: u32) -> (u8, usize) {
         match self.objects.get(&object_number) {
             None => (0, 0),
@@ -1049,6 +1052,16 @@ pub unsafe extern "C" fn pdfium_rust_indirect_object_index_delete(
 }
 
 /// # Safety
+/// `state` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_indirect_object_index_contains_handle(
+    state: *const IndirectObjectIndexState,
+    handle: usize,
+) -> bool {
+    unsafe { state.as_ref() }.is_some_and(|state| state.contains_handle(handle))
+}
+
+/// # Safety
 ///
 /// `state` and `output` must remain valid for the call.
 #[unsafe(no_mangle)]
@@ -1492,6 +1505,16 @@ pub unsafe extern "C" fn pdfium_rust_pdf_array_clear(state: *mut PdfArrayState) 
     true
 }
 
+/// # Safety
+/// `state` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_array_contains_handle(
+    state: *const PdfArrayState,
+    handle: usize,
+) -> bool {
+    unsafe { state.as_ref() }.is_some_and(|state| state.objects.contains(&handle))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pdfium_rust_pdf_dictionary_new() -> *mut PdfDictionaryState {
     Box::into_raw(Box::new(PdfDictionaryState::default()))
@@ -1614,6 +1637,17 @@ pub unsafe extern "C" fn pdfium_rust_pdf_dictionary_snapshot(
         }
     }
     true
+}
+
+/// # Safety
+/// `state` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_dictionary_contains_handle(
+    state: *const PdfDictionaryState,
+    handle: usize,
+) -> bool {
+    unsafe { state.as_ref() }
+        .is_some_and(|state| state.objects.values().any(|value| *value == handle))
 }
 
 /// # Safety
@@ -2259,6 +2293,8 @@ mod tests {
         assert_eq!(12, index.last_object_number);
         assert_eq!(Some(300), index.delete(7));
         assert_eq!(None, index.delete(7));
+        assert!(!index.contains_handle(300));
+        assert!(index.contains_handle(400));
 
         assert_eq!((0, 0), index.reserve_parse(5));
         assert!(index.cancel_parse(5));
@@ -2341,6 +2377,7 @@ mod tests {
         assert!(unsafe { pdfium_rust_pdf_array_append(&mut state, 20) });
         assert!(unsafe { pdfium_rust_pdf_array_insert(&mut state, 1, 15) });
         assert_eq!(vec![10, 15, 20], state.objects);
+        assert!(state.objects.contains(&10));
 
         let mut old_handle = 0;
         assert!(unsafe { pdfium_rust_pdf_array_set(&mut state, 2, 25, &mut old_handle) });
@@ -2373,6 +2410,7 @@ mod tests {
             vec![b"a".to_vec(), b"a\0b".to_vec(), b"z".to_vec()],
             state.objects.keys().cloned().collect::<Vec<_>>()
         );
+        assert!(state.objects.values().any(|value| *value == 20));
 
         assert!(unsafe {
             pdfium_rust_pdf_dictionary_set(&mut state, b"a".as_ptr(), 1, 40, &mut old_handle)
@@ -2382,6 +2420,7 @@ mod tests {
             pdfium_rust_pdf_dictionary_remove(&mut state, b"z".as_ptr(), 1, &mut old_handle)
         });
         assert_eq!(10, old_handle);
+        assert!(!state.objects.values().any(|value| *value == 10));
         assert!(!unsafe {
             pdfium_rust_pdf_dictionary_remove(&mut state, b"missing".as_ptr(), 7, &mut old_handle)
         });

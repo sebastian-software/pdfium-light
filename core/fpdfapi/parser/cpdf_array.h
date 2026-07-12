@@ -170,7 +170,7 @@ class CPDF_Array final : public CPDF_Object {
   CPDF_Object* InsertAtInternal(size_t index, RetainPtr<CPDF_Object> pObj);
   uintptr_t RegisterObject(RetainPtr<CPDF_Object> object);
   CPDF_Object* GetObjectForHandle(uintptr_t handle) const;
-  void ReleaseObjectHandle(uintptr_t handle);
+  void ReleaseObjectHandleIfUnused(uintptr_t handle);
   void MarkObjectsViewDirty();
   void EnsureObjectsView() const;
 
@@ -180,7 +180,6 @@ class CPDF_Array final : public CPDF_Object {
 
   struct ObjectHandle {
     RetainPtr<CPDF_Object> object;
-    size_t reference_count;
   };
 
   const bool use_rust_array_;

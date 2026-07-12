@@ -157,10 +157,9 @@ uintptr_t CPDF_IndirectObjectHolder::RegisterObject(
   const uintptr_t handle = reinterpret_cast<uintptr_t>(raw_object);
   CHECK(handle);
   auto [it, inserted] = indirect_object_handles_.try_emplace(
-      handle, ObjectHandle{.object = std::move(object), .reference_count = 1});
+      handle, ObjectHandle{.object = std::move(object)});
   if (!inserted) {
     CHECK_EQ(raw_object, it->second.object.Get());
-    ++it->second.reference_count;
   }
   return handle;
 }
@@ -172,11 +171,12 @@ CPDF_Object* CPDF_IndirectObjectHolder::GetObjectForHandle(
   return it->second.object.Get();
 }
 
-void CPDF_IndirectObjectHolder::ReleaseObjectHandle(uintptr_t handle) {
+void CPDF_IndirectObjectHolder::ReleaseObjectHandleIfUnused(uintptr_t handle) {
+  if (rust_object_index_->ContainsHandle(handle)) {
+    return;
+  }
   auto it = indirect_object_handles_.find(handle);
-  CHECK(it != indirect_object_handles_.end());
-  CHECK_GT(it->second.reference_count, 0u);
-  if (--it->second.reference_count == 0) {
+  if (it != indirect_object_handles_.end()) {
     indirect_object_handles_.erase(it);
   }
 }
@@ -222,7 +222,7 @@ uint32_t CPDF_IndirectObjectHolder::AddIndirectObject(
     CHECK(add.has_value());
     object->SetObjNum(add->object_number);
     if (add->old_handle.has_value()) {
-      ReleaseObjectHandle(*add->old_handle);
+      ReleaseObjectHandleIfUnused(*add->old_handle);
     }
     MarkIndirectObjectsViewDirty();
     return add->object_number;
@@ -263,7 +263,7 @@ bool CPDF_IndirectObjectHolder::ReplaceIndirectObjectIfHigherGeneration(
     pObj->SetObjNum(objnum);
     RegisterObject(std::move(pObj));
     if (replace->old_handle.has_value()) {
-      ReleaseObjectHandle(*replace->old_handle);
+      ReleaseObjectHandleIfUnused(*replace->old_handle);
     }
     MarkIndirectObjectsViewDirty();
     return true;
@@ -292,7 +292,7 @@ void CPDF_IndirectObjectHolder::DeleteIndirectObject(uint32_t objnum) {
     const auto deleted = rust_object_index_->Delete(objnum);
     CHECK(deleted.has_value());
     CHECK(deleted->has_value());
-    ReleaseObjectHandle(**deleted);
+    ReleaseObjectHandleIfUnused(**deleted);
     MarkIndirectObjectsViewDirty();
     return;
   }

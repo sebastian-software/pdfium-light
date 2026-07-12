@@ -86,14 +86,13 @@ class CPDF_IndirectObjectHolder {
 
   struct ObjectHandle {
     RetainPtr<CPDF_Object> object;
-    size_t reference_count;
   };
 
   const CPDF_Object* GetIndirectObjectInternal(uint32_t objnum) const;
   CPDF_Object* GetOrParseIndirectObjectInternal(uint32_t objnum);
   uintptr_t RegisterObject(RetainPtr<CPDF_Object> object);
   CPDF_Object* GetObjectForHandle(uintptr_t handle) const;
-  void ReleaseObjectHandle(uintptr_t handle);
+  void ReleaseObjectHandleIfUnused(uintptr_t handle);
   void MarkIndirectObjectsViewDirty();
   void EnsureIndirectObjectsView() const;
 

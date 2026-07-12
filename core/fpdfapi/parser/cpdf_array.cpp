@@ -231,7 +231,7 @@ void CPDF_Array::Clear() {
   }
   CHECK(rust_array_->Clear());
   for (uintptr_t handle : old_handles) {
-    ReleaseObjectHandle(handle);
+    ReleaseObjectHandleIfUnused(handle);
   }
 }
 
@@ -246,7 +246,7 @@ void CPDF_Array::RemoveAt(size_t index) {
   std::optional<uintptr_t> old_handle = rust_array_->Remove(index);
   if (old_handle) {
     MarkObjectsViewDirty();
-    ReleaseObjectHandle(*old_handle);
+    ReleaseObjectHandleIfUnused(*old_handle);
   }
 }
 
@@ -291,11 +291,11 @@ CPDF_Object* CPDF_Array::SetAtInternal(size_t index,
   uintptr_t handle = RegisterObject(std::move(pObj));
   std::optional<uintptr_t> old_handle = rust_array_->Set(index, handle);
   if (!old_handle) {
-    ReleaseObjectHandle(handle);
+    ReleaseObjectHandleIfUnused(handle);
     return nullptr;
   }
   MarkObjectsViewDirty();
-  ReleaseObjectHandle(*old_handle);
+  ReleaseObjectHandleIfUnused(*old_handle);
   return pRet;
 }
 
@@ -315,7 +315,7 @@ CPDF_Object* CPDF_Array::InsertAtInternal(size_t index,
   }
   uintptr_t handle = RegisterObject(std::move(pObj));
   if (!rust_array_->Insert(index, handle)) {
-    ReleaseObjectHandle(handle);
+    ReleaseObjectHandleIfUnused(handle);
     return nullptr;
   }
   MarkObjectsViewDirty();
@@ -345,9 +345,7 @@ size_t CPDF_Array::size() const {
 uintptr_t CPDF_Array::RegisterObject(RetainPtr<CPDF_Object> object) {
   CHECK(object);
   const uintptr_t handle = reinterpret_cast<uintptr_t>(object.Get());
-  auto [it, inserted] =
-      object_handles_.try_emplace(handle, ObjectHandle{std::move(object), 0});
-  ++it->second.reference_count;
+  object_handles_.try_emplace(handle, ObjectHandle{std::move(object)});
   return handle;
 }
 
@@ -357,11 +355,12 @@ CPDF_Object* CPDF_Array::GetObjectForHandle(uintptr_t handle) const {
   return it->second.object.Get();
 }
 
-void CPDF_Array::ReleaseObjectHandle(uintptr_t handle) {
+void CPDF_Array::ReleaseObjectHandleIfUnused(uintptr_t handle) {
+  if (rust_array_->ContainsHandle(handle)) {
+    return;
+  }
   auto it = object_handles_.find(handle);
-  CHECK(it != object_handles_.end());
-  CHECK_GT(it->second.reference_count, 0u);
-  if (--it->second.reference_count == 0) {
+  if (it != object_handles_.end()) {
     object_handles_.erase(it);
   }
 }

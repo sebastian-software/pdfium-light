@@ -150,7 +150,7 @@ class CPDF_Dictionary final : public CPDF_Object {
                               RetainPtr<CPDF_Object> pObj);
   uintptr_t RegisterObject(RetainPtr<CPDF_Object> object);
   CPDF_Object* GetObjectForHandle(uintptr_t handle) const;
-  void ReleaseObjectHandle(uintptr_t handle);
+  void ReleaseObjectHandleIfUnused(uintptr_t handle);
   void MarkMapViewDirty();
   void EnsureMapView() const;
 
@@ -164,7 +164,6 @@ class CPDF_Dictionary final : public CPDF_Object {
   WeakPtr<ByteStringPool> pool_;
   struct ObjectHandle {
     RetainPtr<CPDF_Object> object;
-    size_t reference_count;
   };
   const bool use_rust_dictionary_;
   std::unique_ptr<pdfium::rust::RustPdfDictionary> rust_dictionary_;

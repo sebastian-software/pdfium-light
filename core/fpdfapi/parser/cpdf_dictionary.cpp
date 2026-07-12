@@ -303,7 +303,7 @@ CPDF_Object* CPDF_Dictionary::SetForInternal(const ByteString& key,
     } else if (std::optional<uintptr_t> old_handle =
                    rust_dictionary_->Remove(key.unsigned_span())) {
       MarkMapViewDirty();
-      ReleaseObjectHandle(*old_handle);
+      ReleaseObjectHandleIfUnused(*old_handle);
     }
     return nullptr;
   }
@@ -319,7 +319,7 @@ CPDF_Object* CPDF_Dictionary::SetForInternal(const ByteString& key,
       rust_dictionary_->Set(key.unsigned_span(), handle);
   MarkMapViewDirty();
   if (old_handle) {
-    ReleaseObjectHandle(*old_handle);
+    ReleaseObjectHandleIfUnused(*old_handle);
   }
   return pRet;
 }
@@ -348,7 +348,7 @@ RetainPtr<CPDF_Object> CPDF_Dictionary::RemoveFor(ByteStringView key) {
     RetainPtr<CPDF_Object> result =
         pdfium::WrapRetain(GetObjectForHandle(*handle));
     MarkMapViewDirty();
-    ReleaseObjectHandle(*handle);
+    ReleaseObjectHandleIfUnused(*handle);
     return result;
   }
   auto it = map_.find(key);
@@ -414,9 +414,7 @@ size_t CPDF_Dictionary::size() const {
 uintptr_t CPDF_Dictionary::RegisterObject(RetainPtr<CPDF_Object> object) {
   CHECK(object);
   const uintptr_t handle = reinterpret_cast<uintptr_t>(object.Get());
-  auto [it, inserted] =
-      object_handles_.try_emplace(handle, ObjectHandle{std::move(object), 0});
-  ++it->second.reference_count;
+  object_handles_.try_emplace(handle, ObjectHandle{std::move(object)});
   return handle;
 }
 
@@ -426,11 +424,12 @@ CPDF_Object* CPDF_Dictionary::GetObjectForHandle(uintptr_t handle) const {
   return it->second.object.Get();
 }
 
-void CPDF_Dictionary::ReleaseObjectHandle(uintptr_t handle) {
+void CPDF_Dictionary::ReleaseObjectHandleIfUnused(uintptr_t handle) {
+  if (rust_dictionary_->ContainsHandle(handle)) {
+    return;
+  }
   auto it = object_handles_.find(handle);
-  CHECK(it != object_handles_.end());
-  CHECK_GT(it->second.reference_count, 0u);
-  if (--it->second.reference_count == 0) {
+  if (it != object_handles_.end()) {
     object_handles_.erase(it);
   }
 }
