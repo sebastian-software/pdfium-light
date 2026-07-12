@@ -30,6 +30,7 @@
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fpdfapi/render/cpdf_docrenderdata.h"
 #include "core/fpdfdoc/cpdf_annot.h"
 #include "core/fpdfdoc/cpdf_annotlist.h"
@@ -397,6 +398,71 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFPage_ApplyRedactions(
   CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
   if (!IsPageObject(pPage)) {
     return FPDF_REDACTION_ERROR_INVALID_PAGE;
+  }
+  if (pdfium::rust::UseRustParserCandidate()) {
+    struct RedactionContext {
+      const FS_RECTF* rects;
+      unsigned long rect_count;
+      CPDF_Page* page;
+    } context = {rects, rect_count, pPage};
+    auto get_rect = [](void* context, size_t index, float* left, float* bottom,
+                       float* right, float* top) {
+      auto* redaction = static_cast<RedactionContext*>(context);
+      if (!redaction->rects || index >= redaction->rect_count) {
+        return false;
+      }
+      const FS_RECTF& rect = UNSAFE_BUFFERS(redaction->rects[index]);
+      *left = rect.left;
+      *bottom = rect.bottom;
+      *right = rect.right;
+      *top = rect.top;
+      return true;
+    };
+    auto get_object = [](void* context, size_t index, bool* active,
+                         uint8_t* object_type, float* left, float* bottom,
+                         float* right, float* top) {
+      auto* redaction = static_cast<RedactionContext*>(context);
+      CPDF_PageObject* object = redaction->page->GetPageObjectByIndex(index);
+      if (!object) {
+        return false;
+      }
+      *active = object->IsActive();
+      *object_type = static_cast<uint8_t>(object->GetType());
+      const CFX_FloatRect& rect = object->GetRect();
+      *left = rect.left;
+      *bottom = rect.bottom;
+      *right = rect.right;
+      *top = rect.top;
+      return true;
+    };
+    pdfium::rust::RustRedactionPlan plan(rects != nullptr, rect_count,
+                                         pPage->GetPageObjectCount(), &context,
+                                         get_rect, get_object);
+    const auto status = plan.status();
+    if (plan.valid() && status.has_value() && *status >= 0 && *status <= 5) {
+      if (*status != FPDF_REDACTION_SUCCESS) {
+        return *status;
+      }
+      std::vector<CPDF_PageObject*> planned_objects;
+      planned_objects.reserve(plan.size());
+      bool valid_plan = true;
+      for (size_t i = 0; i < plan.size(); ++i) {
+        const auto index = plan.GetIndex(i);
+        CPDF_PageObject* object =
+            index.has_value() ? pPage->GetPageObjectByIndex(*index) : nullptr;
+        if (!object) {
+          valid_plan = false;
+          break;
+        }
+        planned_objects.push_back(object);
+      }
+      if (valid_plan) {
+        for (CPDF_PageObject* object : planned_objects) {
+          pPage->RemovePageObject(object);
+        }
+        return FPDF_REDACTION_SUCCESS;
+      }
+    }
   }
   if (!rects || rect_count == 0) {
     return FPDF_REDACTION_ERROR_INVALID_RECT;

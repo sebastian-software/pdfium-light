@@ -253,6 +253,96 @@ type DocumentPageTraversalCacheCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, i32, u32) -> bool;
 type DocumentPageTraversalSelectCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize) -> bool;
+type RedactionRectCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+) -> bool;
+type RedactionObjectCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    *mut bool,
+    *mut u8,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+) -> bool;
+
+#[derive(Clone, Copy)]
+struct RedactionRect {
+    left: f32,
+    bottom: f32,
+    right: f32,
+    top: f32,
+}
+
+pub struct RedactionPlanState {
+    status: i32,
+    removals: Vec<usize>,
+}
+
+fn redaction_plan(
+    has_rects: bool,
+    rect_count: usize,
+    object_count: usize,
+    mut get_rect: impl FnMut(usize) -> Option<RedactionRect>,
+    mut get_object: impl FnMut(usize) -> Option<(bool, u8, RedactionRect)>,
+) -> Option<RedactionPlanState> {
+    if !has_rects || rect_count == 0 {
+        return Some(RedactionPlanState { status: 2, removals: Vec::new() });
+    }
+    let mut rects = Vec::with_capacity(rect_count);
+    for index in 0..rect_count {
+        let rect = get_rect(index)?;
+        if !(rect.left < rect.right && rect.bottom < rect.top) {
+            return Some(RedactionPlanState { status: 2, removals: Vec::new() });
+        }
+        rects.push(rect);
+    }
+
+    let mut removals = Vec::new();
+    for index in 0..object_count {
+        let (active, object_type, object_rect) = get_object(index)?;
+        if !active {
+            continue;
+        }
+        let mut intersects = false;
+        let mut fully_covered = false;
+        for rect in &rects {
+            if rect.left < object_rect.right
+                && rect.right > object_rect.left
+                && rect.bottom < object_rect.top
+                && rect.top > object_rect.bottom
+            {
+                intersects = true;
+                if rect.left <= object_rect.left
+                    && rect.right >= object_rect.right
+                    && rect.bottom <= object_rect.bottom
+                    && rect.top >= object_rect.top
+                {
+                    fully_covered = true;
+                    break;
+                }
+            }
+        }
+        if !intersects {
+            continue;
+        }
+        if !fully_covered {
+            return Some(RedactionPlanState { status: 5, removals: Vec::new() });
+        }
+        if !matches!(object_type, 1..=3) {
+            return Some(RedactionPlanState { status: 4, removals: Vec::new() });
+        }
+        removals.push(index);
+    }
+    let status = if removals.is_empty() { 3 } else { 0 };
+    Some(RedactionPlanState { status, removals })
+}
 
 impl Default for PdfNumberState {
     fn default() -> Self {
@@ -2637,6 +2727,113 @@ pub unsafe extern "C" fn pdfium_rust_sdk_nul_terminate(
     true
 }
 
+/// Builds an atomic public redaction-removal plan.
+///
+/// # Safety
+/// The callbacks and context must remain valid for this synchronous call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_redaction_plan_new(
+    has_rects: bool,
+    rect_count: usize,
+    object_count: usize,
+    context: *mut core::ffi::c_void,
+    get_rect: RedactionRectCallback,
+    get_object: RedactionObjectCallback,
+) -> *mut RedactionPlanState {
+    let plan = redaction_plan(
+        has_rects,
+        rect_count,
+        object_count,
+        |index| {
+            let mut rect = RedactionRect { left: 0.0, bottom: 0.0, right: 0.0, top: 0.0 };
+            // SAFETY: The caller guarantees synchronous callback validity.
+            unsafe {
+                get_rect(
+                    context,
+                    index,
+                    &mut rect.left,
+                    &mut rect.bottom,
+                    &mut rect.right,
+                    &mut rect.top,
+                )
+            }
+            .then_some(rect)
+        },
+        |index| {
+            let mut active = false;
+            let mut object_type = 0;
+            let mut rect = RedactionRect { left: 0.0, bottom: 0.0, right: 0.0, top: 0.0 };
+            // SAFETY: The caller guarantees synchronous callback validity.
+            unsafe {
+                get_object(
+                    context,
+                    index,
+                    &mut active,
+                    &mut object_type,
+                    &mut rect.left,
+                    &mut rect.bottom,
+                    &mut rect.right,
+                    &mut rect.top,
+                )
+            }
+            .then_some((active, object_type, rect))
+        },
+    );
+    plan.map_or(core::ptr::null_mut(), |plan| Box::into_raw(Box::new(plan)))
+}
+
+/// # Safety
+/// `state` must be null or returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_redaction_plan_free(state: *mut RedactionPlanState) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_redaction_plan_status(
+    state: *const RedactionPlanState,
+    output: *mut i32,
+) -> bool {
+    let (Some(state), Some(output)) = (unsafe { state.as_ref() }, unsafe { output.as_mut() })
+    else {
+        return false;
+    };
+    *output = state.status;
+    true
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_redaction_plan_count(
+    state: *const RedactionPlanState,
+) -> usize {
+    unsafe { state.as_ref() }.map_or(0, |state| state.removals.len())
+}
+
+/// # Safety
+/// State and output must remain readable/writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_redaction_plan_index(
+    state: *const RedactionPlanState,
+    index: usize,
+    output: *mut usize,
+) -> bool {
+    let (Some(value), Some(output)) =
+        (unsafe { state.as_ref() }.and_then(|state| state.removals.get(index)), unsafe {
+            output.as_mut()
+        })
+    else {
+        return false;
+    };
+    *output = *value;
+    true
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -4168,5 +4365,53 @@ mod tests {
         assert!(has_word);
         assert_eq!(0xb2b2_b2b2, start);
         assert_eq!(0xc3c3_c3c3, len);
+    }
+
+    #[test]
+    fn redaction_plan_should_validate_atomically_and_select_removals() {
+        let rects = [RedactionRect { left: 0.0, bottom: 0.0, right: 20.0, top: 20.0 }];
+        let objects = [
+            (true, 1, RedactionRect { left: 1.0, bottom: 1.0, right: 5.0, top: 5.0 }),
+            (false, 4, RedactionRect { left: 1.0, bottom: 1.0, right: 5.0, top: 5.0 }),
+            (true, 3, RedactionRect { left: 30.0, bottom: 30.0, right: 40.0, top: 40.0 }),
+        ];
+        let plan = redaction_plan(
+            true,
+            rects.len(),
+            objects.len(),
+            |index| rects.get(index).copied(),
+            |index| objects.get(index).copied(),
+        )
+        .expect("callbacks are complete");
+        assert_eq!(0, plan.status);
+        assert_eq!(vec![0], plan.removals);
+
+        let partial = redaction_plan(
+            true,
+            1,
+            1,
+            |_| Some(RedactionRect { left: 0.0, bottom: 0.0, right: 2.0, top: 2.0 }),
+            |_| Some((true, 1, RedactionRect { left: 1.0, bottom: 1.0, right: 3.0, top: 3.0 })),
+        )
+        .expect("callbacks are complete");
+        assert_eq!(5, partial.status);
+        assert!(partial.removals.is_empty());
+    }
+
+    #[test]
+    fn redaction_plan_should_reject_rects_and_unsupported_objects() {
+        let invalid = redaction_plan(false, 1, 0, |_| None, |_| None).expect("no callback needed");
+        assert_eq!(2, invalid.status);
+
+        let unsupported = redaction_plan(
+            true,
+            1,
+            1,
+            |_| Some(RedactionRect { left: 0.0, bottom: 0.0, right: 10.0, top: 10.0 }),
+            |_| Some((true, 4, RedactionRect { left: 1.0, bottom: 1.0, right: 2.0, top: 2.0 })),
+        )
+        .expect("callbacks are complete");
+        assert_eq!(4, unsupported.status);
+        assert!(unsupported.removals.is_empty());
     }
 }

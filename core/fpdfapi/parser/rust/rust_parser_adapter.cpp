@@ -248,6 +248,20 @@ extern "C" bool pdfium_rust_sdk_nul_terminate(const uint8_t* input,
                                               uint8_t* output,
                                               size_t output_capacity,
                                               size_t* required_len);
+extern "C" void* pdfium_rust_redaction_plan_new(
+    bool has_rects,
+    size_t rect_count,
+    size_t object_count,
+    void* context,
+    pdfium::rust::RustRedactionRectCallback get_rect,
+    pdfium::rust::RustRedactionObjectCallback get_object);
+extern "C" void pdfium_rust_redaction_plan_free(void* state);
+extern "C" bool pdfium_rust_redaction_plan_status(const void* state,
+                                                  int32_t* output);
+extern "C" size_t pdfium_rust_redaction_plan_count(const void* state);
+extern "C" bool pdfium_rust_redaction_plan_index(const void* state,
+                                                 size_t index,
+                                                 size_t* output);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -885,6 +899,43 @@ std::optional<size_t> RustSdkNulTerminate(pdfium::span<const uint8_t> input,
     return std::nullopt;
   }
   return required_len;
+}
+
+RustRedactionPlan::RustRedactionPlan(bool has_rects,
+                                     size_t rect_count,
+                                     size_t object_count,
+                                     void* context,
+                                     RustRedactionRectCallback get_rect,
+                                     RustRedactionObjectCallback get_object)
+    : state_(pdfium_rust_redaction_plan_new(has_rects,
+                                            rect_count,
+                                            object_count,
+                                            context,
+                                            get_rect,
+                                            get_object)) {}
+
+RustRedactionPlan::~RustRedactionPlan() {
+  pdfium_rust_redaction_plan_free(state_);
+}
+
+std::optional<int> RustRedactionPlan::status() const {
+  int32_t output = 0;
+  if (!pdfium_rust_redaction_plan_status(state_, &output)) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+size_t RustRedactionPlan::size() const {
+  return pdfium_rust_redaction_plan_count(state_);
+}
+
+std::optional<size_t> RustRedactionPlan::GetIndex(size_t index) const {
+  size_t output = 0;
+  if (!pdfium_rust_redaction_plan_index(state_, index, &output)) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 std::optional<std::vector<size_t>> RustDocumentPageMutationPath(

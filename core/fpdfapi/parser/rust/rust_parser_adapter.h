@@ -343,6 +343,42 @@ std::optional<std::vector<uint32_t>> RustSdkParsePageRange(
 std::optional<size_t> RustSdkNulTerminate(pdfium::span<const uint8_t> input,
                                           pdfium::span<char> output);
 
+using RustRedactionRectCallback = bool (*)(void* context,
+                                           size_t index,
+                                           float* left,
+                                           float* bottom,
+                                           float* right,
+                                           float* top);
+using RustRedactionObjectCallback = bool (*)(void* context,
+                                             size_t index,
+                                             bool* active,
+                                             uint8_t* object_type,
+                                             float* left,
+                                             float* bottom,
+                                             float* right,
+                                             float* top);
+
+class RustRedactionPlan final {
+ public:
+  RustRedactionPlan(bool has_rects,
+                    size_t rect_count,
+                    size_t object_count,
+                    void* context,
+                    RustRedactionRectCallback get_rect,
+                    RustRedactionObjectCallback get_object);
+  RustRedactionPlan(const RustRedactionPlan&) = delete;
+  RustRedactionPlan& operator=(const RustRedactionPlan&) = delete;
+  ~RustRedactionPlan();
+
+  bool valid() const { return state_ != nullptr; }
+  std::optional<int> status() const;
+  size_t size() const;
+  std::optional<size_t> GetIndex(size_t index) const;
+
+ private:
+  void* state_;
+};
+
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,
                                                           size_t* child_count);
