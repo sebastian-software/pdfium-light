@@ -213,6 +213,44 @@ bool DescribePageIndexChild(void*,
   return true;
 }
 
+bool DescribePageMutationNode(void*, uintptr_t handle, size_t* child_count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || !child_count) {
+    return false;
+  }
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids) {
+    return false;
+  }
+  *child_count = kids->size();
+  return true;
+}
+
+bool DescribePageMutationChild(void*,
+                               uintptr_t handle,
+                               size_t child_index,
+                               uintptr_t* child_handle,
+                               uint8_t* node_type,
+                               int32_t* page_count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || !child_handle || !node_type || !page_count) {
+    return false;
+  }
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids || child_index >= kids->size()) {
+    return false;
+  }
+  RetainPtr<CPDF_Dictionary> child = kids->GetMutableDictAt(child_index);
+  if (!child) {
+    return false;
+  }
+  *child_handle = reinterpret_cast<uintptr_t>(child.Get());
+  NodeType type = GetNodeType(child);
+  *node_type = type == NodeType::kBranch ? 1 : 2;
+  *page_count = child->GetIntegerFor("Count");
+  return true;
+}
+
 int FindPageIndex(const CPDF_Dictionary* pNode,
                   uint32_t* skip_count,
                   uint32_t objnum,
@@ -754,6 +792,49 @@ bool CPDF_Document::InsertDeletePDFPage(
   return true;
 }
 
+bool CPDF_Document::ApplyPageMutationPath(RetainPtr<CPDF_Dictionary> pages_dict,
+                                          pdfium::span<const size_t> path,
+                                          RetainPtr<CPDF_Dictionary> page_dict,
+                                          bool is_insert) {
+  if (path.empty()) {
+    return false;
+  }
+  std::vector<RetainPtr<CPDF_Dictionary>> ancestors = {pages_dict};
+  for (size_t child_index : path.first(path.size() - 1)) {
+    RetainPtr<CPDF_Array> kids = pages_dict->GetMutableArrayFor("Kids");
+    if (!kids || child_index >= kids->size()) {
+      return false;
+    }
+    pages_dict = kids->GetMutableDictAt(child_index);
+    if (!pages_dict) {
+      return false;
+    }
+    ancestors.push_back(pages_dict);
+  }
+  RetainPtr<CPDF_Array> kids = pages_dict->GetMutableArrayFor("Kids");
+  const size_t leaf_index = path.back();
+  if (!kids || leaf_index >= kids->size()) {
+    return false;
+  }
+  if (is_insert) {
+    if (!page_dict) {
+      return false;
+    }
+    kids->InsertNewAt<CPDF_Reference>(leaf_index, this, page_dict->GetObjNum());
+    page_dict->SetNewFor<CPDF_Reference>("Parent", this,
+                                         pages_dict->GetObjNum());
+  } else {
+    kids->RemoveAt(leaf_index);
+  }
+  const int delta = is_insert ? 1 : -1;
+  for (const auto& ancestor : ancestors) {
+    ancestor->SetNewFor<CPDF_Number>("Count",
+                                     ancestor->GetIntegerFor("Count") + delta);
+  }
+  ResetTraversal();
+  return true;
+}
+
 bool CPDF_Document::InsertNewPage(int iPage,
                                   RetainPtr<CPDF_Dictionary> pPageDict) {
   RetainPtr<CPDF_Dictionary> pRoot = GetMutableRoot();
@@ -779,10 +860,28 @@ bool CPDF_Document::InsertNewPage(int iPage,
     pPageDict->SetNewFor<CPDF_Reference>("Parent", this, pPages->GetObjNum());
     ResetTraversal();
   } else {
-    std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
-    if (!InsertDeletePDFPage(std::move(pPages), iPage, pPageDict, true,
-                             &stack)) {
-      return false;
+    if (use_rust_page_index_) {
+      std::optional<std::vector<size_t>> path =
+          pdfium::rust::RustDocumentPageMutationPath(
+              reinterpret_cast<uintptr_t>(pPages.Get()), iPage, nullptr,
+              DescribePageMutationNode, DescribePageMutationChild);
+      if (path.has_value()) {
+        if (!ApplyPageMutationPath(std::move(pPages), *path, pPageDict, true)) {
+          return false;
+        }
+      } else {
+        std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
+        if (!InsertDeletePDFPage(std::move(pPages), iPage, pPageDict, true,
+                                 &stack)) {
+          return false;
+        }
+      }
+    } else {
+      std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
+      if (!InsertDeletePDFPage(std::move(pPages), iPage, pPageDict, true,
+                               &stack)) {
+        return false;
+      }
     }
   }
   InsertPageObjNumAt(iPage, pPageDict->GetObjNum());
@@ -828,9 +927,28 @@ uint32_t CPDF_Document::DeletePage(int iPage) {
     return 0;
   }
 
-  std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
-  if (!InsertDeletePDFPage(std::move(pPages), iPage, nullptr, false, &stack)) {
-    return 0;
+  if (use_rust_page_index_) {
+    std::optional<std::vector<size_t>> path =
+        pdfium::rust::RustDocumentPageMutationPath(
+            reinterpret_cast<uintptr_t>(pPages.Get()), iPage, nullptr,
+            DescribePageMutationNode, DescribePageMutationChild);
+    if (path.has_value()) {
+      if (!ApplyPageMutationPath(std::move(pPages), *path, nullptr, false)) {
+        return 0;
+      }
+    } else {
+      std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
+      if (!InsertDeletePDFPage(std::move(pPages), iPage, nullptr, false,
+                               &stack)) {
+        return 0;
+      }
+    }
+  } else {
+    std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
+    if (!InsertDeletePDFPage(std::move(pPages), iPage, nullptr, false,
+                             &stack)) {
+      return 0;
+    }
   }
 
   RemovePageObjNumAt(iPage);

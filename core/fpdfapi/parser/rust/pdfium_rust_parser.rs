@@ -207,6 +207,16 @@ type DocumentPageFindDescribeCallback = unsafe extern "C" fn(
 ) -> bool;
 type DocumentPageFindChildCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut usize, *mut u32) -> bool;
+type DocumentPageMutationDescribeCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut usize) -> bool;
+type DocumentPageMutationChildCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    usize,
+    *mut usize,
+    *mut u8,
+    *mut i32,
+) -> bool;
 
 impl Default for PdfNumberState {
     fn default() -> Self {
@@ -2299,6 +2309,120 @@ pub unsafe extern "C" fn pdfium_rust_sdk_parse_page_range(
     true
 }
 
+struct DocumentPageMutationCallbacks {
+    context: *mut core::ffi::c_void,
+    describe: DocumentPageMutationDescribeCallback,
+    child: DocumentPageMutationChildCallback,
+}
+
+fn plan_document_page_mutation(
+    handle: usize,
+    pages_to_go: &mut i32,
+    active_path: &mut std::collections::BTreeSet<usize>,
+    depth: usize,
+    callbacks: &DocumentPageMutationCallbacks,
+) -> Result<Option<Vec<usize>>, ()> {
+    const LEVEL_MAX: usize = 1024;
+    if handle == 0 || depth >= LEVEL_MAX {
+        return Err(());
+    }
+    let mut child_count = 0;
+    if !unsafe { (callbacks.describe)(callbacks.context, handle, &mut child_count) } {
+        return Err(());
+    }
+    for index in 0..child_count {
+        let mut child_handle = 0;
+        let mut node_type = 0;
+        let mut page_count = 0;
+        if !unsafe {
+            (callbacks.child)(
+                callbacks.context,
+                handle,
+                index,
+                &mut child_handle,
+                &mut node_type,
+                &mut page_count,
+            )
+        } {
+            return Err(());
+        }
+        if node_type == 2 {
+            if *pages_to_go != 0 {
+                *pages_to_go -= 1;
+                continue;
+            }
+            return Ok(Some(vec![index]));
+        }
+        if node_type != 1 {
+            return Err(());
+        }
+        if *pages_to_go >= page_count {
+            *pages_to_go -= page_count;
+            continue;
+        }
+        if child_handle == 0 || !active_path.insert(child_handle) {
+            return Ok(None);
+        }
+        let child_result = plan_document_page_mutation(
+            child_handle,
+            pages_to_go,
+            active_path,
+            depth + 1,
+            callbacks,
+        );
+        active_path.remove(&child_handle);
+        let Some(mut path) = child_result? else {
+            return Ok(None);
+        };
+        path.insert(0, index);
+        return Ok(Some(path));
+    }
+    Ok(None)
+}
+
+/// Plans the child-index path to an insertion/deletion leaf.
+///
+/// An empty path is a valid "no leaf" result. A null output performs the
+/// sizing pass. Depth rejection falls back to the retained C++ traversal.
+///
+/// # Safety
+/// All callbacks and non-null spans must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_mutation_path(
+    root_handle: usize,
+    pages_to_go: i32,
+    context: *mut core::ffi::c_void,
+    describe: Option<DocumentPageMutationDescribeCallback>,
+    child: Option<DocumentPageMutationChildCallback>,
+    output: *mut usize,
+    output_capacity: usize,
+    output_len: *mut usize,
+) -> bool {
+    let (Some(describe), Some(child), Some(output_len)) =
+        (describe, child, unsafe { output_len.as_mut() })
+    else {
+        return false;
+    };
+    let callbacks = DocumentPageMutationCallbacks { context, describe, child };
+    let mut pages_to_go = pages_to_go;
+    let mut active_path = std::collections::BTreeSet::from([root_handle]);
+    let Ok(path) =
+        plan_document_page_mutation(root_handle, &mut pages_to_go, &mut active_path, 0, &callbacks)
+    else {
+        return false;
+    };
+    let path = path.unwrap_or_default();
+    *output_len = path.len();
+    if output_capacity == 0 {
+        return output.is_null();
+    }
+    if output.is_null() || output_capacity < path.len() {
+        return false;
+    }
+    unsafe { core::slice::from_raw_parts_mut(output, path.len()) }.copy_from_slice(&path);
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -2714,6 +2838,48 @@ mod tests {
         unsafe {
             *child_handle = child;
             *reference_object_number = object;
+        }
+        true
+    }
+
+    unsafe extern "C" fn describe_page_mutation_node(
+        _context: *mut core::ffi::c_void,
+        handle: usize,
+        child_count: *mut usize,
+    ) -> bool {
+        if child_count.is_null() {
+            return false;
+        }
+        let count = match handle {
+            1 | 2 => 2,
+            _ => return false,
+        };
+        unsafe { *child_count = count };
+        true
+    }
+
+    unsafe extern "C" fn describe_page_mutation_child(
+        _context: *mut core::ffi::c_void,
+        handle: usize,
+        child_index: usize,
+        child_handle: *mut usize,
+        node_type: *mut u8,
+        page_count: *mut i32,
+    ) -> bool {
+        if child_handle.is_null() || node_type.is_null() || page_count.is_null() {
+            return false;
+        }
+        let value = match (handle, child_index) {
+            (1, 0) => (2, 1, 2),
+            (1, 1) => (5, 2, 0),
+            (2, 0) => (3, 2, 0),
+            (2, 1) => (4, 2, 0),
+            _ => return false,
+        };
+        unsafe {
+            *child_handle = value.0;
+            *node_type = value.1;
+            *page_count = value.2;
         }
         true
     }
@@ -3292,6 +3458,39 @@ mod tests {
                 &mut len,
             )
         });
+    }
+
+    #[test]
+    fn document_page_mutation_should_plan_nested_and_root_leaf_paths() {
+        for (page_index, expected) in [(1, vec![0, 1]), (2, vec![1])] {
+            let mut len = 0;
+            assert!(unsafe {
+                pdfium_rust_document_page_mutation_path(
+                    1,
+                    page_index,
+                    core::ptr::null_mut(),
+                    Some(describe_page_mutation_node),
+                    Some(describe_page_mutation_child),
+                    core::ptr::null_mut(),
+                    0,
+                    &mut len,
+                )
+            });
+            let mut output = vec![0; len];
+            assert!(unsafe {
+                pdfium_rust_document_page_mutation_path(
+                    1,
+                    page_index,
+                    core::ptr::null_mut(),
+                    Some(describe_page_mutation_node),
+                    Some(describe_page_mutation_child),
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut len,
+                )
+            });
+            assert_eq!(expected, output);
+        }
     }
 
     #[test]

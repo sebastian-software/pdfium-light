@@ -213,6 +213,10 @@ class CPDF_Document : public Observable,
                            RetainPtr<CPDF_Dictionary> page_dict,
                            bool is_insert,
                            std::set<RetainPtr<CPDF_Dictionary>>* visited);
+  bool ApplyPageMutationPath(RetainPtr<CPDF_Dictionary> pages_dict,
+                             pdfium::span<const size_t> path,
+                             RetainPtr<CPDF_Dictionary> page_dict,
+                             bool is_insert);
 
   bool InsertNewPage(int iPage, RetainPtr<CPDF_Dictionary> pPageDict);
   size_t PageListSize() const;

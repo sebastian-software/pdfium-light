@@ -220,6 +220,15 @@ extern "C" bool pdfium_rust_sdk_parse_page_range(const uint8_t* input,
                                                  uint32_t* output,
                                                  size_t output_capacity,
                                                  size_t* output_len);
+extern "C" bool pdfium_rust_document_page_mutation_path(
+    uintptr_t root_handle,
+    int32_t pages_to_go,
+    void* context,
+    pdfium::rust::RustDocumentPageMutationDescribeCallback describe,
+    pdfium::rust::RustDocumentPageMutationChildCallback child,
+    size_t* output,
+    size_t output_capacity,
+    size_t* output_len);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -790,6 +799,27 @@ std::optional<std::vector<uint32_t>> RustSdkParsePageRange(
   std::vector<uint32_t> result(output_len);
   if (output_len != 0 && !pdfium_rust_sdk_parse_page_range(
                              input.data(), input.size(), page_count,
+                             result.data(), result.size(), &output_len)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<std::vector<size_t>> RustDocumentPageMutationPath(
+    uintptr_t root_handle,
+    int pages_to_go,
+    void* context,
+    RustDocumentPageMutationDescribeCallback describe,
+    RustDocumentPageMutationChildCallback child) {
+  size_t output_len = 0;
+  if (!pdfium_rust_document_page_mutation_path(root_handle, pages_to_go,
+                                               context, describe, child,
+                                               nullptr, 0, &output_len)) {
+    return std::nullopt;
+  }
+  std::vector<size_t> result(output_len);
+  if (output_len != 0 && !pdfium_rust_document_page_mutation_path(
+                             root_handle, pages_to_go, context, describe, child,
                              result.data(), result.size(), &output_len)) {
     return std::nullopt;
   }

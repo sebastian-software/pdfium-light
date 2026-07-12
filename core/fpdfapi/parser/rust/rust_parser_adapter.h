@@ -288,6 +288,22 @@ std::optional<std::vector<uint32_t>> RustSdkParsePageRange(
     pdfium::span<const uint8_t> input,
     uint32_t page_count);
 
+using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
+                                                          uintptr_t handle,
+                                                          size_t* child_count);
+using RustDocumentPageMutationChildCallback = bool (*)(void* context,
+                                                       uintptr_t handle,
+                                                       size_t child_index,
+                                                       uintptr_t* child_handle,
+                                                       uint8_t* node_type,
+                                                       int32_t* page_count);
+std::optional<std::vector<size_t>> RustDocumentPageMutationPath(
+    uintptr_t root_handle,
+    int pages_to_go,
+    void* context,
+    RustDocumentPageMutationDescribeCallback describe,
+    RustDocumentPageMutationChildCallback child);
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);
