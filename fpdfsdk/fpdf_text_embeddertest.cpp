@@ -413,6 +413,39 @@ TEST_F(FPDFTextEmbedderTest, RustTextFlowOrientationMatchesCppOracle) {
   EXPECT_EQ(run(false), run(true));
 }
 
+TEST_F(FPDFTextEmbedderTest, RustTextObjectWritingModeMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("rotated_text.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct CharacterSnapshot {
+    uint32_t unicode;
+    double angle;
+    double origin_x;
+    double origin_y;
+    bool operator==(const CharacterSnapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    const int count = FPDFText_CountChars(text_page.get());
+    std::vector<CharacterSnapshot> characters;
+    characters.reserve(count);
+    for (int index = 0; index < count; ++index) {
+      CharacterSnapshot character = {};
+      character.unicode = FPDFText_GetUnicode(text_page.get(), index);
+      character.angle = FPDFText_GetCharAngle(text_page.get(), index);
+      EXPECT_TRUE(FPDFText_GetCharOrigin(
+          text_page.get(), index, &character.origin_x, &character.origin_y));
+      characters.push_back(character);
+    }
+    return characters;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
+
 TEST_F(FPDFTextEmbedderTest, TextHebrewMirrored) {
   ASSERT_TRUE(OpenDocument("hebrew_mirrored.pdf"));
   ScopedPage page = LoadScopedPage(0);
