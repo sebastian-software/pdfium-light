@@ -161,6 +161,12 @@ extern "C" bool pdfium_rust_pdf_string_equals(const void* state,
 extern "C" bool pdfium_rust_pdf_string_set(void* state,
                                            const uint8_t* data,
                                            size_t len);
+extern "C" void* pdfium_rust_pdf_stream_data_new(const uint8_t* data,
+                                                 size_t len);
+extern "C" void pdfium_rust_pdf_stream_data_destroy(void* state);
+extern "C" bool pdfium_rust_pdf_stream_data_span(const void* state,
+                                                 const uint8_t** data,
+                                                 size_t* len);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -603,6 +609,22 @@ bool RustPdfString::Equals(pdfium::span<const uint8_t> value) const {
 
 bool RustPdfString::Set(pdfium::span<const uint8_t> value) {
   return pdfium_rust_pdf_string_set(state_, value.data(), value.size());
+}
+
+RustPdfStreamData::RustPdfStreamData(pdfium::span<const uint8_t> value)
+    : state_(pdfium_rust_pdf_stream_data_new(value.data(), value.size())) {
+  CHECK(state_);
+}
+
+RustPdfStreamData::~RustPdfStreamData() {
+  pdfium_rust_pdf_stream_data_destroy(state_);
+}
+
+pdfium::span<const uint8_t> RustPdfStreamData::GetSpan() const {
+  const uint8_t* data = nullptr;
+  size_t len = 0;
+  CHECK(pdfium_rust_pdf_stream_data_span(state_, &data, &len));
+  return pdfium::span(data, len);
 }
 
 std::optional<uint32_t> RustReadBigEndianVarInt(

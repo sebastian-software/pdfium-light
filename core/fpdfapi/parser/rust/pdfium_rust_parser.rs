@@ -171,6 +171,10 @@ pub struct PdfStringState {
     output_is_hex: bool,
 }
 
+pub struct PdfStreamDataState {
+    bytes: Vec<u8>,
+}
+
 type PdfDictionarySnapshotCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, usize) -> bool;
 
@@ -1689,6 +1693,49 @@ pub unsafe extern "C" fn pdfium_rust_pdf_string_set(
     true
 }
 
+/// # Safety
+/// Nonempty input must identify readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_stream_data_new(
+    data: *const u8,
+    len: usize,
+) -> *mut PdfStreamDataState {
+    if len != 0 && data.is_null() {
+        return core::ptr::null_mut();
+    }
+    let data = if len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { data };
+    let bytes = unsafe { core::slice::from_raw_parts(data, len) }.to_vec();
+    Box::into_raw(Box::new(PdfStreamDataState { bytes }))
+}
+
+/// # Safety
+/// `state` must be null or uniquely owned from
+/// `pdfium_rust_pdf_stream_data_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_stream_data_destroy(state: *mut PdfStreamDataState) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state`, `data`, and `len` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_stream_data_span(
+    state: *const PdfStreamDataState,
+    data: *mut *const u8,
+    len: *mut usize,
+) -> bool {
+    let (Some(state), Some(data), Some(len)) =
+        (unsafe { state.as_ref() }, unsafe { data.as_mut() }, unsafe { len.as_mut() })
+    else {
+        return false;
+    };
+    *data = state.bytes.as_ptr();
+    *len = state.bytes.len();
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -2348,6 +2395,17 @@ mod tests {
         assert!(unsafe { pdfium_rust_pdf_string_set(&mut state, b"next".as_ptr(), 4) });
         assert_eq!(b"next", state.bytes.as_slice());
         assert!(state.output_is_hex);
+    }
+
+    #[test]
+    fn pdf_stream_data_state_should_own_exact_binary_bytes() {
+        let input = [0, 1, 0xfe, 0xff, 0];
+        let state = PdfStreamDataState { bytes: input.to_vec() };
+        let mut data = core::ptr::null();
+        let mut len = 0;
+        assert!(unsafe { pdfium_rust_pdf_stream_data_span(&state, &mut data, &mut len) });
+        assert_eq!(input.len(), len);
+        assert_eq!(input, unsafe { core::slice::from_raw_parts(data, len) });
     }
 
     #[test]

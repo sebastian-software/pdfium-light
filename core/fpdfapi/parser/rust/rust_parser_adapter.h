@@ -198,6 +198,19 @@ class RustPdfString final {
   void* state_;
 };
 
+class RustPdfStreamData final {
+ public:
+  explicit RustPdfStreamData(pdfium::span<const uint8_t> value);
+  RustPdfStreamData(const RustPdfStreamData&) = delete;
+  RustPdfStreamData& operator=(const RustPdfStreamData&) = delete;
+  ~RustPdfStreamData();
+
+  pdfium::span<const uint8_t> GetSpan() const;
+
+ private:
+  void* state_;
+};
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);

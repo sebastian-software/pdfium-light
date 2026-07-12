@@ -20,6 +20,10 @@
 
 class IFX_SeekableReadStream;
 
+namespace pdfium::rust {
+class RustPdfStreamData;
+}
+
 class CPDF_Stream final : public CPDF_Object {
  public:
   static constexpr int kFileBufSize = 512;
@@ -60,7 +64,9 @@ class CPDF_Stream final : public CPDF_Object {
     return std::holds_alternative<RetainPtr<IFX_SeekableReadStream>>(data_);
   }
   bool IsMemoryBased() const {
-    return std::holds_alternative<DataVector<uint8_t>>(data_);
+    return std::holds_alternative<DataVector<uint8_t>>(data_) ||
+           std::holds_alternative<
+               std::unique_ptr<pdfium::rust::RustPdfStreamData>>(data_);
   }
   bool HasFilter() const;
 
@@ -93,7 +99,11 @@ class CPDF_Stream final : public CPDF_Object {
 
   void SetLengthInDict(int length);
 
-  std::variant<RetainPtr<IFX_SeekableReadStream>, DataVector<uint8_t>> data_;
+  const bool use_rust_memory_data_;
+  std::variant<RetainPtr<IFX_SeekableReadStream>,
+               DataVector<uint8_t>,
+               std::unique_ptr<pdfium::rust::RustPdfStreamData>>
+      data_;
   RetainPtr<CPDF_Dictionary> dict_;
 };
 

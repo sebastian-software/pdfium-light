@@ -20,6 +20,7 @@
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/cfx_memorystream.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/containers/contains.h"
@@ -42,18 +43,22 @@ CPDF_Stream::CPDF_Stream(RetainPtr<CPDF_Dictionary> dict)
     : CPDF_Stream(DataVector<uint8_t>(), std::move(dict)) {}
 
 CPDF_Stream::CPDF_Stream(pdfium::span<const uint8_t> span)
-    : dict_(pdfium::MakeRetain<CPDF_Dictionary>()) {
+    : use_rust_memory_data_(pdfium::rust::UseRustParserCandidate()),
+      dict_(pdfium::MakeRetain<CPDF_Dictionary>()) {
   SetData(span);
 }
 
 CPDF_Stream::CPDF_Stream(fxcrt::ostringstream* stream)
-    : dict_(pdfium::MakeRetain<CPDF_Dictionary>()) {
+    : use_rust_memory_data_(pdfium::rust::UseRustParserCandidate()),
+      dict_(pdfium::MakeRetain<CPDF_Dictionary>()) {
   SetDataFromStringstream(stream);
 }
 
 CPDF_Stream::CPDF_Stream(RetainPtr<IFX_SeekableReadStream> file,
                          RetainPtr<CPDF_Dictionary> dict)
-    : data_(std::move(file)), dict_(std::move(dict)) {
+    : use_rust_memory_data_(pdfium::rust::UseRustParserCandidate()),
+      data_(std::move(file)),
+      dict_(std::move(dict)) {
   CHECK(dict_->IsInline());
   SetLengthInDict(pdfium::checked_cast<int>(
       std::get<RetainPtr<IFX_SeekableReadStream>>(data_)->GetSize()));
@@ -61,10 +66,11 @@ CPDF_Stream::CPDF_Stream(RetainPtr<IFX_SeekableReadStream> file,
 
 CPDF_Stream::CPDF_Stream(DataVector<uint8_t> data,
                          RetainPtr<CPDF_Dictionary> dict)
-    : data_(std::move(data)), dict_(std::move(dict)) {
+    : use_rust_memory_data_(pdfium::rust::UseRustParserCandidate()),
+      data_(DataVector<uint8_t>()),
+      dict_(std::move(dict)) {
   CHECK(dict_->IsInline());
-  SetLengthInDict(
-      pdfium::checked_cast<int>(std::get<DataVector<uint8_t>>(data_).size()));
+  TakeData(std::move(data));
 }
 
 CPDF_Stream::~CPDF_Stream() {
@@ -137,7 +143,11 @@ void CPDF_Stream::SetData(pdfium::span<const uint8_t> pData) {
 
 void CPDF_Stream::TakeData(DataVector<uint8_t> data) {
   const int size = pdfium::checked_cast<int>(data.size());
-  data_ = std::move(data);
+  if (use_rust_memory_data_) {
+    data_ = std::make_unique<pdfium::rust::RustPdfStreamData>(data);
+  } else {
+    data_ = std::move(data);
+  }
   SetLengthInDict(size);
 }
 
@@ -207,11 +217,21 @@ size_t CPDF_Stream::GetRawSize() const {
     return pdfium::checked_cast<size_t>(
         std::get<RetainPtr<IFX_SeekableReadStream>>(data_)->GetSize());
   }
+  if (const auto* rust_data =
+          std::get_if<std::unique_ptr<pdfium::rust::RustPdfStreamData>>(
+              &data_)) {
+    return (*rust_data)->GetSpan().size();
+  }
   return std::get<DataVector<uint8_t>>(data_).size();
 }
 
 pdfium::span<const uint8_t> CPDF_Stream::GetInMemoryRawData() const {
   DCHECK(IsMemoryBased());
+  if (const auto* rust_data =
+          std::get_if<std::unique_ptr<pdfium::rust::RustPdfStreamData>>(
+              &data_)) {
+    return (*rust_data)->GetSpan();
+  }
   return std::get<DataVector<uint8_t>>(data_);
 }
 
