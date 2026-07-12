@@ -1811,13 +1811,26 @@ bool CPDF_TextPage::ProcessGenerateCharacter(GenerateCharacter type,
 void CPDF_TextPage::ProcessTextObjectItems(CPDF_TextObject* text_object,
                                            const CFX_Matrix& form_matrix,
                                            const CFX_Matrix& matrix) {
-  const float base_space = CalculateBaseSpace(text_object, matrix) +
+  const size_t nItems = text_object->CountItems();
+  const std::vector<float>& kernings = text_object->GetCharKernings();
+  float base_space = 0.0f;
+  if (use_rust_) {
+    const float char_space = text_object->text_state().GetCharSpace();
+    const auto rust_base_space = pdfium::rust::RustTextObjectBaseSpace(
+        nItems, char_space, matrix.TransformDistance(char_space),
+        matrix.TransformDistance(fabs(char_space)),
+        text_object->text_state().GetFontSizeH(), pdfium::span(kernings));
+    base_space = rust_base_space.has_value()
+                     ? *rust_base_space
+                     : CalculateBaseSpace(text_object, matrix) +
                            CalculateBaseSpaceAdjustment(text_object, matrix);
+  } else {
+    base_space = CalculateBaseSpace(text_object, matrix) +
+                 CalculateBaseSpaceAdjustment(text_object, matrix);
+  }
   RetainPtr<CPDF_Font> const font = text_object->GetFont();
 
   float spacing = 0;
-  const size_t nItems = text_object->CountItems();
-  const std::vector<float>& kernings = text_object->GetCharKernings();
   for (size_t i = 0; i < nItems; ++i) {
     CPDF_TextObject::Item item = text_object->GetItemInfo(i);
     if (i > 0 && kernings[i - 1] != 0) {

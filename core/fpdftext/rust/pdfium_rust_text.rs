@@ -28,6 +28,7 @@ type TextPredicateCharacterCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool, *mut u32, *mut f32) -> bool;
 type TextCharacterPredicateCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32, u8) -> bool;
 type TextCodePointCallback = unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut u32) -> bool;
+type TextFloatCallback = unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut f32) -> bool;
 type TextOrientationObjectCallback = unsafe extern "C" fn(
     *mut core::ffi::c_void,
     usize,
@@ -1260,6 +1261,44 @@ fn generate_character_plan(
     }
 }
 
+fn text_object_base_space(
+    item_count: usize,
+    character_space: f32,
+    transformed_character_space: f32,
+    transformed_absolute_character_space: f32,
+    font_size_h: f32,
+    kerning_count: usize,
+    mut get_kerning: impl FnMut(usize) -> Option<f32>,
+) -> Option<f32> {
+    let mut base_space = 0.0;
+    if character_space != 0.0 && item_count >= 2 {
+        base_space = transformed_character_space;
+        let mut has_kerning = false;
+        for index in 0..kerning_count {
+            let kerning_value = get_kerning(index)?;
+            if kerning_value == 0.0 {
+                continue;
+            }
+            let candidate = -font_size_h * kerning_value / 1000.0 + transformed_character_space;
+            if candidate < base_space {
+                base_space = candidate;
+            }
+            has_kerning = true;
+        }
+        if base_space < 0.0 || (item_count == 2 && has_kerning) {
+            base_space = 0.0;
+        }
+    }
+    let adjustment = if character_space > 0.001 {
+        -transformed_character_space
+    } else if character_space < -0.001 {
+        transformed_absolute_character_space
+    } else {
+        0.0
+    };
+    Some(base_space + adjustment)
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -1554,6 +1593,46 @@ pub unsafe extern "C" fn pdfium_rust_text_generate_character_plan(
     *action = plan.action;
     *trim_trailing_spaces = plan.trim_trailing_spaces;
     *continue_processing = plan.continue_processing;
+    true
+}
+
+/// Computes a text object's base character-space and kerning adjustment.
+///
+/// # Safety
+/// The callback, context, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_object_base_space(
+    item_count: usize,
+    character_space: f32,
+    transformed_character_space: f32,
+    transformed_absolute_character_space: f32,
+    font_size_h: f32,
+    kerning_count: usize,
+    context: *mut core::ffi::c_void,
+    get_kerning: Option<TextFloatCallback>,
+    output: *mut f32,
+) -> bool {
+    let (Some(get_kerning), Some(output)) = (get_kerning, unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let result = text_object_base_space(
+        item_count,
+        character_space,
+        transformed_character_space,
+        transformed_absolute_character_space,
+        font_size_h,
+        kerning_count,
+        |index| {
+            let mut value = 0.0;
+            // SAFETY: The caller guarantees that the callback and context
+            // remain valid for this synchronous call.
+            unsafe { get_kerning(context, index, &mut value) }.then_some(value)
+        },
+    );
+    let Some(result) = result else {
+        return false;
+    };
+    *output = result;
     true
 }
 
@@ -2446,6 +2525,22 @@ mod tests {
             (3, 2, true),
             (hyphen.action, hyphen.trim_trailing_spaces, hyphen.continue_processing)
         );
+    }
+
+    #[test]
+    fn text_object_base_space_should_apply_kerning_and_adjustment_rules() {
+        let kernings = [0.0, 2.0];
+        assert_eq!(
+            Some(-2.0),
+            text_object_base_space(3, 10.0, 10.0, 10.0, 1000.0, kernings.len(), |index| {
+                kernings.get(index).copied()
+            })
+        );
+        assert_eq!(
+            Some(-10.0),
+            text_object_base_space(2, 10.0, 10.0, 10.0, 1000.0, 1, |_| Some(2.0))
+        );
+        assert_eq!(Some(2.0), text_object_base_space(1, -2.0, 2.0, 2.0, 1000.0, 0, |_| None));
     }
 
     #[test]

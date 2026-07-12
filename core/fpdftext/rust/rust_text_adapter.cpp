@@ -72,6 +72,16 @@ extern "C" bool pdfium_rust_text_generate_character_plan(
     uint8_t* action,
     size_t* trim_trailing_spaces,
     bool* continue_processing);
+extern "C" bool pdfium_rust_text_object_base_space(
+    size_t item_count,
+    float character_space,
+    float transformed_character_space,
+    float transformed_absolute_character_space,
+    float font_size_h,
+    size_t kerning_count,
+    void* context,
+    pdfium::rust::RustTextFloatCallback get_kerning,
+    float* output);
 extern "C" bool pdfium_rust_text_index_at_position(
     size_t character_count,
     float point_x,
@@ -356,6 +366,34 @@ std::optional<RustTextGenerateCharacterPlan> RustTextPlanGeneratedCharacter(
     return std::nullopt;
   }
   return plan;
+}
+
+std::optional<float> RustTextObjectBaseSpace(
+    size_t item_count,
+    float character_space,
+    float transformed_character_space,
+    float transformed_absolute_character_space,
+    float font_size_h,
+    pdfium::span<const float> kernings) {
+  struct KerningContext {
+    pdfium::span<const float> values;
+  } context = {kernings};
+  auto get_kerning = [](void* context, size_t index, float* value) {
+    auto* kerning_context = static_cast<KerningContext*>(context);
+    if (index >= kerning_context->values.size()) {
+      return false;
+    }
+    *value = kerning_context->values[index];
+    return true;
+  };
+  float output = 0.0f;
+  if (!pdfium_rust_text_object_base_space(
+          item_count, character_space, transformed_character_space,
+          transformed_absolute_character_space, font_size_h, kernings.size(),
+          &context, get_kerning, &output)) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 std::optional<int> RustTextIndexAtPosition(

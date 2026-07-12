@@ -160,6 +160,9 @@ using RustTextCharacterPredicateCallback = bool (*)(void* context,
 using RustTextCodePointCallback = bool (*)(void* context,
                                            size_t index,
                                            uint32_t* character);
+using RustTextFloatCallback = bool (*)(void* context,
+                                       size_t index,
+                                       float* value);
 
 std::optional<bool> RustTextIsHyphenJoin(
     WideStringView current_text,
@@ -181,6 +184,14 @@ std::optional<RustTextGenerateCharacterPlan> RustTextPlanGeneratedCharacter(
     size_t text_object_character_count,
     uint32_t first_unicode,
     WideStringView temporary_text);
+
+std::optional<float> RustTextObjectBaseSpace(
+    size_t item_count,
+    float character_space,
+    float transformed_character_space,
+    float transformed_absolute_character_space,
+    float font_size_h,
+    pdfium::span<const float> kernings);
 
 class RustTextSelectionRects final {
  public:
