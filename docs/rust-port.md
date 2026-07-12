@@ -175,6 +175,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `ee43436fc` Phase 7 document-name-tree-search slice | 25,708 | 18,897 | 241 | 7,253 | 6,570 | 295,385 | 8.70% | 8.73% | Rust owns name-tree limits pruning, sorted-name scanning, depth-first child order, the depth bound, and exact object-number cycle guarding; C++ retains dictionaries, arrays, decoded Unicode comparisons, values, synchronous borrowed callbacks, mutation paths, and the separately selected lookup oracle |
 | `94022a215` Phase 7 public-bookmark-color slice | 25,734 | 18,923 | 241 | 7,261 | 6,570 | 295,456 | 8.71% | 8.74% | Rust owns public bookmark color range validation, historical NaN admission, and success selection; C++ retains bookmark dictionaries, optional color extraction, public output pointers, writes, and the separately selected oracle predicate |
 | `fddb18d94` Phase 7 public-bookmark-destination slice | 25,758 | 18,947 | 241 | 7,268 | 6,570 | 295,521 | 8.72% | 8.75% | Rust owns direct-destination precedence, action-backed fallback, and missing-result selection for public bookmarks; C++ retains bookmark, destination, action, dictionary, document, and public-handle lifetimes plus the separately selected oracle branches |
+| `c8e9b3db0` Phase 7 document-name-tree-insertion slice | 26,189 | 19,378 | 241 | 7,309 | 6,570 | 296,232 | 8.84% | 8.92% | Rust owns insertion-mode traversal, exact duplicate detection, target-leaf and sorted pair-position selection, leftmost fallback, the depth bound, and exact object-number admission; C++ retains dictionaries, arrays, strings, values, limit normalization and mutation, ancestor updates, validation, and the separately selected oracle/fallback |
 
 ## Toolchain
 
@@ -1967,6 +1968,27 @@ test exhausts all four direct/action presence combinations. A same-process
 public differential compares exact destination handles for missing,
 action-backed, and direct bookmark fixtures. Both focused public cases, all 59
 parser-native tests, all 1,072 unit tests, and `pdfium_all` pass.
+
+The fiftieth Phase 7 slice moves document name-tree insertion planning into
+Rust. Rust owns insertion-mode depth-first traversal, exact duplicate
+detection, target-leaf and sorted pair-position selection, leftmost-leaf
+fallback, the historical 32-level bound, and exact indirect object-number
+admission order. C++ retains dictionaries, arrays, decoded-name comparison,
+value ownership, historical `/Limits` normalization, all key/value and
+ancestor-limit writes, validation of the returned plan, and the complete
+original search as separately selected oracle and fallback.
+
+Valid planning remains O(nodes + entries) in expected time, with O(depth)
+stack and O(indirect objects) visited-set storage. Three parser-native tests
+cover empty, prepend, middle, append, duplicate, limits, leftmost and child
+order, direct and repeated indirect tokens, callback failure, and depth
+rejection. A same-process unit differential mutates independent empty, flat,
+and three-level trees and compares boolean results, complete key/value order,
+exact inserted handles within each tree, all limits, pair counts, and follow-up
+lookups. A public Attachment differential also compares duplicate/prepend/
+append mutation, names, file contents, save success, and reload state. All
+eight NameTree unit cases, all thirteen Attachment cases, all 62 parser-native
+tests, all 1,073 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
