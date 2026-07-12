@@ -8,6 +8,13 @@
 
 #include "core/fxcrt/compiler_specific.h"
 
+extern "C" bool pdfium_rust_text_flow_orientation(
+    int32_t page_width,
+    int32_t page_height,
+    size_t object_count,
+    void* context,
+    pdfium::rust::RustTextOrientationObjectCallback get_object,
+    uint8_t* output);
 extern "C" bool pdfium_rust_text_index_at_position(
     size_t character_count,
     float point_x,
@@ -159,6 +166,21 @@ std::vector<uint32_t> ToCodePoints(WideStringView value) {
 }
 
 }  // namespace
+
+std::optional<RustTextOrientation> RustTextFlowOrientation(
+    int32_t page_width,
+    int32_t page_height,
+    size_t object_count,
+    void* context,
+    RustTextOrientationObjectCallback get_object) {
+  uint8_t output = 0;
+  if (!pdfium_rust_text_flow_orientation(page_width, page_height, object_count,
+                                         context, get_object, &output) ||
+      output > static_cast<uint8_t>(RustTextOrientation::kVertical)) {
+    return std::nullopt;
+  }
+  return static_cast<RustTextOrientation>(output);
+}
 
 std::optional<int> RustTextIndexAtPosition(
     size_t character_count,

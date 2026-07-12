@@ -16,6 +16,28 @@
 
 namespace pdfium::rust {
 
+enum class RustTextOrientation : uint8_t {
+  kUnknown = 0,
+  kHorizontal = 1,
+  kVertical = 2,
+};
+
+using RustTextOrientationObjectCallback = bool (*)(void* context,
+                                                   size_t index,
+                                                   bool* active,
+                                                   bool* is_text,
+                                                   float* left,
+                                                   float* bottom,
+                                                   float* right,
+                                                   float* top);
+
+std::optional<RustTextOrientation> RustTextFlowOrientation(
+    int32_t page_width,
+    int32_t page_height,
+    size_t object_count,
+    void* context,
+    RustTextOrientationObjectCallback get_object);
+
 using RustTextRectCallback = bool (*)(void* context,
                                       size_t index,
                                       float* left,

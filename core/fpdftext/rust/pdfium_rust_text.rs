@@ -26,6 +26,16 @@ type TextSelectionRectCallback = unsafe extern "C" fn(
 ) -> bool;
 type TextPredicateCharacterCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool, *mut u32, *mut f32) -> bool;
+type TextOrientationObjectCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    *mut bool,
+    *mut bool,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+) -> bool;
 
 #[derive(Clone)]
 pub struct TextFindState {
@@ -988,6 +998,86 @@ fn text_by_predicate(
     Some(text)
 }
 
+fn clamp_coordinate(value: f32, maximum: i32) -> i32 {
+    if value < 0.0 {
+        0
+    } else if value > maximum as f32 {
+        maximum
+    } else {
+        value as i32
+    }
+}
+
+fn mask_percent_filled(mask: &[bool], start: i32, end: i32) -> f32 {
+    if start >= end {
+        return 0.0;
+    }
+    let start = start as usize;
+    let end = end as usize;
+    mask[start..end].iter().filter(|value| **value).count() as f32 / (end - start) as f32
+}
+
+fn text_flow_orientation(
+    page_width: i32,
+    page_height: i32,
+    object_count: usize,
+    mut get_object: impl FnMut(usize) -> Option<(bool, bool, [f32; 4])>,
+) -> Option<u8> {
+    if page_width <= 0 || page_height <= 0 {
+        return Some(0);
+    }
+
+    let mut horizontal_mask = vec![false; page_width as usize];
+    let mut vertical_mask = vec![false; page_height as usize];
+    let mut line_height = 0.0_f32;
+    let mut start_h = page_width;
+    let mut end_h = 0;
+    let mut start_v = page_height;
+    let mut end_v = 0;
+    for index in 0..object_count {
+        let (active, is_text, rect) = get_object(index)?;
+        if !active || !is_text {
+            continue;
+        }
+        let min_h = clamp_coordinate(rect[0], page_width);
+        let max_h = clamp_coordinate(rect[2], page_width);
+        let min_v = clamp_coordinate(rect[1], page_height);
+        let max_v = clamp_coordinate(rect[3], page_height);
+        if min_h >= max_h || min_v >= max_v {
+            continue;
+        }
+        horizontal_mask[min_h as usize..max_h as usize].fill(true);
+        vertical_mask[min_v as usize..max_v as usize].fill(true);
+        start_h = start_h.min(min_h);
+        end_h = end_h.max(max_h);
+        start_v = start_v.min(min_v);
+        end_v = end_v.max(max_v);
+        if line_height <= 0.0 {
+            line_height = rect[3] - rect[1];
+        }
+    }
+
+    let double_line_height = (2.0 * line_height) as i32;
+    if end_v - start_v < double_line_height {
+        return Some(1);
+    }
+    if end_h - start_h < double_line_height {
+        return Some(2);
+    }
+    let sum_h = mask_percent_filled(&horizontal_mask, start_h, end_h);
+    if sum_h > 0.8 {
+        return Some(1);
+    }
+    let sum_v = mask_percent_filled(&vertical_mask, start_v, end_v);
+    Some(if sum_h > sum_v {
+        1
+    } else if sum_h < sum_v {
+        2
+    } else {
+        0
+    })
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -1033,6 +1123,51 @@ fn index_at_position(
         }
     }
     Some(near_position)
+}
+
+/// Computes the dominant text-line flow orientation from page-object bounds.
+///
+/// # Safety
+/// The callback, context, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_flow_orientation(
+    page_width: i32,
+    page_height: i32,
+    object_count: usize,
+    context: *mut core::ffi::c_void,
+    get_object: Option<TextOrientationObjectCallback>,
+    output: *mut u8,
+) -> bool {
+    let (Some(get_object), Some(output)) = (get_object, unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let orientation = text_flow_orientation(page_width, page_height, object_count, |index| {
+        let mut active = false;
+        let mut is_text = false;
+        let mut rect = [0.0; 4];
+        // SAFETY: The caller guarantees that the callback and context remain valid
+        // for this synchronous call, and all output pointers reference local values.
+        if !unsafe {
+            get_object(
+                context,
+                index,
+                &mut active,
+                &mut is_text,
+                &mut rect[0],
+                &mut rect[1],
+                &mut rect[2],
+                &mut rect[3],
+            )
+        } {
+            return None;
+        }
+        Some((active, is_text, rect))
+    });
+    let Some(orientation) = orientation else {
+        return false;
+    };
+    *output = orientation;
+    true
 }
 
 /// Computes the character nearest to a point within the requested tolerance.
@@ -1808,6 +1943,29 @@ mod tests {
         assert_eq!(
             Some(vec![b'A' as u32, b' ' as u32, b'B' as u32, 13, 10, b'C' as u32]),
             text_by_predicate(characters.len(), |index| characters.get(index).copied())
+        );
+    }
+
+    #[test]
+    fn text_flow_orientation_should_distinguish_horizontal_and_vertical_runs() {
+        let horizontal = [(true, true, [10.0, 10.0, 90.0, 20.0])];
+        assert_eq!(
+            Some(1),
+            text_flow_orientation(100, 100, horizontal.len(), |index| {
+                horizontal.get(index).copied()
+            })
+        );
+
+        let vertical = [
+            (true, true, [10.0, 10.0, 20.0, 20.0]),
+            (true, true, [10.0, 40.0, 20.0, 50.0]),
+            (true, true, [10.0, 70.0, 20.0, 80.0]),
+        ];
+        assert_eq!(
+            Some(2),
+            text_flow_orientation(100, 100, vertical.len(), |index| {
+                vertical.get(index).copied()
+            })
         );
     }
 

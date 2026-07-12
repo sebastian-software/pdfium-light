@@ -810,6 +810,39 @@ CPDF_TextPage::TextOrientation CPDF_TextPage::FindTextlineFlowOrientation()
     return TextOrientation::kUnknown;
   }
 
+  if (use_rust_) {
+    auto get_object = [](void* context, size_t index, bool* active,
+                         bool* is_text, float* left, float* bottom,
+                         float* right, float* top) {
+      auto* page = static_cast<const CPDF_Page*>(context);
+      CPDF_PageObject* page_object = page->GetPageObjectByIndex(index);
+      if (!page_object) {
+        return false;
+      }
+      *active = page_object->IsActive();
+      *is_text = page_object->IsText();
+      const CFX_FloatRect rect = page_object->GetRect();
+      *left = rect.left;
+      *bottom = rect.bottom;
+      *right = rect.right;
+      *top = rect.top;
+      return true;
+    };
+    const auto orientation = pdfium::rust::RustTextFlowOrientation(
+        nPageWidth, nPageHeight, page_->GetPageObjectCount(),
+        const_cast<CPDF_Page*>(page_.get()), get_object);
+    if (orientation.has_value()) {
+      switch (*orientation) {
+        case pdfium::rust::RustTextOrientation::kHorizontal:
+          return TextOrientation::kHorizontal;
+        case pdfium::rust::RustTextOrientation::kVertical:
+          return TextOrientation::kVertical;
+        case pdfium::rust::RustTextOrientation::kUnknown:
+          return TextOrientation::kUnknown;
+      }
+    }
+  }
+
   std::vector<bool> nHorizontalMask(nPageWidth);
   std::vector<bool> nVerticalMask(nPageHeight);
   float fLineHeight = 0.0f;
