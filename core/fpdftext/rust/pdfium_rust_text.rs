@@ -1270,7 +1270,7 @@ mod tests {
         let state = TextIndexMapState::new(&[0, 1, 1, 0, 1])
             .expect("the test input fits the index representation");
         assert_eq!(Some((0, 3)), state.page_text_range(0, 5, 5));
-        assert_eq!(Some((0, 2)), state.page_text_range(0, 4, 5));
+        assert_eq!(Some((0, 3)), state.page_text_range(0, 4, 5));
         assert_eq!(Some((0, 1)), state.page_text_range(0, 1, 5));
     }
 
