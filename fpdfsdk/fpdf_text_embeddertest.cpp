@@ -451,18 +451,38 @@ TEST_F(FPDFTextEmbedderTest, RustTextObjectSeparatorMatchesCppOracle) {
   ScopedPage page = LoadScopedPage(0);
   ASSERT_TRUE(page);
 
+  struct CharacterSnapshot {
+    uint32_t unicode;
+    int generated;
+    int hyphen;
+    bool has_origin;
+    double origin_x;
+    double origin_y;
+    bool has_box;
+    double left;
+    double right;
+    double bottom;
+    double top;
+    bool operator==(const CharacterSnapshot&) const = default;
+  };
   auto run = [&](bool use_rust) {
     pdfium::rust::ScopedRustParserImplementationForTesting implementation(
         use_rust);
     ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
     const int count = FPDFText_CountChars(text_page.get());
-    std::vector<std::array<uint32_t, 3>> characters;
+    std::vector<CharacterSnapshot> characters;
     characters.reserve(count);
     for (int index = 0; index < count; ++index) {
-      characters.push_back(
-          {FPDFText_GetUnicode(text_page.get(), index),
-           static_cast<uint32_t>(FPDFText_IsGenerated(text_page.get(), index)),
-           static_cast<uint32_t>(FPDFText_IsHyphen(text_page.get(), index))});
+      CharacterSnapshot character = {};
+      character.unicode = FPDFText_GetUnicode(text_page.get(), index);
+      character.generated = FPDFText_IsGenerated(text_page.get(), index);
+      character.hyphen = FPDFText_IsHyphen(text_page.get(), index);
+      character.has_origin = FPDFText_GetCharOrigin(
+          text_page.get(), index, &character.origin_x, &character.origin_y);
+      character.has_box = FPDFText_GetCharBox(
+          text_page.get(), index, &character.left, &character.right,
+          &character.bottom, &character.top);
+      characters.push_back(character);
     }
     return characters;
   };
