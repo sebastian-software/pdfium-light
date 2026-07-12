@@ -122,6 +122,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `91ad4cb4e` Phase 6 byte-string-pool foundation | 18,005 | 11,194 | 241 | 4,518 | 6,570 | 281,070 | 6.41% | 5.46% | Rust owns the binary string-to-handle interning index; C++ retains shared `ByteString` buffers in a handle registry so existing copy-on-write identity remains exact |
 | `71b66ee13` Phase 6 PDF-string-value slice | 18,097 | 11,286 | 241 | 4,570 | 6,570 | 281,334 | 6.43% | 5.50% | Rust owns binary string bytes and hex-mode state; C++ retains a checked `ByteString` ABI view so pool and clone buffer-sharing behavior remains exact |
 | `6717f6c26` Phase 6 PDF-name-value slice | 18,097 | 11,286 | 241 | 4,570 | 6,570 | 281,423 | 6.43% | 5.50% | Rust owns binary name bytes and mutation through the shared string-state boundary; C++ retains a checked pooled `ByteString` ABI view for native encoding and clone sharing |
+| `7abc76905` Phase 6 PDF-stream-memory slice | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,637 | 6.45% | 5.52% | Rust owns complete in-memory stream bytes and size; C++ retains file-backed stream and dictionary lifetime adapters plus encode/encrypt/archive orchestration |
 
 ## Toolchain
 
@@ -1046,6 +1047,27 @@ The same-process scenario compares bytes requiring PDF name escaping,
 embedded NULs, mutation, encoded serialization, clone content, and exact clone
 buffer sharing. Both name and string differential tests pass, as do all 1,065
 unit tests, the retained parser fuzzer build, and `pdfium_all` in the full GN
+configuration.
+
+The twenty-sixth Phase 6 slice replaces every `CPDF_Stream` in-memory
+`DataVector` with a Rust-owned byte vector. The implementation choice is fixed
+for each stream lifetime; Rust owns bytes and length after span, stringstream,
+and ownership-taking mutations, and exposes a borrowed immutable span to the
+existing stream accumulator and encoder paths. Empty and arbitrary binary
+payloads retain exact byte semantics.
+
+File-backed streams deliberately remain a native
+`RetainPtr<IFX_SeekableReadStream>` backend, and the stream dictionary remains
+a native `RetainPtr<CPDF_Dictionary>` lifetime adapter. C++ also retains Flate
+selection, metadata rules, encryption, dictionary/archive orchestration, and
+the public borrowed-span ABI. Moving data to Rust adds one copy when a native
+`DataVector` is transferred; no persistent duplicate buffer remains.
+
+The same-process scenario compares construction, raw bytes and size,
+`SetDataAndRemoveFilter()`, ownership-taking `TakeData()`, stringstream input,
+`/Length`, filter state, clone bytes, and exact serialization. All 28
+parser-native Rust tests, the stream differential test, all 1,066 unit tests,
+the retained parser fuzzer build, and `pdfium_all` pass in the full GN
 configuration.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and

@@ -109,6 +109,7 @@ ACTIVE_SURFACES = (
     "ByteStringPool binary-key interning index and handle reuse",
     "PDF string binary value, mutation, clone, and hex-mode state",
     "PDF name binary value, mutation, clone, and encoding state",
+    "PDF stream in-memory byte storage, mutation, sizing, and cloning",
 )
 CANDIDATE_SURFACES = (
     "remaining PDF object values and native RetainPtr lifetimes",
