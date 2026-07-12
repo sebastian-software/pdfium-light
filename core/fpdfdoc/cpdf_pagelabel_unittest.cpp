@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #include "constants/catalog.h"
 #include "core/fpdfapi/page/test_with_page_module.h"
@@ -16,6 +17,7 @@
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfapi/parser/cpdf_test_document.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -201,6 +203,21 @@ TEST_F(PageLabelTest, GetLabel) {
   EXPECT_THAT(page_label()->GetLabel(8001), Optional(WideString(L"x")));
   EXPECT_THAT(page_label()->GetLabel(10000), Optional(WideString(L"x")));
   EXPECT_THAT(page_label()->GetLabel(10001), Eq(std::nullopt));
+}
+
+TEST_F(PageLabelTest, RustFormattingMatchesCppOracle) {
+  auto snapshot = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    std::vector<std::optional<WideString>> result;
+    result.reserve(10003);
+    for (int page_index = -1; page_index <= 10001; ++page_index) {
+      result.push_back(page_label()->GetLabel(page_index));
+    }
+    return result;
+  };
+
+  EXPECT_EQ(snapshot(false), snapshot(true));
 }
 
 TEST_F(PageLabelTest, GetLabelPerf) {

@@ -1102,3 +1102,26 @@ TEST_F(FPDFDocEmbedderTest, GetPageLabels) {
   ASSERT_EQ(0u, FPDF_GetPageLabel(document(), 7, buf, sizeof(buf)));
   ASSERT_EQ(0u, FPDF_GetPageLabel(document(), 8, buf, sizeof(buf)));
 }
+
+TEST_F(FPDFDocEmbedderTest, RustPageLabelsMatchCppOracle) {
+  ASSERT_TRUE(OpenDocument("page_labels.pdf"));
+
+  struct Snapshot {
+    unsigned long required_length;
+    std::array<unsigned short, 128> buffer;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [&](int page_index, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    Snapshot result = {};
+    result.buffer.fill(0x4242);
+    result.required_length = FPDF_GetPageLabel(
+        document(), page_index, result.buffer.data(), sizeof(result.buffer));
+    return result;
+  };
+
+  for (int page_index = -1; page_index <= 8; ++page_index) {
+    EXPECT_EQ(snapshot(page_index, false), snapshot(page_index, true));
+  }
+}
