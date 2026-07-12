@@ -463,6 +463,17 @@ std::optional<RustPublicDestinationXyzPlan> RustPlanPublicDestinationXyz(
     std::optional<float> x,
     std::optional<float> y,
     std::optional<float> zoom);
+using RustBookmarkMatchCallback = bool (*)(void* context,
+                                           uintptr_t handle,
+                                           bool* matches);
+using RustBookmarkNavigateCallback = bool (*)(void* context,
+                                              uintptr_t handle,
+                                              uintptr_t* output);
+std::optional<uintptr_t> RustFindBookmark(
+    void* context,
+    RustBookmarkMatchCallback matches_title,
+    RustBookmarkNavigateCallback first_child,
+    RustBookmarkNavigateCallback next_sibling);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,

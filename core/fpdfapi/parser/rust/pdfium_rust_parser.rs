@@ -277,6 +277,9 @@ type PageObjectDescribeCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut usize, *mut i32) -> bool;
 type PageObjectActiveCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool) -> bool;
+type BookmarkMatchCallback = unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool) -> bool;
+type BookmarkNavigateCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut usize) -> bool;
 
 #[derive(Clone, Copy)]
 struct RedactionRect {
@@ -569,6 +572,30 @@ fn public_destination_xyz_plan(
         y: y.unwrap_or(0.0),
         zoom: zoom.unwrap_or(0.0),
     }
+}
+
+fn find_bookmark(
+    bookmark: usize,
+    visited: &mut std::collections::BTreeSet<usize>,
+    matches_title: &mut impl FnMut(usize) -> Option<bool>,
+    first_child: &mut impl FnMut(usize) -> Option<usize>,
+    next_sibling: &mut impl FnMut(usize) -> Option<usize>,
+) -> Option<usize> {
+    if !visited.insert(bookmark) {
+        return Some(0);
+    }
+    if bookmark != 0 && matches_title(bookmark)? {
+        return Some(bookmark);
+    }
+    let mut child = first_child(bookmark)?;
+    while child != 0 && !visited.contains(&child) {
+        let found = find_bookmark(child, visited, matches_title, first_child, next_sibling)?;
+        if found != 0 {
+            return Some(found);
+        }
+        child = next_sibling(child)?;
+    }
+    Some(0)
 }
 
 impl Default for PdfNumberState {
@@ -3363,6 +3390,49 @@ pub unsafe extern "C" fn pdfium_rust_public_destination_xyz_plan(
     true
 }
 
+/// Finds a bookmark in depth-first child/sibling order with cycle guarding.
+///
+/// # Safety
+/// Callbacks, context, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_find_bookmark(
+    context: *mut core::ffi::c_void,
+    matches_title: BookmarkMatchCallback,
+    first_child: BookmarkNavigateCallback,
+    next_sibling: BookmarkNavigateCallback,
+    output: *mut usize,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let mut matches = |handle| {
+        let mut result = false;
+        // SAFETY: The caller guarantees synchronous callback validity.
+        unsafe { matches_title(context, handle, &mut result) }.then_some(result)
+    };
+    let mut first = |handle| {
+        let mut result = 0;
+        // SAFETY: The caller guarantees synchronous callback validity.
+        unsafe { first_child(context, handle, &mut result) }.then_some(result)
+    };
+    let mut next = |handle| {
+        let mut result = 0;
+        // SAFETY: The caller guarantees synchronous callback validity.
+        unsafe { next_sibling(context, handle, &mut result) }.then_some(result)
+    };
+    let Some(found) = find_bookmark(
+        0,
+        &mut std::collections::BTreeSet::new(),
+        &mut matches,
+        &mut first,
+        &mut next,
+    ) else {
+        return false;
+    };
+    *output = found;
+    true
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -5086,5 +5156,55 @@ mod tests {
         assert!(!public_destination_xyz_plan(false, 5, true, None, None, None).valid);
         assert!(!public_destination_xyz_plan(true, 4, true, None, None, None).valid);
         assert!(!public_destination_xyz_plan(true, 5, false, None, None, None).valid);
+    }
+
+    #[test]
+    fn bookmark_search_should_preserve_depth_first_order_and_guard_cycles() {
+        let mut compared = Vec::new();
+        let found = find_bookmark(
+            0,
+            &mut std::collections::BTreeSet::new(),
+            &mut |handle| {
+                compared.push(handle);
+                Some(handle == 3)
+            },
+            &mut |handle| {
+                Some(match handle {
+                    0 => 1,
+                    1 => 2,
+                    2 => 3,
+                    _ => 0,
+                })
+            },
+            &mut |handle| Some(if handle == 1 { 4 } else { 0 }),
+        );
+        assert_eq!(Some(3), found);
+        assert_eq!(vec![1, 2, 3], compared);
+
+        let cycle_miss = find_bookmark(
+            0,
+            &mut std::collections::BTreeSet::new(),
+            &mut |_| Some(false),
+            &mut |handle| {
+                Some(match handle {
+                    0 => 1,
+                    1 => 2,
+                    2 => 1,
+                    _ => 0,
+                })
+            },
+            &mut |_| Some(0),
+        );
+        assert_eq!(Some(0), cycle_miss);
+        assert_eq!(
+            None,
+            find_bookmark(
+                0,
+                &mut std::collections::BTreeSet::new(),
+                &mut |_| Some(false),
+                &mut |_| None,
+                &mut |_| Some(0),
+            )
+        );
     }
 }

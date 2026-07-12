@@ -324,6 +324,12 @@ extern "C" bool pdfium_rust_public_destination_xyz_plan(bool array_present,
                                                         float* x,
                                                         float* y,
                                                         float* zoom);
+extern "C" bool pdfium_rust_find_bookmark(
+    void* context,
+    pdfium::rust::RustBookmarkMatchCallback matches_title,
+    pdfium::rust::RustBookmarkNavigateCallback first_child,
+    pdfium::rust::RustBookmarkNavigateCallback next_sibling,
+    uintptr_t* output);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -1140,6 +1146,19 @@ std::optional<RustPublicDestinationXyzPlan> RustPlanPublicDestinationXyz(
     return std::nullopt;
   }
   return plan;
+}
+
+std::optional<uintptr_t> RustFindBookmark(
+    void* context,
+    RustBookmarkMatchCallback matches_title,
+    RustBookmarkNavigateCallback first_child,
+    RustBookmarkNavigateCallback next_sibling) {
+  uintptr_t output = 0;
+  if (!pdfium_rust_find_bookmark(context, matches_title, first_child,
+                                 next_sibling, &output)) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 std::optional<std::vector<size_t>> RustDocumentPageMutationPath(

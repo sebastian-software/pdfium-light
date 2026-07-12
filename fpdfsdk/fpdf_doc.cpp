@@ -151,6 +151,44 @@ FPDFBookmark_Find(FPDF_DOCUMENT document, FPDF_WIDESTRING title) {
   }
 
   CPDF_BookmarkTree tree(doc);
+  if (pdfium::rust::UseRustParserCandidate()) {
+    struct BookmarkContext {
+      const CPDF_BookmarkTree* tree;
+      const WideString* title;
+    } context = {&tree, &encodedTitle};
+
+    auto matches_title = [](void* opaque, uintptr_t handle, bool* matches) {
+      auto* context = static_cast<BookmarkContext*>(opaque);
+      CPDF_Bookmark bookmark(pdfium::WrapRetain(
+          reinterpret_cast<const CPDF_Dictionary*>(handle)));
+      *matches =
+          bookmark.GetTitle().CompareNoCase(context->title->c_str()) == 0;
+      return true;
+    };
+    auto first_child = [](void* opaque, uintptr_t handle, uintptr_t* output) {
+      auto* context = static_cast<BookmarkContext*>(opaque);
+      CPDF_Bookmark bookmark(pdfium::WrapRetain(
+          reinterpret_cast<const CPDF_Dictionary*>(handle)));
+      *output = reinterpret_cast<uintptr_t>(
+          context->tree->GetFirstChild(bookmark).GetDict());
+      return true;
+    };
+    auto next_sibling = [](void* opaque, uintptr_t handle, uintptr_t* output) {
+      auto* context = static_cast<BookmarkContext*>(opaque);
+      CPDF_Bookmark bookmark(pdfium::WrapRetain(
+          reinterpret_cast<const CPDF_Dictionary*>(handle)));
+      *output = reinterpret_cast<uintptr_t>(
+          context->tree->GetNextSibling(bookmark).GetDict());
+      return true;
+    };
+    std::optional<uintptr_t> result = pdfium::rust::RustFindBookmark(
+        &context, matches_title, first_child, next_sibling);
+    if (result.has_value()) {
+      return FPDFBookmarkFromCPDFDictionary(
+          reinterpret_cast<const CPDF_Dictionary*>(result.value()));
+    }
+  }
+
   std::set<const CPDF_Dictionary*> visited;
   return FPDFBookmarkFromCPDFDictionary(
       FindBookmark(tree, CPDF_Bookmark(), encodedTitle, &visited).GetDict());
