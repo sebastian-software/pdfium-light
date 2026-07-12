@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "public/fpdf_annot.h"
 #include "public/fpdf_edit.h"
 #include "public/fpdf_text.h"
 
@@ -547,6 +548,62 @@ TEST_F(FPDFEditPageEmbedderTest,
   ASSERT_TRUE(saved_candidate_page);
   EXPECT_EQ(snapshot(saved_oracle_page.get(), false),
             snapshot(saved_candidate_page.get(), true));
+}
+
+TEST_F(FPDFEditPageEmbedderTest,
+       RustAnnotationGeometryMatchesCppOracleAndSavedRect) {
+  CreateEmptyDocument();
+  ScopedFPDFPage oracle_page(FPDFPage_New(document(), 0, 200, 200));
+  ScopedFPDFPage candidate_page(FPDFPage_New(document(), 1, 200, 200));
+  ASSERT_TRUE(oracle_page);
+  ASSERT_TRUE(candidate_page);
+
+  auto add_annotation = [](FPDF_PAGE page) {
+    ScopedFPDFAnnotation annotation(
+        FPDFPage_CreateAnnot(page, FPDF_ANNOT_SQUARE));
+    if (!annotation) {
+      return false;
+    }
+    const FS_RECTF rect = {10.0f, 40.0f, 30.0f, 20.0f};
+    return !!FPDFAnnot_SetRect(annotation.get(), &rect);
+  };
+  ASSERT_TRUE(add_annotation(oracle_page.get()));
+  ASSERT_TRUE(add_annotation(candidate_page.get()));
+
+  struct Snapshot {
+    std::array<float, 4> rect;
+    int rotation;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [](FPDF_PAGE page) {
+    ScopedFPDFAnnotation annotation(FPDFPage_GetAnnot(page, 0));
+    EXPECT_TRUE(annotation);
+    FS_RECTF rect;
+    EXPECT_TRUE(FPDFAnnot_GetRect(annotation.get(), &rect));
+    return Snapshot{{rect.left, rect.bottom, rect.right, rect.top},
+                    FPDFPage_GetRotation(page)};
+  };
+  auto mutate = [](FPDF_PAGE page, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    FPDFPage_SetRotation(page, -5);
+    FPDFPage_TransformAnnots(page, 1, 2, 3, 4, 5, 6);
+  };
+
+  EXPECT_EQ(snapshot(oracle_page.get()), snapshot(candidate_page.get()));
+  mutate(oracle_page.get(), false);
+  mutate(candidate_page.get(), true);
+  EXPECT_EQ(snapshot(oracle_page.get()), snapshot(candidate_page.get()));
+
+  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_document);
+  ScopedSavedPage saved_oracle_page = LoadScopedSavedPage(0);
+  ScopedSavedPage saved_candidate_page = LoadScopedSavedPage(1);
+  ASSERT_TRUE(saved_oracle_page);
+  ASSERT_TRUE(saved_candidate_page);
+  EXPECT_EQ(snapshot(saved_oracle_page.get()),
+            snapshot(saved_candidate_page.get()));
 }
 
 TEST_F(FPDFEditPageEmbedderTest, VerifyDashArraySaved) {
