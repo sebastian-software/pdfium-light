@@ -150,6 +150,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `dc960e660` Phase 7 text-hyphen-joining slice | 22,195 | 15,384 | 241 | 5,966 | 6,570 | 288,650 | 7.69% | 7.29% | Rust owns trailing-space backtracking, soft/ASCII hyphen recognition, word-continuation policy, and `CharType::kPiece` fallback; C++ retains native buffers, previous-character metadata, platform Unicode predicates, and the separately selected oracle |
 | `77e63c362` Phase 7 generated-text-separator slice | 22,344 | 15,533 | 241 | 6,029 | 6,570 | 288,911 | 7.73% | 7.36% | Rust owns none/space/line-break/hyphen action selection, single-hyphen suppression, and trailing-space trim counts; C++ retains Unicode lookup, line closing, character construction, native buffer mutation, and the separately selected oracle |
 | `b3076bf2d` Phase 7 text-object-base-spacing slice | 22,439 | 15,628 | 241 | 6,078 | 6,570 | 289,068 | 7.76% | 7.40% | Rust owns per-object kerning scanning, minimum base spacing, negative/two-item suppression, and signed character-space adjustment; C++ retains text state, native matrix distance transforms, kerning storage, and the separately selected oracle |
+| `ec21cd640` Phase 7 marked-content slice | 22,693 | 15,882 | 241 | 6,217 | 6,570 | 289,558 | 7.84% | 7.50% | Rust owns ActualText pass/done/delay selection, printable filtering, control replacement, RTL/LTR box subdivision, and retained emissions; C++ retains marked-content dictionaries, object/matrix lifetimes, platform printability, native `CharInfo` construction, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1524,6 +1525,23 @@ space, kerning minima, the two-item special case, and adjustment composition.
 The same-process separator/hyphen differential and whitespace fixtures cover
 the production path. All seven search-extension tests, all 72 public text
 tests, all 1,069 unit tests, and `pdfium_all` pass.
+
+The twenty-fifth Phase 7 slice moves ActualText marked-content policy and
+emission planning into Rust. Rust owns pass/done/delay state selection,
+repeated-mark suppression, printable-content detection, ASCII control-to-space
+replacement, invalid-Unicode skipping, exact RTL/LTR box subdivision, and the
+retained replacement-emission list. C++ retains content-mark dictionaries,
+text-object and matrix lifetimes, the platform printability predicate, and
+native `CharInfo` construction; the complete original state and emission paths
+remain the separately selected oracle.
+
+The candidate performs O(n) work and stores O(n) validated emissions for the
+ActualText length. Nineteen native Rust text tests cover state selection,
+control replacement, RTL ordering, and exact boxes. A same-process public
+differential compares every character's Unicode, origin availability/value,
+and box availability/value on mixed ActualText RTL content. All seven
+search-extension tests, all 73 public text tests, all 1,069 unit tests, and
+`pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
