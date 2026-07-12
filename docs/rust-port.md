@@ -143,6 +143,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `9216b82ed` Phase 7 visible-text-range slice | 21,155 | 14,344 | 241 | 5,480 | 6,570 | 286,654 | 7.38% | 6.85% | Rust owns printable range-edge scanning and visible-buffer range calculation; C++ retains the text buffer, final substring copy, public wrapper, and the separately selected oracle |
 | `f9b2e8c81` Phase 7 predicate-text-assembly slice | 21,281 | 14,470 | 241 | 5,540 | 6,570 | 286,897 | 7.42% | 6.90% | Rust owns bounded/object-selected character assembly, intervening spaces, line-transition state, and CRLF insertion; C++ retains predicate evaluation, character metadata, final `WideString` conversion, public wrappers, and the separately selected oracle |
 | `7178d32c6` Phase 7 temporary-line-ordering slice | 21,466 | 14,655 | 241 | 5,643 | 6,570 | 287,282 | 7.47% | 6.98% | Rust owns duplicate-space normalization, Bidi direction carry, segment reversal/forward emission, source ordering, and RTL flags; C++ retains Unicode Bidi classification, character objects, normalization callbacks, and the separately selected oracle |
+| `048b8f8ee` Phase 7 character-normalization slice | 21,707 | 14,896 | 241 | 5,754 | 6,570 | 287,715 | 7.54% | 7.08% | Rust owns control/normal classification, mirror/normalization requests, ligature expansion emissions, text-append decisions, Unicode overrides, and `CharType::kPiece`; C++ retains mirror/normalization table lookup, native character values, buffer/list writes, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1404,6 +1405,26 @@ reversal, and RTL flags. The same-process public differential compares count,
 return length, NUL termination, every UTF-16 code unit, and untouched capacity
 on mixed `ActualText` RTL content. All seven search-extension tests, all 68
 public text tests, all 1,069 unit tests, and `pdfium_all` pass.
+
+The eighteenth Phase 7 slice moves `AddCharInfo()` classification and emission
+planning into Rust. Rust owns the control-code set, the hyphen exception,
+zero-Unicode/character-code fallback, whether mirrored display Unicode is
+required, whether normalization is required, empty-normalization fallback,
+ligature expansion, text-buffer append decisions, Unicode overrides, and
+`CharType::kPiece` assignment. C++ performs mirror and normalization table
+lookups only when requested, then applies the validated emissions to native
+`WideTextBuffer` and `CharInfo` storage; the complete original loop remains the
+separately selected oracle.
+
+The request/set state machine avoids calling native Unicode backends for
+non-normal characters and preserves linear time and O(normalized output)
+temporary memory. Twelve native Rust text tests cover controls, the hyphen
+exception, ligature expansion, mirrored display requests, and emission types.
+A same-process public differential compares every character's Unicode,
+generated flag, and hyphen flag across the full ligature/control fixture, while
+the mixed RTL differential covers mirrored normalization. All seven
+search-extension tests, all 69 public text tests, all 1,069 unit tests, and
+`pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
