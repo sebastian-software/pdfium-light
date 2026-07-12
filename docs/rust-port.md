@@ -169,6 +169,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `4c170af21` Phase 7 public-page-label-formatting slice | 24,524 | 17,713 | 241 | 6,937 | 6,570 | 293,413 | 8.36% | 8.25% | Rust owns decimal, upper/lower Roman, upper/lower repeated-letter, modulo, and unknown-style formatting; C++ retains number-tree, label-dictionary, prefix, and string lifetimes plus the malformed-negative fallback oracle |
 | `99e2c736d` Phase 7 public-link-enumeration slice | 24,581 | 17,770 | 241 | 6,969 | 6,570 | 293,570 | 8.37% | 8.27% | Rust owns public annotation-cursor normalization, forward scan, first-link selection, and miss/error state; C++ retains annotation arrays, dictionary/subtype access, selected handles, and the separately selected oracle loop |
 | `8f97a67d8` Phase 7 document-number-tree slice | 24,924 | 18,113 | 241 | 7,054 | 6,570 | 294,097 | 8.47% | 8.41% | Rust owns exact and greatest-key-at-most traversal, limits pruning, forward/reverse ordering, and cycle guarding; C++ retains dictionaries, arrays, object lifetimes, borrowed callbacks, and the separately selected oracle traversals |
+| `b15eef798` Phase 7 public-destination-page slice | 24,983 | 18,172 | 241 | 7,085 | 6,570 | 294,209 | 8.49% | 8.44% | Rust owns numeric/dictionary/invalid destination-target routing and callback admission; C++ retains destination objects, document page indexing, borrowed lookup, and the separately selected oracle branches |
 
 ## Toolchain
 
@@ -1867,6 +1868,22 @@ cycle. Same-process differentials compare both operations
 over all 10,003 keys from -1 through 10,001 in the three-level page-label tree.
 All four page-label unit cases, all 21 StructTree public cases, all 51
 parser-native tests, all 1,071 unit tests, and `pdfium_all` pass.
+
+The forty-fourth Phase 7 slice moves public destination page-target resolution
+into Rust. Rust owns numeric, dictionary, and invalid target classification,
+direct numeric results, and exact admission of document-index lookup. C++
+retains destination objects and document page-index state, supplies the
+dictionary object number through one synchronous callback, and preserves the
+complete original branches as the separately selected oracle.
+
+Routing remains O(1) in time and storage; dictionary targets retain the
+existing document page-index lookup complexity. One parser-native test covers
+direct numbers, dictionary callback admission, invalid targets, and callback
+failure. The four-name same-process destination differential now also compares
+page indices for a direct number, valid page reference, alternate number, and
+invalid reference. The three page-cache regressions and public link-target path
+also pass. All seven focused cases, all 52 parser-native tests, all 1,071 unit
+tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
