@@ -118,6 +118,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `65738ff47` Phase 6 PDF-boolean-value slice | 17,504 | 10,693 | 241 | 4,218 | 6,570 | 279,758 | 6.26% | 5.24% | Rust owns PDF boolean storage, keyword mutation, and clone state; C++ retains static text selection and archive writes |
 | `545ff9e45` Phase 6 PDF-reference-value slice | 17,573 | 10,762 | 241 | 4,257 | 6,570 | 279,977 | 6.28% | 5.27% | Rust owns referenced object-number storage, mutation, and clone state; C++ retains the non-owning holder pointer and object/archive adapters |
 | `30549ba0c` Phase 6 PDF-array-container slice | 17,744 | 10,933 | 241 | 4,344 | 6,570 | 280,423 | 6.33% | 5.35% | Rust owns ordered array slots and mutations; C++ retains object values in an opaque-handle registry and derives the legacy iterator view |
+| `d9bd92b8b` Phase 6 PDF-dictionary-container slice | 17,908 | 11,097 | 241 | 4,439 | 6,570 | 280,871 | 6.38% | 5.42% | Rust owns binary key bytes, sorted mapping, and mutations; C++ retains object values in an opaque-handle registry and derives the pooled legacy iterator view |
 
 ## Toolchain
 
@@ -973,6 +974,26 @@ replacement, invalid indices, removal, clear, clone state, indexed reads, and
 the locker view. All 25 native Rust tests, 20 focused array tests, all 1,062
 unit tests, the retained parser fuzzer build, and `pdfium_all` pass in the full
 GN configuration.
+
+The twenty-second Phase 6 slice replaces `CPDF_Dictionary`'s production map
+with a Rust-owned `BTreeMap<Vec<u8>, handle>`. Rust owns exact binary key bytes,
+bytewise sorted order, lookup, insertion, overwrite, removal, key replacement,
+and the canonical order used for cloning and serialization. Embedded NUL bytes
+remain part of the key rather than being treated as C-string terminators.
+
+C++ retains `CPDF_Object` values in a reference-counted opaque-handle registry
+and preserves the existing cycle-breaking destructor. The legacy dictionary
+locker map is cleared after every mutation and lazily derived from a Rust
+snapshot. Its keys may still use the existing `ByteStringPool` for
+compatibility, but that pooled C++ map is never mutation input; the canonical
+key ownership is Rust. Child `CPDF_String`, `CPDF_Name`, array, and dictionary
+construction keeps the existing weak pool adapter.
+
+The same-process scenario compares sorted iteration, shared values, binary
+keys, overwrite, replacement over an existing key, removal with ownership
+return, missing-key deletion, clone state, and indexed lookup. All 26 native
+Rust tests, five focused dictionary tests, all 1,063 unit tests, the retained
+parser fuzzer build, and `pdfium_all` pass in the full GN configuration.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
