@@ -188,6 +188,7 @@ fn scan_pdf_token(input: &[u8], position: usize) -> PdfTokenScan {
 }
 
 type CrossRefSegmentCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
+type CrossRefMutationCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u8) -> bool;
 
 /// Reads a variable-width big-endian cross-reference field.
 ///
@@ -291,6 +292,42 @@ pub unsafe extern "C" fn pdfium_rust_cross_ref_entry_action(
         *output = action;
     }
     true
+}
+
+/// Selects and invokes one cross-reference table mutation action.
+///
+/// Skip actions complete without invoking C++. Free, normal, and compressed
+/// actions invoke the callback exactly once.
+///
+/// # Safety
+///
+/// `context` and `callback` must remain valid for the synchronous call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_run_cross_ref_entry_mutation(
+    type_code: u8,
+    normal_offset_fits: bool,
+    generation: u32,
+    archive_object_valid: bool,
+    context: *mut core::ffi::c_void,
+    callback: Option<CrossRefMutationCallback>,
+) -> bool {
+    if context.is_null() {
+        return false;
+    }
+    let Some(action) =
+        cross_ref_entry_action(type_code, normal_offset_fits, generation, archive_object_valid)
+    else {
+        return false;
+    };
+    if action == 0 {
+        return true;
+    }
+    let Some(callback) = callback else {
+        return false;
+    };
+    // SAFETY: The caller guarantees a live context and synchronous callback
+    // for this single selected mutation.
+    unsafe { callback(context, action) }
 }
 
 /// Validates and normalizes one `/Index` start/count pair.
@@ -552,6 +589,19 @@ mod tests {
         stop_at: Option<u32>,
     }
 
+    struct MutationState {
+        action: u8,
+        calls: usize,
+    }
+
+    unsafe extern "C" fn record_mutation(context: *mut core::ffi::c_void, action: u8) -> bool {
+        // SAFETY: The test passes one live `MutationState` for the call.
+        let state = unsafe { &mut *context.cast::<MutationState>() };
+        state.action = action;
+        state.calls += 1;
+        true
+    }
+
     unsafe extern "C" fn record_entry(context: *mut core::ffi::c_void, entry_index: u32) -> bool {
         // SAFETY: The test passes one live `EntryLoopState` for the call.
         let state = unsafe { &mut *context.cast::<EntryLoopState>() };
@@ -612,6 +662,56 @@ mod tests {
         assert_eq!(Some(3), cross_ref_entry_action(2, false, 0, true));
         assert_eq!(Some(0), cross_ref_entry_action(2, false, 0, false));
         assert_eq!(None, cross_ref_entry_action(3, true, 0, true));
+    }
+
+    #[test]
+    fn cross_ref_mutation_should_invoke_selected_actions_and_skip_rejections() {
+        let mut state = MutationState { action: 0, calls: 0 };
+        // SAFETY: The context remains live for the synchronous callback.
+        assert!(unsafe {
+            pdfium_rust_run_cross_ref_entry_mutation(
+                1,
+                true,
+                7,
+                false,
+                (&mut state as *mut MutationState).cast(),
+                Some(record_mutation),
+            )
+        });
+        assert_eq!(2, state.action);
+        assert_eq!(1, state.calls);
+
+        // SAFETY: The valid context is not read because the rejected
+        // generation maps to a skip action with no callback.
+        assert!(unsafe {
+            pdfium_rust_run_cross_ref_entry_mutation(
+                0,
+                true,
+                u16::MAX as u32 + 1,
+                false,
+                (&mut state as *mut MutationState).cast(),
+                None,
+            )
+        });
+        assert_eq!(1, state.calls);
+    }
+
+    #[test]
+    fn cross_ref_mutation_should_reject_invalid_boundaries() {
+        let mut state = MutationState { action: 0, calls: 0 };
+        // SAFETY: An unknown type is rejected before the valid context and
+        // callback are used.
+        assert!(!unsafe {
+            pdfium_rust_run_cross_ref_entry_mutation(
+                3,
+                true,
+                0,
+                true,
+                (&mut state as *mut MutationState).cast(),
+                Some(record_mutation),
+            )
+        });
+        assert_eq!(0, state.calls);
     }
 
     #[test]

@@ -5,45 +5,49 @@
 namespace {
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
-                                                     size_t len,
-                                                     uint32_t* output);
+                                                    size_t len,
+                                                    uint32_t* output);
 extern "C" bool pdfium_rust_cross_ref_object_type(uint32_t type_code,
-                                                   uint8_t* output);
-extern "C" bool pdfium_rust_cross_ref_entry_type(bool has_type_field,
-                                                  uint32_t type_code,
                                                   uint8_t* output);
-extern "C" bool pdfium_rust_cross_ref_entry_action(
+extern "C" bool pdfium_rust_cross_ref_entry_type(bool has_type_field,
+                                                 uint32_t type_code,
+                                                 uint8_t* output);
+extern "C" bool pdfium_rust_cross_ref_entry_action(uint8_t type_code,
+                                                   bool normal_offset_fits,
+                                                   uint32_t generation,
+                                                   bool archive_object_valid,
+                                                   uint8_t* output);
+extern "C" bool pdfium_rust_run_cross_ref_entry_mutation(
     uint8_t type_code,
     bool normal_offset_fits,
     uint32_t generation,
     bool archive_object_valid,
-    uint8_t* output);
+    void* context,
+    pdfium::rust::CrossRefMutationCallback callback);
 extern "C" bool pdfium_rust_cross_ref_index_pair(int32_t start,
-                                                  int32_t count,
-                                                  uint32_t* output_start,
-                                                  uint32_t* output_count);
-extern "C" bool pdfium_rust_cross_ref_segment_range(
-    uint32_t segment_index,
-    uint32_t object_count,
-    uint32_t entry_width,
-    uint64_t data_len,
-    uint64_t* output_offset,
-    uint64_t* output_len);
+                                                 int32_t count,
+                                                 uint32_t* output_start,
+                                                 uint32_t* output_count);
+extern "C" bool pdfium_rust_cross_ref_segment_range(uint32_t segment_index,
+                                                    uint32_t object_count,
+                                                    uint32_t entry_width,
+                                                    uint64_t data_len,
+                                                    uint64_t* output_offset,
+                                                    uint64_t* output_len);
 extern "C" bool pdfium_rust_run_cross_ref_segment_entries(
     uint32_t entry_count,
     void* context,
     pdfium::rust::CrossRefSegmentCallback callback);
 extern "C" bool pdfium_rust_cross_ref_field_width(int32_t value,
-                                                   uint32_t* output);
-extern "C" bool pdfium_rust_read_cross_ref_entry(
-    const uint8_t* data,
-    size_t len,
-    uint32_t first_width,
-    uint32_t second_width,
-    uint32_t third_width,
-    uint32_t* output_first,
-    uint32_t* output_second,
-    uint32_t* output_third);
+                                                  uint32_t* output);
+extern "C" bool pdfium_rust_read_cross_ref_entry(const uint8_t* data,
+                                                 size_t len,
+                                                 uint32_t first_width,
+                                                 uint32_t second_width,
+                                                 uint32_t third_width,
+                                                 uint32_t* output_first,
+                                                 uint32_t* output_second,
+                                                 uint32_t* output_third);
 extern "C" bool pdfium_rust_skip_pdf_spaces_and_comments(
     const uint8_t* data,
     size_t len,
@@ -51,12 +55,12 @@ extern "C" bool pdfium_rust_skip_pdf_spaces_and_comments(
     uint32_t* output_position,
     uint8_t* output_byte);
 extern "C" bool pdfium_rust_scan_pdf_token(const uint8_t* data,
-                                             size_t len,
-                                             uint32_t position,
-                                             uint32_t* output_position,
-                                             bool* output_has_word,
-                                             uint32_t* output_start,
-                                             uint32_t* output_len);
+                                           size_t len,
+                                           uint32_t position,
+                                           uint32_t* output_position,
+                                           bool* output_has_word,
+                                           uint32_t* output_start,
+                                           uint32_t* output_len);
 
 thread_local bool g_use_rust_parser_candidate = true;
 
@@ -92,23 +96,34 @@ std::optional<uint8_t> RustCrossRefEntryType(bool has_type_field,
   return output;
 }
 
-std::optional<uint8_t> RustCrossRefEntryAction(
-    uint8_t type_code,
-    bool normal_offset_fits,
-    uint32_t generation,
-    bool archive_object_valid) {
+std::optional<uint8_t> RustCrossRefEntryAction(uint8_t type_code,
+                                               bool normal_offset_fits,
+                                               uint32_t generation,
+                                               bool archive_object_valid) {
   uint8_t output = 0;
-  if (!pdfium_rust_cross_ref_entry_action(
-          type_code, normal_offset_fits, generation, archive_object_valid,
-          &output) ||
+  if (!pdfium_rust_cross_ref_entry_action(type_code, normal_offset_fits,
+                                          generation, archive_object_valid,
+                                          &output) ||
       output > 3) {
     return std::nullopt;
   }
   return output;
 }
 
+bool RunRustCrossRefEntryMutation(uint8_t type_code,
+                                  bool normal_offset_fits,
+                                  uint32_t generation,
+                                  bool archive_object_valid,
+                                  void* context,
+                                  CrossRefMutationCallback callback) {
+  return context && callback &&
+         pdfium_rust_run_cross_ref_entry_mutation(
+             type_code, normal_offset_fits, generation, archive_object_valid,
+             context, callback);
+}
+
 std::optional<CrossRefIndexPair> RustCrossRefIndexPair(int32_t start,
-                                                        int32_t count) {
+                                                       int32_t count) {
   CrossRefIndexPair result = {};
   if (!pdfium_rust_cross_ref_index_pair(start, count, &result.start,
                                         &result.count)) {
@@ -182,16 +197,14 @@ std::optional<uint8_t> RustSkipPdfSpacesAndComments(
   return byte;
 }
 
-std::optional<PdfTokenScan> RustScanPdfToken(
-    pdfium::span<const uint8_t> input,
-    uint32_t position) {
+std::optional<PdfTokenScan> RustScanPdfToken(pdfium::span<const uint8_t> input,
+                                             uint32_t position) {
   PdfTokenScan result = {};
-  if (!pdfium_rust_scan_pdf_token(
-          input.data(), input.size(), position, &result.position,
-          &result.has_word, &result.start, &result.len) ||
-      (result.has_word &&
-       (result.start > input.size() ||
-        result.len > input.size() - result.start))) {
+  if (!pdfium_rust_scan_pdf_token(input.data(), input.size(), position,
+                                  &result.position, &result.has_word,
+                                  &result.start, &result.len) ||
+      (result.has_word && (result.start > input.size() ||
+                           result.len > input.size() - result.start))) {
     return std::nullopt;
   }
   return result;

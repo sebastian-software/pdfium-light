@@ -18,12 +18,19 @@ std::optional<uint8_t> RustCrossRefEntryAction(uint8_t type_code,
                                                bool normal_offset_fits,
                                                uint32_t generation,
                                                bool archive_object_valid);
+using CrossRefMutationCallback = bool (*)(void* context, uint8_t action);
+bool RunRustCrossRefEntryMutation(uint8_t type_code,
+                                  bool normal_offset_fits,
+                                  uint32_t generation,
+                                  bool archive_object_valid,
+                                  void* context,
+                                  CrossRefMutationCallback callback);
 struct CrossRefIndexPair {
   uint32_t start;
   uint32_t count;
 };
 std::optional<CrossRefIndexPair> RustCrossRefIndexPair(int32_t start,
-                                                        int32_t count);
+                                                       int32_t count);
 struct CrossRefSegmentRange {
   size_t offset;
   size_t len;
@@ -57,9 +64,8 @@ struct PdfTokenScan {
   uint32_t start;
   uint32_t len;
 };
-std::optional<PdfTokenScan> RustScanPdfToken(
-    pdfium::span<const uint8_t> input,
-    uint32_t position);
+std::optional<PdfTokenScan> RustScanPdfToken(pdfium::span<const uint8_t> input,
+                                             uint32_t position);
 
 bool UseRustParserCandidate();
 bool SetUseRustParserCandidateForTesting(bool use_candidate);
