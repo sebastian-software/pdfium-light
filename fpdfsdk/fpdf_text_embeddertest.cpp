@@ -2712,3 +2712,30 @@ TEST_F(FPDFTextEmbedderTest, ActualTextRtl) {
   EXPECT_THAT(pdfium::span(buffer).first<kExpectedTextSize>(),
               ElementsAreArray(kExpectedText));
 }
+
+TEST_F(FPDFTextEmbedderTest, RustTextLineOrderingMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("actual_text_rtl.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    int count;
+    int copied;
+    std::array<unsigned short, 128> buffer;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    Snapshot snapshot = {};
+    snapshot.buffer.fill(0xbdbd);
+    snapshot.count = FPDFText_CountChars(text_page.get());
+    snapshot.copied = FPDFText_GetText(
+        text_page.get(), 0, static_cast<int>(snapshot.buffer.size()),
+        snapshot.buffer.data());
+    return snapshot;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
