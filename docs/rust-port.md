@@ -125,6 +125,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `7abc76905` Phase 6 PDF-stream-memory slice | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,637 | 6.45% | 5.52% | Rust owns complete in-memory stream bytes and size; C++ retains file-backed stream and dictionary lifetime adapters plus encode/encrypt/archive orchestration |
 | `76017a44f` Phase 6 public object-graph fuzzer gate | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,637 | 6.45% | 5.52% | Versioned inputs execute token and public document Oracle/Candidate comparisons for exact errors, metadata, page bounds, and boundary-page geometry in normal and ASan corpus runners |
 | `5525cc9a3` Phase 6 object-graph save/reload gate | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,722 | 6.44% | 5.52% | Catalog/page key order, types, MediaBox, filtered content bytes, text, and rendering remain exact after public save/reload; all six Rust codec/object-graph embedder cases pass |
+| `75380056e` Phase 6 object-slot-lifetime slice | 18,194 | 11,383 | 241 | 4,627 | 6,570 | 281,778 | 6.46% | 5.54% | Rust array, dictionary, and indirect-object states decide whether removed or replaced handles still occupy any slot; C++ retains one intrusive-pointer ABI handle without a duplicate reference-count policy |
 
 ## Toolchain
 
@@ -1097,6 +1098,21 @@ passes 506 of 557 tests; its 51 failures are the same static macOS AGG golden
 class already recorded by the renderer phases. The new object-graph test adds
 one passing case and does not add a failure. The render-intensive
 `LargeImageDoesNotRenderBlank` case also passes after 181.8 seconds.
+
+The next Phase 6 lifetime slice removes the three C++ slot-reference counters
+from arrays, dictionaries, and indirect-object holders. After every failed,
+replaced, removed, deleted, or cleared mutation, C++ asks the owning Rust state
+whether the opaque handle remains present in any canonical slot. Only Rust's
+answer decides whether the single native registry entry is erased.
+
+C++ still stores one `RetainPtr<CPDF_Object>` per live opaque handle because
+`CPDF_Object` remains the intrusive native ABI value and its cycle sentinel is
+implemented by native destructors. The registry no longer duplicates slot
+counts or lifetime policy. Native tests cover retained and last-removed
+handles, shared array/dictionary values, holder replacement/deletion, lazy
+views, save/reload, and the normal and ASan public parser corpus. All 28 Rust
+parser tests, 19 focused container/holder tests, all 1,066 unit tests, all six
+focused embedder tests, `pdfium_all`, and the ASan+LSan corpus pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
