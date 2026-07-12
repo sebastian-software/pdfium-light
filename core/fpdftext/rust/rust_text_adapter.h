@@ -157,6 +157,9 @@ std::optional<bool> RustTextShouldGenerateSpace(float position_x,
 using RustTextCharacterPredicateCallback = bool (*)(void* context,
                                                      uint32_t character,
                                                      uint8_t predicate);
+using RustTextCodePointCallback = bool (*)(void* context,
+                                           size_t index,
+                                           uint32_t* character);
 
 std::optional<bool> RustTextIsHyphenJoin(
     WideStringView current_text,

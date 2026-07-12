@@ -52,13 +52,14 @@ extern "C" bool pdfium_rust_text_should_generate_space(float position_x,
                                                          float threshold,
                                                          bool* output);
 extern "C" bool pdfium_rust_text_is_hyphen_join(
-    const uint32_t* current_text,
     size_t current_text_len,
     uint32_t current_character,
     bool has_previous_character,
     uint8_t previous_char_type,
     uint32_t previous_unicode,
-    void* context,
+    void* text_context,
+    pdfium::rust::RustTextCodePointCallback get_character,
+    void* predicate_context,
     pdfium::rust::RustTextCharacterPredicateCallback character_predicate,
     bool* output);
 extern "C" bool pdfium_rust_text_index_at_position(
@@ -299,12 +300,22 @@ std::optional<bool> RustTextIsHyphenJoin(
     uint32_t previous_unicode,
     void* context,
     RustTextCharacterPredicateCallback character_predicate) {
-  const std::vector<uint32_t> code_points = ToCodePoints(current_text);
+  struct TextContext {
+    WideStringView text;
+  } text_context = {current_text};
+  auto get_character = [](void* context, size_t index, uint32_t* character) {
+    auto* text_context = static_cast<TextContext*>(context);
+    if (index >= text_context->text.GetLength()) {
+      return false;
+    }
+    *character = static_cast<uint32_t>(text_context->text[index]);
+    return true;
+  };
   bool output = false;
   if (!pdfium_rust_text_is_hyphen_join(
-          code_points.data(), code_points.size(), current_character,
-          has_previous_character, previous_char_type, previous_unicode, context,
-          character_predicate, &output)) {
+          current_text.GetLength(), current_character, has_previous_character,
+          previous_char_type, previous_unicode, &text_context, get_character,
+          context, character_predicate, &output)) {
     return std::nullopt;
   }
   return output;
