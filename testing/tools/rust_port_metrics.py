@@ -101,6 +101,7 @@ ACTIVE_SURFACES = (
     "cross-reference stream mutation orchestration",
     "cross-reference object-map sizing orchestration",
     "cross-reference object-map overlay conflict policy",
+    "cross-reference object admission policy",
 )
 CANDIDATE_SURFACES = (
     "cross-reference table storage and PDF object graph ownership",

@@ -111,6 +111,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `e24070b45` Phase 6 xref-mutation slice | 16,364 | 9,553 | 241 | 3,765 | 6,570 | 277,614 | 5.89% | 4.72% | Prior surfaces plus Rust-owned skip/free/normal/compressed mutation orchestration; C++ retains cross-reference map storage and object lifetimes |
 | `d23c49f8c` Phase 6 xref-map-size slice | 16,463 | 9,652 | 241 | 3,782 | 6,570 | 277,756 | 5.93% | 4.77% | Prior surfaces plus Rust-owned clear/truncate/ensure-last object-map sizing orchestration; C++ retains the single map storage and object lifetimes |
 | `2c63f57dc` Phase 6 xref-merge-policy slice | 16,534 | 9,723 | 241 | 3,805 | 6,570 | 277,878 | 5.95% | 4.80% | Prior surfaces plus Rust-owned overlay conflict policy and object-stream flag preservation; C++ retains the single map storage and object lifetimes |
+| `b425794a2` Phase 6 xref-admission slice | 16,604 | 9,793 | 241 | 3,829 | 6,570 | 277,991 | 5.97% | 4.83% | Prior surfaces plus Rust-owned normal-generation precedence and compressed-object stream guards; C++ retains the single map storage and object lifetimes |
 
 ## Toolchain
 
@@ -847,6 +848,17 @@ preservation, invalid type codes, and no-output-mutation FFI failures. The
 four-case object snapshot corpus and both simple-parser tests match the oracle,
 the retained parser fuzzer source builds, and all 1,057 unit tests pass in the
 full GN build.
+
+The fifteenth Phase 6 slice moves normal and compressed cross-reference entry
+admission into Rust. Rust preserves normal-object generation precedence,
+rejects compressed replacements after a nonzero generation, and prevents
+known object streams from being nested in object streams. C++ retains the sole
+map, writes admitted entry fields, and marks the archive object.
+
+Twenty-one native parser tests cover equal, newer, and older generations,
+compressed-entry guards, invalid type codes, and FFI failure behavior. The
+four-case object snapshots and both simple-parser tests match the oracle, the
+retained parser fuzzer and `pdfium_all` build, and all 1,057 unit tests pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
