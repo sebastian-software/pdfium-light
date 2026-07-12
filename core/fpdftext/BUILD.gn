@@ -22,6 +22,7 @@ source_set("fpdftext") {
     "../fpdfapi/page",
     "../fpdfapi/parser",
     "../fxcrt",
+    "rust:rust_text_adapter",
   ]
   visibility = [ "../../*" ]
 }

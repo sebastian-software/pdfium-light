@@ -8,12 +8,18 @@
 
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
+#include "core/fxcrt/check.h"
 #include "core/fxcrt/fx_stream.h"
 
 CPDF_Name::CPDF_Name(WeakPtr<ByteStringPool> pPool, const ByteString& str)
     : name_(str) {
   if (pPool) {
     name_ = pPool->Intern(name_);
+  }
+  if (pdfium::rust::UseRustParserCandidate()) {
+    rust_value_ = std::make_unique<pdfium::rust::RustPdfString>(
+        name_.unsigned_span(), false);
   }
 }
 
@@ -24,14 +30,20 @@ CPDF_Object::Type CPDF_Name::GetType() const {
 }
 
 RetainPtr<CPDF_Object> CPDF_Name::Clone() const {
-  return pdfium::MakeRetain<CPDF_Name>(nullptr, name_);
+  return pdfium::MakeRetain<CPDF_Name>(nullptr, GetString());
 }
 
 ByteString CPDF_Name::GetString() const {
+  if (rust_value_) {
+    CHECK(rust_value_->Equals(name_.unsigned_span()));
+  }
   return name_;
 }
 
 void CPDF_Name::SetString(const ByteString& str) {
+  if (rust_value_) {
+    CHECK(rust_value_->Set(str.unsigned_span()));
+  }
   name_ = str;
 }
 
@@ -40,7 +52,7 @@ CPDF_Name* CPDF_Name::AsMutableName() {
 }
 
 WideString CPDF_Name::GetUnicodeText() const {
-  return PDF_DecodeText(name_.unsigned_span());
+  return PDF_DecodeText(GetString().unsigned_span());
 }
 
 bool CPDF_Name::WriteTo(IFX_ArchiveStream* archive,

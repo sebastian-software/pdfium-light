@@ -1,0 +1,531 @@
+// Copyright 2026 Sebastian Werner
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#include "core/fpdfapi/render/rust/rust_render_adapter.h"
+
+#include <limits>
+
+#include "public/fpdfview.h"
+
+namespace {
+
+extern "C" bool pdfium_rust_build_render_request_plan(uint32_t flags,
+                                                      bool has_color_scheme,
+                                                      bool restore_device,
+                                                      uint32_t* output);
+extern "C" bool pdfium_rust_build_page_object_render_command(
+    uint32_t page_object_type,
+    uint8_t* output);
+extern "C" bool pdfium_rust_build_object_list_command(bool is_stop_object,
+                                                      bool is_present,
+                                                      bool is_active,
+                                                      float object_left,
+                                                      float object_bottom,
+                                                      float object_right,
+                                                      float object_top,
+                                                      float clip_left,
+                                                      float clip_bottom,
+                                                      float clip_right,
+                                                      float clip_top,
+                                                      uint8_t* output);
+extern "C" bool pdfium_rust_build_render_layer_plan(bool has_options,
+                                                    bool has_last_matrix,
+                                                    uint8_t* output);
+extern "C" bool pdfium_rust_build_render_layer_completion(
+    bool limited_image_cache,
+    bool stopped,
+    uint8_t* output);
+extern "C" bool pdfium_rust_run_render_layers(
+    uint32_t layer_count,
+    void* context,
+    pdfium::rust::RenderLayerCallback callback);
+extern "C" bool pdfium_rust_build_path_paint_plan(uint8_t fill_type,
+                                                  bool stroke,
+                                                  bool forced_color,
+                                                  bool convert_fill_to_stroke,
+                                                  uint8_t* output);
+extern "C" bool pdfium_rust_path_matrix_is_available(float a,
+                                                     float b,
+                                                     float c,
+                                                     float d,
+                                                     bool* output);
+extern "C" bool pdfium_rust_build_path_fill_options(uint8_t fill_type,
+                                                    bool rect_aa,
+                                                    bool no_path_smooth,
+                                                    bool stroke_adjust,
+                                                    bool stroke,
+                                                    bool type3_char,
+                                                    uint8_t* output);
+extern "C" bool pdfium_rust_build_text_render_plan(bool has_char_codes,
+                                                   int8_t text_mode,
+                                                   bool is_type3,
+                                                   bool has_clipping_path,
+                                                   bool font_has_face,
+                                                   uint8_t* output_action,
+                                                   uint8_t* output_bits);
+extern "C" bool pdfium_rust_text_uses_pattern(bool is_fill,
+                                              bool is_stroke,
+                                              bool fill_is_pattern,
+                                              bool stroke_is_pattern,
+                                              bool* output);
+extern "C" bool pdfium_rust_text_uses_path_backend(bool is_clip,
+                                                   bool is_stroke,
+                                                   bool* output);
+extern "C" bool pdfium_rust_text_needs_device_matrix_adjustment(bool is_stroke,
+                                                                float ctm_a,
+                                                                float ctm_d,
+                                                                bool* output);
+extern "C" bool pdfium_rust_build_text_path_fill_options(bool is_stroke,
+                                                         bool is_fill,
+                                                         bool stroke_adjust,
+                                                         bool no_text_smooth,
+                                                         uint8_t* output);
+extern "C" bool pdfium_rust_run_text_backend(
+    bool uses_pattern,
+    bool is_clip,
+    bool is_stroke,
+    void* context,
+    pdfium::rust::TextBackendCallback callback,
+    bool* output_result);
+
+thread_local bool g_use_rust_render_candidate = true;
+thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
+
+constexpr uint8_t kPageObjectRenderCommandTraceBase = 0x10;
+constexpr uint8_t kRenderLayerPlanTraceBase = 0x20;
+constexpr uint8_t kRenderLayerCompletionTraceBase = 0x30;
+constexpr uint8_t kPathPaintPlanTraceBase = 0x40;
+constexpr uint8_t kPathMatrixAvailabilityTraceBase = 0x50;
+constexpr uint8_t kPathFillOptionsTrace = 0x60;
+constexpr uint8_t kTextRenderPlanTraceBase = 0x70;
+constexpr uint8_t kTextBackendCommandTraceBase = 0x90;
+
+constexpr uint8_t kPathPlanFillMask = 0x03;
+constexpr uint8_t kPathPlanStroke = 1u << 2;
+constexpr uint8_t kPathPlanDraw = 1u << 3;
+constexpr uint8_t kPathOptionsFillMask = 0x03;
+constexpr uint8_t kPathOptionsRectAa = 1u << 2;
+constexpr uint8_t kPathOptionsAliased = 1u << 3;
+constexpr uint8_t kPathOptionsAdjustStroke = 1u << 4;
+constexpr uint8_t kPathOptionsStroke = 1u << 5;
+constexpr uint8_t kPathOptionsTextMode = 1u << 6;
+
+static_assert(static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kNoFill) ==
+              0);
+static_assert(static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kEvenOdd) ==
+              1);
+static_assert(static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kWinding) ==
+              2);
+
+static_assert(FPDF_ANNOT == 0x01);
+static_assert(FPDF_LCD_TEXT == 0x02);
+static_assert(FPDF_NO_NATIVETEXT == 0x04);
+static_assert(FPDF_GRAYSCALE == 0x08);
+static_assert(FPDF_CONVERT_FILL_TO_STROKE == 0x20);
+static_assert(FPDF_RENDER_LIMITEDIMAGECACHE == 0x200);
+static_assert(FPDF_RENDER_FORCEHALFTONE == 0x400);
+static_assert(FPDF_PRINTING == 0x800);
+static_assert(FPDF_RENDER_NO_SMOOTHTEXT == 0x1000);
+static_assert(FPDF_RENDER_NO_SMOOTHIMAGE == 0x2000);
+static_assert(FPDF_RENDER_NO_SMOOTHPATH == 0x4000);
+}  // namespace
+
+namespace pdfium::rust {
+
+std::optional<RenderRequestPlan> BuildRustRenderRequestPlan(
+    int flags,
+    bool has_color_scheme,
+    bool restore_device) {
+  uint32_t bits = 0;
+  if (!pdfium_rust_build_render_request_plan(static_cast<uint32_t>(flags),
+                                             has_color_scheme, restore_device,
+                                             &bits)) {
+    return std::nullopt;
+  }
+  return RenderRequestPlan(bits);
+}
+
+std::optional<PageObjectRenderCommand> BuildRustPageObjectRenderCommand(
+    uint32_t page_object_type) {
+  uint8_t command = 0;
+  if (!pdfium_rust_build_page_object_render_command(page_object_type,
+                                                    &command)) {
+    return std::nullopt;
+  }
+  switch (command) {
+    case static_cast<uint8_t>(PageObjectRenderCommand::kText):
+      return PageObjectRenderCommand::kText;
+    case static_cast<uint8_t>(PageObjectRenderCommand::kPath):
+      return PageObjectRenderCommand::kPath;
+    case static_cast<uint8_t>(PageObjectRenderCommand::kImage):
+      return PageObjectRenderCommand::kImage;
+    case static_cast<uint8_t>(PageObjectRenderCommand::kShading):
+      return PageObjectRenderCommand::kShading;
+    case static_cast<uint8_t>(PageObjectRenderCommand::kForm):
+      return PageObjectRenderCommand::kForm;
+    default:
+      return std::nullopt;
+  }
+}
+
+std::optional<ObjectListCommand> BuildRustObjectListCommand(bool is_stop_object,
+                                                            bool is_present,
+                                                            bool is_active,
+                                                            float object_left,
+                                                            float object_bottom,
+                                                            float object_right,
+                                                            float object_top,
+                                                            float clip_left,
+                                                            float clip_bottom,
+                                                            float clip_right,
+                                                            float clip_top) {
+  uint8_t command = 0;
+  if (!pdfium_rust_build_object_list_command(
+          is_stop_object, is_present, is_active, object_left, object_bottom,
+          object_right, object_top, clip_left, clip_bottom, clip_right,
+          clip_top, &command)) {
+    return std::nullopt;
+  }
+  switch (command) {
+    case static_cast<uint8_t>(ObjectListCommand::kStop):
+      return ObjectListCommand::kStop;
+    case static_cast<uint8_t>(ObjectListCommand::kSkip):
+      return ObjectListCommand::kSkip;
+    case static_cast<uint8_t>(ObjectListCommand::kRender):
+      return ObjectListCommand::kRender;
+    default:
+      return std::nullopt;
+  }
+}
+
+std::optional<RenderLayerPlan> BuildRustRenderLayerPlan(bool has_options,
+                                                        bool has_last_matrix) {
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_render_layer_plan(has_options, has_last_matrix,
+                                           &bits)) {
+    return std::nullopt;
+  }
+  constexpr uint8_t kAllowedBits =
+      static_cast<uint8_t>(RenderLayerPlanBit::kSetOptions) |
+      static_cast<uint8_t>(RenderLayerPlanBit::kApplyLastMatrix);
+  if ((bits & ~kAllowedBits) != 0 ||
+      (!has_options &&
+       (bits & static_cast<uint8_t>(RenderLayerPlanBit::kSetOptions)) != 0) ||
+      (!has_last_matrix &&
+       (bits & static_cast<uint8_t>(RenderLayerPlanBit::kApplyLastMatrix)) !=
+           0)) {
+    return std::nullopt;
+  }
+  return RenderLayerPlan(bits);
+}
+
+std::optional<RenderLayerCompletion> BuildRustRenderLayerCompletion(
+    bool limited_image_cache,
+    bool stopped) {
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_render_layer_completion(limited_image_cache, stopped,
+                                                 &bits)) {
+    return std::nullopt;
+  }
+  constexpr uint8_t kAllowedBits =
+      static_cast<uint8_t>(RenderLayerCompletionBit::kOptimizeCache) |
+      static_cast<uint8_t>(RenderLayerCompletionBit::kStop);
+  if ((bits & ~kAllowedBits) != 0 ||
+      (!limited_image_cache &&
+       (bits &
+        static_cast<uint8_t>(RenderLayerCompletionBit::kOptimizeCache)) != 0) ||
+      (!stopped &&
+       (bits & static_cast<uint8_t>(RenderLayerCompletionBit::kStop)) != 0)) {
+    return std::nullopt;
+  }
+  return RenderLayerCompletion(bits);
+}
+
+bool RunRustRenderLayers(size_t layer_count,
+                         void* context,
+                         RenderLayerCallback callback) {
+  if (layer_count > std::numeric_limits<uint32_t>::max() || !context ||
+      !callback) {
+    return false;
+  }
+  return pdfium_rust_run_render_layers(static_cast<uint32_t>(layer_count),
+                                       context, callback);
+}
+
+std::optional<PathPaintPlan> BuildRustPathPaintPlan(
+    CFX_FillRenderOptions::FillType fill_type,
+    bool stroke,
+    bool forced_color,
+    bool convert_fill_to_stroke) {
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_path_paint_plan(static_cast<uint8_t>(fill_type),
+                                         stroke, forced_color,
+                                         convert_fill_to_stroke, &bits)) {
+    return std::nullopt;
+  }
+  constexpr uint8_t kAllowedBits =
+      kPathPlanFillMask | kPathPlanStroke | kPathPlanDraw;
+  if ((bits & ~kAllowedBits) != 0) {
+    return std::nullopt;
+  }
+  const uint8_t planned_fill = bits & kPathPlanFillMask;
+  if (planned_fill >
+      static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kWinding)) {
+    return std::nullopt;
+  }
+  return PathPaintPlan(
+      static_cast<CFX_FillRenderOptions::FillType>(planned_fill),
+      (bits & kPathPlanStroke) != 0, (bits & kPathPlanDraw) != 0);
+}
+
+std::optional<bool> RustPathMatrixIsAvailable(float a,
+                                              float b,
+                                              float c,
+                                              float d) {
+  bool available = false;
+  if (!pdfium_rust_path_matrix_is_available(a, b, c, d, &available)) {
+    return std::nullopt;
+  }
+  return available;
+}
+
+std::optional<CFX_FillRenderOptions> BuildRustPathFillOptions(
+    CFX_FillRenderOptions::FillType fill_type,
+    bool rect_aa,
+    bool no_path_smooth,
+    bool stroke_adjust,
+    bool stroke,
+    bool type3_char) {
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_path_fill_options(
+          static_cast<uint8_t>(fill_type), rect_aa, no_path_smooth,
+          stroke_adjust, stroke, type3_char, &bits)) {
+    return std::nullopt;
+  }
+  constexpr uint8_t kAllowedBits =
+      kPathOptionsFillMask | kPathOptionsRectAa | kPathOptionsAliased |
+      kPathOptionsAdjustStroke | kPathOptionsStroke | kPathOptionsTextMode;
+  if ((bits & ~kAllowedBits) != 0) {
+    return std::nullopt;
+  }
+  const uint8_t planned_fill = bits & kPathOptionsFillMask;
+  if (planned_fill >
+      static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kWinding)) {
+    return std::nullopt;
+  }
+  CFX_FillRenderOptions options(
+      static_cast<CFX_FillRenderOptions::FillType>(planned_fill));
+  options.rect_aa = (bits & kPathOptionsRectAa) != 0;
+  options.aliased_path = (bits & kPathOptionsAliased) != 0;
+  options.adjust_stroke = (bits & kPathOptionsAdjustStroke) != 0;
+  options.stroke = (bits & kPathOptionsStroke) != 0;
+  options.text_mode = (bits & kPathOptionsTextMode) != 0;
+  return options;
+}
+
+std::optional<TextRenderPlan> BuildRustTextRenderPlan(bool has_char_codes,
+                                                      int8_t text_mode,
+                                                      bool is_type3,
+                                                      bool has_clipping_path,
+                                                      bool font_has_face) {
+  uint8_t action = 0;
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_text_render_plan(has_char_codes, text_mode, is_type3,
+                                          has_clipping_path, font_has_face,
+                                          &action, &bits) ||
+      action < static_cast<uint8_t>(TextRenderAction::kSkip) ||
+      action > static_cast<uint8_t>(TextRenderAction::kNormal) ||
+      (bits & ~0x07u) != 0) {
+    return std::nullopt;
+  }
+  return TextRenderPlan(static_cast<TextRenderAction>(action), bits);
+}
+
+std::optional<bool> RustTextUsesPattern(bool is_fill,
+                                        bool is_stroke,
+                                        bool fill_is_pattern,
+                                        bool stroke_is_pattern) {
+  bool uses_pattern = false;
+  if (!pdfium_rust_text_uses_pattern(is_fill, is_stroke, fill_is_pattern,
+                                     stroke_is_pattern, &uses_pattern)) {
+    return std::nullopt;
+  }
+  return uses_pattern;
+}
+
+std::optional<bool> RustTextUsesPathBackend(bool is_clip, bool is_stroke) {
+  bool uses_path_backend = false;
+  if (!pdfium_rust_text_uses_path_backend(is_clip, is_stroke,
+                                          &uses_path_backend)) {
+    return std::nullopt;
+  }
+  return uses_path_backend;
+}
+
+std::optional<bool> RustTextNeedsDeviceMatrixAdjustment(bool is_stroke,
+                                                        float ctm_a,
+                                                        float ctm_d) {
+  bool needs_adjustment = false;
+  if (!pdfium_rust_text_needs_device_matrix_adjustment(is_stroke, ctm_a, ctm_d,
+                                                       &needs_adjustment)) {
+    return std::nullopt;
+  }
+  return needs_adjustment;
+}
+
+std::optional<CFX_FillRenderOptions> BuildRustTextPathFillOptions(
+    bool is_stroke,
+    bool is_fill,
+    bool stroke_adjust,
+    bool no_text_smooth) {
+  uint8_t bits = 0;
+  if (!pdfium_rust_build_text_path_fill_options(
+          is_stroke, is_fill, stroke_adjust, no_text_smooth, &bits) ||
+      (bits & ~0x0fu) != 0) {
+    return std::nullopt;
+  }
+  CFX_FillRenderOptions options;
+  options.stroke = bits & 1u;
+  options.stroke_text_mode = bits & 2u;
+  options.adjust_stroke = bits & 4u;
+  options.aliased_path = bits & 8u;
+  return options;
+}
+
+std::optional<bool> RunRustTextBackend(bool uses_pattern,
+                                       bool is_clip,
+                                       bool is_stroke,
+                                       void* context,
+                                       TextBackendCallback callback) {
+  bool result = false;
+  if (!context || !callback ||
+      !pdfium_rust_run_text_backend(uses_pattern, is_clip, is_stroke, context,
+                                    callback, &result)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(
+    std::vector<uint8_t>* trace)
+    : previous_(g_render_trace_for_testing) {
+  g_render_trace_for_testing = trace;
+}
+
+ScopedRenderTraceForTesting::~ScopedRenderTraceForTesting() {
+  g_render_trace_for_testing = previous_;
+}
+
+void RecordRenderTraceForTesting(ObjectListCommand command) {
+  if (g_render_trace_for_testing) {
+    g_render_trace_for_testing->push_back(static_cast<uint8_t>(command));
+  }
+}
+
+void RecordRenderTraceForTesting(PageObjectRenderCommand command) {
+  if (g_render_trace_for_testing) {
+    g_render_trace_for_testing->push_back(kPageObjectRenderCommandTraceBase +
+                                          static_cast<uint8_t>(command));
+  }
+}
+
+void RecordRenderTraceForTesting(const RenderLayerPlan& plan) {
+  if (g_render_trace_for_testing) {
+    uint8_t bits = 0;
+    if (plan.Has(RenderLayerPlanBit::kSetOptions)) {
+      bits |= static_cast<uint8_t>(RenderLayerPlanBit::kSetOptions);
+    }
+    if (plan.Has(RenderLayerPlanBit::kApplyLastMatrix)) {
+      bits |= static_cast<uint8_t>(RenderLayerPlanBit::kApplyLastMatrix);
+    }
+    g_render_trace_for_testing->push_back(kRenderLayerPlanTraceBase + bits);
+  }
+}
+
+void RecordRenderTraceForTesting(const RenderLayerCompletion& completion) {
+  if (g_render_trace_for_testing) {
+    uint8_t bits = 0;
+    if (completion.Has(RenderLayerCompletionBit::kOptimizeCache)) {
+      bits |= static_cast<uint8_t>(RenderLayerCompletionBit::kOptimizeCache);
+    }
+    if (completion.Has(RenderLayerCompletionBit::kStop)) {
+      bits |= static_cast<uint8_t>(RenderLayerCompletionBit::kStop);
+    }
+    g_render_trace_for_testing->push_back(kRenderLayerCompletionTraceBase +
+                                          bits);
+  }
+}
+
+void RecordRenderTraceForTesting(const PathPaintPlan& plan) {
+  if (g_render_trace_for_testing) {
+    uint8_t bits = static_cast<uint8_t>(plan.fill_type());
+    if (plan.stroke()) {
+      bits |= kPathPlanStroke;
+    }
+    if (plan.should_draw()) {
+      bits |= kPathPlanDraw;
+    }
+    g_render_trace_for_testing->push_back(kPathPaintPlanTraceBase + bits);
+  }
+}
+
+void RecordPathMatrixAvailabilityForTesting(bool available) {
+  if (g_render_trace_for_testing) {
+    g_render_trace_for_testing->push_back(kPathMatrixAvailabilityTraceBase +
+                                          static_cast<uint8_t>(available));
+  }
+}
+
+void RecordPathFillOptionsForTesting(const CFX_FillRenderOptions& options) {
+  if (!g_render_trace_for_testing) {
+    return;
+  }
+  uint8_t bits = static_cast<uint8_t>(options.fill_type);
+  if (options.rect_aa) {
+    bits |= kPathOptionsRectAa;
+  }
+  if (options.aliased_path) {
+    bits |= kPathOptionsAliased;
+  }
+  if (options.adjust_stroke) {
+    bits |= kPathOptionsAdjustStroke;
+  }
+  if (options.stroke) {
+    bits |= kPathOptionsStroke;
+  }
+  if (options.text_mode) {
+    bits |= kPathOptionsTextMode;
+  }
+  g_render_trace_for_testing->push_back(kPathFillOptionsTrace);
+  g_render_trace_for_testing->push_back(bits);
+}
+
+void RecordTextRenderPlanForTesting(const TextRenderPlan& plan) {
+  if (g_render_trace_for_testing) {
+    uint8_t bits = static_cast<uint8_t>(plan.action()) << 3;
+    bits |= static_cast<uint8_t>(plan.fill());
+    bits |= static_cast<uint8_t>(plan.stroke()) << 1;
+    bits |= static_cast<uint8_t>(plan.clip()) << 2;
+    g_render_trace_for_testing->push_back(kTextRenderPlanTraceBase + bits);
+  }
+}
+
+void RecordTextBackendCommandForTesting(TextBackendCommand command) {
+  if (g_render_trace_for_testing) {
+    g_render_trace_for_testing->push_back(kTextBackendCommandTraceBase +
+                                          static_cast<uint8_t>(command));
+  }
+}
+
+bool UseRustRenderCandidate() {
+  return g_use_rust_render_candidate;
+}
+
+bool SetUseRustRenderCandidateForTesting(bool use_candidate) {
+  const bool previous = g_use_rust_render_candidate;
+  g_use_rust_render_candidate = use_candidate;
+  return previous;
+}
+
+}  // namespace pdfium::rust

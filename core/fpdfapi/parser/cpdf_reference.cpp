@@ -8,12 +8,18 @@
 
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_indirect_object_holder.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
+#include "core/fxcrt/check.h"
 #include "core/fxcrt/check_op.h"
 #include "core/fxcrt/containers/contains.h"
 #include "core/fxcrt/fx_stream.h"
 
 CPDF_Reference::CPDF_Reference(CPDF_IndirectObjectHolder* doc, uint32_t objnum)
-    : obj_list_(doc), ref_obj_num_(objnum) {}
+    : obj_list_(doc), ref_obj_num_(objnum) {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    ref_obj_num_ = std::make_unique<pdfium::rust::RustPdfReference>(objnum);
+  }
+}
 
 CPDF_Reference::~CPDF_Reference() = default;
 
@@ -54,7 +60,7 @@ RetainPtr<CPDF_Object> CPDF_Reference::CloneNonCyclic(
     std::set<const CPDF_Object*>* pVisited) const {
   pVisited->insert(this);
   if (!bDirect) {
-    return pdfium::MakeRetain<CPDF_Reference>(obj_list_, ref_obj_num_);
+    return pdfium::MakeRetain<CPDF_Reference>(obj_list_, GetRefObjNum());
   }
   RetainPtr<const CPDF_Object> pDirect = GetDirect();
   return pDirect && !pdfium::Contains(*pVisited, pDirect.Get())
@@ -67,17 +73,30 @@ const CPDF_Object* CPDF_Reference::FastGetDirect() const {
     return nullptr;
   }
   const CPDF_Object* obj =
-      obj_list_->GetOrParseIndirectObjectInternal(ref_obj_num_);
+      obj_list_->GetOrParseIndirectObjectInternal(GetRefObjNum());
   return (obj && !obj->IsReference()) ? obj : nullptr;
 }
 
 void CPDF_Reference::SetRef(CPDF_IndirectObjectHolder* doc, uint32_t objnum) {
   obj_list_ = doc;
-  ref_obj_num_ = objnum;
+  if (auto* ref_obj_num = std::get_if<uint32_t>(&ref_obj_num_)) {
+    *ref_obj_num = objnum;
+    return;
+  }
+  CHECK(std::get<std::unique_ptr<pdfium::rust::RustPdfReference>>(ref_obj_num_)
+            ->SetObjectNumber(objnum));
+}
+
+uint32_t CPDF_Reference::GetRefObjNum() const {
+  if (const auto* ref_obj_num = std::get_if<uint32_t>(&ref_obj_num_)) {
+    return *ref_obj_num;
+  }
+  return std::get<std::unique_ptr<pdfium::rust::RustPdfReference>>(ref_obj_num_)
+      ->GetObjectNumber();
 }
 
 const CPDF_Object* CPDF_Reference::GetDirectInternal() const {
-  return obj_list_ ? obj_list_->GetOrParseIndirectObjectInternal(ref_obj_num_)
+  return obj_list_ ? obj_list_->GetOrParseIndirectObjectInternal(GetRefObjNum())
                    : nullptr;
 }
 

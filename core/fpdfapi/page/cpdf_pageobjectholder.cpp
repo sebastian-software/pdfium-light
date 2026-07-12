@@ -15,6 +15,7 @@
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/check_op.h"
 #include "core/fxcrt/containers/unique_ptr_adapters.h"
@@ -167,6 +168,23 @@ void CPDF_PageObjectHolder::LoadTransparencyInfo() {
 }
 
 size_t CPDF_PageObjectHolder::GetActivePageObjectCount() const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    auto get_active = [](void* context, size_t index, bool* active) {
+      const auto* holder = static_cast<const CPDF_PageObjectHolder*>(context);
+      CPDF_PageObject* object = holder->GetPageObjectByIndex(index);
+      if (!object) {
+        return false;
+      }
+      *active = object->IsActive();
+      return true;
+    };
+    const auto count = pdfium::rust::RustCountActivePageObjects(
+        page_object_list_.size(), const_cast<CPDF_PageObjectHolder*>(this),
+        get_active);
+    if (count.has_value()) {
+      return *count;
+    }
+  }
   size_t count = 0;
   for (const auto& page_object : page_object_list_) {
     if (page_object->IsActive()) {
@@ -193,6 +211,35 @@ bool CPDF_PageObjectHolder::InsertPageObjectAtIndex(
     size_t index,
     std::unique_ptr<CPDF_PageObject> page_obj) {
   CHECK(page_obj);
+  if (pdfium::rust::UseRustParserCandidate()) {
+    auto get_neighbor_stream = [](void* context, size_t index,
+                                  int32_t* stream) {
+      auto* holder = static_cast<CPDF_PageObjectHolder*>(context);
+      CPDF_PageObject* object = holder->GetPageObjectByIndex(index);
+      if (!object) {
+        return false;
+      }
+      *stream = object->GetContentStream();
+      return true;
+    };
+    const auto plan = pdfium::rust::RustPlanPageObjectInsert(
+        index, page_object_list_.size(), page_obj->GetContentStream(), this,
+        get_neighbor_stream);
+    if (plan.has_value()) {
+      if (!plan->allowed) {
+        return false;
+      }
+      if (page_obj->GetContentStream() != plan->content_stream) {
+        page_obj->SetContentStream(plan->content_stream);
+      }
+      if (plan->mark_dirty) {
+        dirty_streams_.insert(plan->content_stream);
+      }
+      page_object_list_.insert(UNSAFE_TODO(page_object_list_.begin() + index),
+                               std::move(page_obj));
+      return true;
+    }
+  }
   if (index > page_object_list_.size()) {
     return false;
   }
@@ -218,6 +265,36 @@ bool CPDF_PageObjectHolder::InsertPageObjectAtIndex(
 
 std::unique_ptr<CPDF_PageObject> CPDF_PageObjectHolder::RemovePageObject(
     CPDF_PageObject* pPageObj) {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    auto describe = [](void* context, size_t index, uintptr_t* handle,
+                       int32_t* content_stream) {
+      auto* holder = static_cast<CPDF_PageObjectHolder*>(context);
+      CPDF_PageObject* object = holder->GetPageObjectByIndex(index);
+      if (!object) {
+        return false;
+      }
+      *handle = reinterpret_cast<uintptr_t>(object);
+      *content_stream = object->GetContentStream();
+      return true;
+    };
+    const auto plan = pdfium::rust::RustPlanPageObjectRemove(
+        page_object_list_.size(), reinterpret_cast<uintptr_t>(pPageObj), this,
+        describe);
+    if (plan.has_value()) {
+      if (!plan->found) {
+        return nullptr;
+      }
+      if (plan->index < page_object_list_.size()) {
+        auto it = UNSAFE_TODO(page_object_list_.begin() + plan->index);
+        std::unique_ptr<CPDF_PageObject> result = std::move(*it);
+        page_object_list_.erase(it);
+        if (plan->content_stream >= 0) {
+          dirty_streams_.insert(plan->content_stream);
+        }
+        return result;
+      }
+    }
+  }
   auto it = std::ranges::find_if(page_object_list_,
                                  pdfium::MatchesUniquePtr(pPageObj));
   if (it == std::end(page_object_list_)) {

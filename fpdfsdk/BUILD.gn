@@ -51,11 +51,14 @@ source_set("fpdfsdk") {
     "../core/fpdfapi/page",
     "../core/fpdfapi/parser",
     "../core/fpdfapi/render",
+    "../core/fpdfapi/render/rust:rust_render_adapter",
     "../core/fpdfdoc",
     "../core/fpdftext",
     "../core/fxcodec",
     "../core/fxcrt",
     "../core/fxge",
+    "../core/fxge/agg/rust:rust_agg_adapter",
+    "../core/fxge/freetype/rust:rust_glyph_adapter",
   ]
   visibility = [ "../*" ]
 }
@@ -102,6 +105,7 @@ pdfium_embeddertest_source_set("embeddertests") {
     "fpdf_transformpage_embeddertest.cpp",
     "fpdf_view_embeddertest.cpp",
     "rust_codec_embeddertest.cpp",
+    "rust_renderer_parity_embeddertest.cpp",
   ]
   deps = [
     ":fpdfsdk",

@@ -7,9 +7,16 @@
 #ifndef CORE_FXCRT_BYTESTRING_POOL_H_
 #define CORE_FXCRT_BYTESTRING_POOL_H_
 
-#include <unordered_set>
+#include <stdint.h>
+
+#include <map>
+#include <memory>
 
 #include "core/fxcrt/bytestring.h"
+
+namespace pdfium::rust {
+class RustByteStringPoolIndex;
+}
 
 namespace fxcrt {
 
@@ -21,7 +28,9 @@ class ByteStringPool {
   ByteString Intern(const ByteString& str);
 
  private:
-  std::unordered_set<ByteString> pool_;
+  std::unique_ptr<pdfium::rust::RustByteStringPoolIndex> index_;
+  std::map<uintptr_t, ByteString> strings_;
+  uintptr_t next_handle_ = 1;
 };
 
 }  // namespace fxcrt

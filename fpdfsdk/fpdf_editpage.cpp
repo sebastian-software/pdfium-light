@@ -30,6 +30,7 @@
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fpdfapi/render/cpdf_docrenderdata.h"
 #include "core/fpdfdoc/cpdf_annot.h"
 #include "core/fpdfdoc/cpdf_annotlist.h"
@@ -43,7 +44,6 @@
 #include "core/fxcrt/stl_util.h"
 #include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
-
 
 namespace {
 
@@ -170,6 +170,13 @@ bool IsSafelyRemovableForRedaction(const CPDF_PageObject& page_object) {
   }
   NOTREACHED();
   return false;
+}
+
+pdfium::rust::RustPageObjectMatrix RustPageObjectMatrixFromCFXMatrix(
+    const CFX_Matrix& matrix) {
+  const FS_MATRIX public_matrix = FSMatrixFromCFXMatrix(matrix);
+  return {{public_matrix.a, public_matrix.b, public_matrix.c, public_matrix.d,
+           public_matrix.e, public_matrix.f}};
 }
 
 bool PageObjectContainsMark(CPDF_PageObject* pPageObj,
@@ -319,7 +326,6 @@ FPDF_EXPORT FPDF_PAGE FPDF_CALLCONV FPDFPage_New(FPDF_DOCUMENT document,
   page_dict->SetNewFor<CPDF_Number>(pdfium::page_object::kRotate, 0);
   page_dict->SetNewFor<CPDF_Dictionary>(pdfium::page_object::kResources);
 
-
   auto pPage = pdfium::MakeRetain<CPDF_Page>(doc, std::move(page_dict));
   pPage->AddPageImageCache();
   pPage->ParseContent();
@@ -390,13 +396,78 @@ FPDFPage_RemoveObject(FPDF_PAGE page, FPDF_PAGEOBJECT page_object) {
   return !!pPage->RemovePageObject(pPageObj).release();
 }
 
-FPDF_EXPORT int FPDF_CALLCONV FPDFPage_ApplyRedactions(
-    FPDF_PAGE page,
-    const FS_RECTF* rects,
-    unsigned long rect_count) {
+FPDF_EXPORT int FPDF_CALLCONV
+FPDFPage_ApplyRedactions(FPDF_PAGE page,
+                         const FS_RECTF* rects,
+                         unsigned long rect_count) {
   CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
   if (!IsPageObject(pPage)) {
     return FPDF_REDACTION_ERROR_INVALID_PAGE;
+  }
+  if (pdfium::rust::UseRustParserCandidate()) {
+    struct RedactionContext {
+      const FS_RECTF* rects;
+      unsigned long rect_count;
+      CPDF_Page* page;
+    } context = {rects, rect_count, pPage};
+    auto get_rect = [](void* context, size_t index, float* left, float* bottom,
+                       float* right, float* top) {
+      auto* redaction = static_cast<RedactionContext*>(context);
+      if (!redaction->rects || index >= redaction->rect_count) {
+        return false;
+      }
+      const FS_RECTF& rect = UNSAFE_BUFFERS(redaction->rects[index]);
+      *left = rect.left;
+      *bottom = rect.bottom;
+      *right = rect.right;
+      *top = rect.top;
+      return true;
+    };
+    auto get_object = [](void* context, size_t index, bool* active,
+                         uint8_t* object_type, float* left, float* bottom,
+                         float* right, float* top) {
+      auto* redaction = static_cast<RedactionContext*>(context);
+      CPDF_PageObject* object = redaction->page->GetPageObjectByIndex(index);
+      if (!object) {
+        return false;
+      }
+      *active = object->IsActive();
+      *object_type = static_cast<uint8_t>(object->GetType());
+      const CFX_FloatRect& rect = object->GetRect();
+      *left = rect.left;
+      *bottom = rect.bottom;
+      *right = rect.right;
+      *top = rect.top;
+      return true;
+    };
+    pdfium::rust::RustRedactionPlan plan(rects != nullptr, rect_count,
+                                         pPage->GetPageObjectCount(), &context,
+                                         get_rect, get_object);
+    const auto status = plan.status();
+    if (plan.valid() && status.has_value() && *status >= 0 && *status <= 5) {
+      if (*status != FPDF_REDACTION_SUCCESS) {
+        return *status;
+      }
+      std::vector<CPDF_PageObject*> planned_objects;
+      planned_objects.reserve(plan.size());
+      bool valid_plan = true;
+      for (size_t i = 0; i < plan.size(); ++i) {
+        const auto index = plan.GetIndex(i);
+        CPDF_PageObject* object =
+            index.has_value() ? pPage->GetPageObjectByIndex(*index) : nullptr;
+        if (!object) {
+          valid_plan = false;
+          break;
+        }
+        planned_objects.push_back(object);
+      }
+      if (valid_plan) {
+        for (CPDF_PageObject* object : planned_objects) {
+          pPage->RemovePageObject(object);
+        }
+        return FPDF_REDACTION_SUCCESS;
+      }
+    }
   }
   if (!rects || rect_count == 0) {
     return FPDF_REDACTION_ERROR_INVALID_RECT;
@@ -904,6 +975,27 @@ FPDFPageObj_GetMatrix(FPDF_PAGEOBJECT page_object, FS_MATRIX* matrix) {
     return false;
   }
 
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto route = pdfium::rust::RustPageObjectMatrixRoute(
+        static_cast<uint8_t>(pPageObj->GetType()));
+    if (route.has_value()) {
+      switch (*route) {
+        case 1:
+          *matrix = FSMatrixFromCFXMatrix(pPageObj->AsText()->GetTextMatrix());
+          return true;
+        case 2:
+          *matrix = FSMatrixFromCFXMatrix(pPageObj->AsPath()->matrix());
+          return true;
+        case 3:
+          *matrix = FSMatrixFromCFXMatrix(pPageObj->AsImage()->matrix());
+          return true;
+        case 5:
+          *matrix = FSMatrixFromCFXMatrix(pPageObj->AsForm()->form_matrix());
+          return true;
+      }
+    }
+  }
+
   switch (pPageObj->GetType()) {
     case CPDF_PageObject::Type::kText:
       *matrix = FSMatrixFromCFXMatrix(pPageObj->AsText()->GetTextMatrix());
@@ -930,6 +1022,48 @@ FPDFPageObj_SetMatrix(FPDF_PAGEOBJECT page_object, const FS_MATRIX* matrix) {
   }
 
   CFX_Matrix cmatrix = CFXMatrixFromFSMatrix(*matrix);
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const uint8_t object_type = static_cast<uint8_t>(pPageObj->GetType());
+    const auto route = pdfium::rust::RustPageObjectMatrixRoute(object_type);
+    if (route.has_value()) {
+      CFX_Matrix dirty_reference;
+      switch (*route) {
+        case 1:
+          dirty_reference = pPageObj->AsText()->GetTextMatrix();
+          break;
+        case 2:
+          dirty_reference = pPageObj->AsPath()->matrix();
+          break;
+        case 3:
+          dirty_reference = pPageObj->original_matrix();
+          break;
+        case 5:
+          dirty_reference = pPageObj->AsForm()->form_matrix();
+          break;
+      }
+      const auto dirty = pdfium::rust::RustPageObjectMatrixDirty(
+          object_type, RustPageObjectMatrixFromCFXMatrix(dirty_reference),
+          RustPageObjectMatrixFromCFXMatrix(cmatrix));
+      if (dirty.has_value()) {
+        switch (*route) {
+          case 1:
+            pPageObj->AsText()->SetTextMatrix(cmatrix);
+            break;
+          case 2:
+            pPageObj->AsPath()->SetPathMatrix(cmatrix);
+            break;
+          case 3:
+            pPageObj->AsImage()->SetImageMatrix(cmatrix);
+            break;
+          case 5:
+            pPageObj->AsForm()->SetFormMatrix(cmatrix);
+            break;
+        }
+        pPageObj->SetMatrixDirty(*dirty);
+        return true;
+      }
+    }
+  }
   switch (pPageObj->GetType()) {
     case CPDF_PageObject::Type::kText:
       pPageObj->AsText()->SetTextMatrix(cmatrix);
@@ -982,7 +1116,21 @@ FPDF_EXPORT void FPDF_CALLCONV FPDFPage_TransformAnnots(FPDF_PAGE page,
     CPDF_Annot* pAnnot = AnnotList.GetAt(i);
     CFX_Matrix matrix((float)a, (float)b, (float)c, (float)d, (float)e,
                       (float)f);
-    CFX_FloatRect rect = matrix.TransformRect(pAnnot->GetRect());
+    CFX_FloatRect rect;
+    if (pdfium::rust::UseRustParserCandidate()) {
+      const CFX_FloatRect& original = pAnnot->GetRect();
+      const auto transformed = pdfium::rust::RustTransformPageAnnotationRect(
+          RustPageObjectMatrixFromCFXMatrix(matrix),
+          {original.left, original.bottom, original.right, original.top});
+      if (transformed.has_value()) {
+        rect = CFX_FloatRect((*transformed)[0], (*transformed)[1],
+                             (*transformed)[2], (*transformed)[3]);
+      } else {
+        rect = matrix.TransformRect(original);
+      }
+    } else {
+      rect = matrix.TransformRect(pAnnot->GetRect());
+    }
 
     RetainPtr<CPDF_Dictionary> pAnnotDict = pAnnot->GetMutableAnnotDict();
     RetainPtr<CPDF_Array> pRectArray = pAnnotDict->GetMutableArrayFor("Rect");
@@ -1008,9 +1156,15 @@ FPDF_EXPORT void FPDF_CALLCONV FPDFPage_SetRotation(FPDF_PAGE page,
     return;
   }
 
-  rotate %= 4;
+  int degrees;
+  if (pdfium::rust::UseRustParserCandidate()) {
+    degrees = pdfium::rust::RustPageRotationDegrees(rotate);
+  } else {
+    rotate %= 4;
+    degrees = rotate * 90;
+  }
   pPage->GetMutableDict()->SetNewFor<CPDF_Number>(pdfium::page_object::kRotate,
-                                                  rotate * 90);
+                                                  degrees);
   pPage->UpdateDimensions();
 }
 
@@ -1097,6 +1251,23 @@ FPDFPageObj_GetRotatedBounds(FPDF_PAGEOBJECT page_object,
   }
 
   const CFX_FloatRect& bbox = cpage_object->GetOriginalRect();
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto quad = pdfium::rust::RustPageObjectRotatedBounds(
+        static_cast<uint8_t>(cpage_object->GetType()),
+        RustPageObjectMatrixFromCFXMatrix(matrix),
+        {bbox.left, bbox.bottom, bbox.right, bbox.top});
+    if (quad.has_value()) {
+      quad_points->x1 = (*quad)[0];
+      quad_points->y1 = (*quad)[1];
+      quad_points->x2 = (*quad)[2];
+      quad_points->y2 = (*quad)[3];
+      quad_points->x3 = (*quad)[4];
+      quad_points->y3 = (*quad)[5];
+      quad_points->x4 = (*quad)[6];
+      quad_points->y4 = (*quad)[7];
+      return true;
+    }
+  }
   const CFX_PointF bottom_left = matrix.Transform({bbox.left, bbox.bottom});
   const CFX_PointF bottom_right = matrix.Transform({bbox.right, bbox.bottom});
   const CFX_PointF top_right = matrix.Transform({bbox.right, bbox.top});

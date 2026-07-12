@@ -17,6 +17,7 @@
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/cstretchengine.h"
 #include "core/fxge/dib/fx_dib.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 
 namespace {
 
@@ -55,6 +56,11 @@ DataVector<uint32_t> BuildPaletteFrom1BppSource(
   CHECK_EQ(255, bgra1.alpha);
 
   DataVector<uint32_t> palette(CFX_DIBBase::kPaletteSize);
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::Build1bppStretchPalette(
+          source->GetPaletteArgb(0), source->GetPaletteArgb(1), palette)) {
+    return palette;
+  }
   for (int i = 0; i < static_cast<int>(CFX_DIBBase::kPaletteSize); ++i) {
     int r = bgra0.red + (bgra1.red - bgra0.red) * i / 255;
     int g = bgra0.green + (bgra1.green - bgra0.green) * i / 255;

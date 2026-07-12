@@ -20,6 +20,7 @@
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fpdfdoc/cpdf_aaction.h"
 #include "core/fpdfdoc/cpdf_bookmark.h"
 #include "core/fpdfdoc/cpdf_bookmarktree.h"
@@ -150,6 +151,44 @@ FPDFBookmark_Find(FPDF_DOCUMENT document, FPDF_WIDESTRING title) {
   }
 
   CPDF_BookmarkTree tree(doc);
+  if (pdfium::rust::UseRustParserCandidate()) {
+    struct BookmarkContext {
+      const CPDF_BookmarkTree* tree;
+      const WideString* title;
+    } context = {&tree, &encodedTitle};
+
+    auto matches_title = [](void* opaque, uintptr_t handle, bool* matches) {
+      auto* context = static_cast<BookmarkContext*>(opaque);
+      CPDF_Bookmark bookmark(pdfium::WrapRetain(
+          reinterpret_cast<const CPDF_Dictionary*>(handle)));
+      *matches =
+          bookmark.GetTitle().CompareNoCase(context->title->c_str()) == 0;
+      return true;
+    };
+    auto first_child = [](void* opaque, uintptr_t handle, uintptr_t* output) {
+      auto* context = static_cast<BookmarkContext*>(opaque);
+      CPDF_Bookmark bookmark(pdfium::WrapRetain(
+          reinterpret_cast<const CPDF_Dictionary*>(handle)));
+      *output = reinterpret_cast<uintptr_t>(
+          context->tree->GetFirstChild(bookmark).GetDict());
+      return true;
+    };
+    auto next_sibling = [](void* opaque, uintptr_t handle, uintptr_t* output) {
+      auto* context = static_cast<BookmarkContext*>(opaque);
+      CPDF_Bookmark bookmark(pdfium::WrapRetain(
+          reinterpret_cast<const CPDF_Dictionary*>(handle)));
+      *output = reinterpret_cast<uintptr_t>(
+          context->tree->GetNextSibling(bookmark).GetDict());
+      return true;
+    };
+    std::optional<uintptr_t> result = pdfium::rust::RustFindBookmark(
+        &context, matches_title, first_child, next_sibling);
+    if (result.has_value()) {
+      return FPDFBookmarkFromCPDFDictionary(
+          reinterpret_cast<const CPDF_Dictionary*>(result.value()));
+    }
+  }
+
   std::set<const CPDF_Dictionary*> visited;
   return FPDFBookmarkFromCPDFDictionary(
       FindBookmark(tree, CPDF_Bookmark(), encodedTitle, &visited).GetDict());
@@ -169,6 +208,18 @@ FPDFBookmark_GetDest(FPDF_DOCUMENT document, FPDF_BOOKMARK bookmark) {
   CPDF_Bookmark cBookmark(
       pdfium::WrapRetain(CPDFDictionaryFromFPDFBookmark(bookmark)));
   CPDF_Dest dest = cBookmark.GetDest(doc);
+  if (pdfium::rust::UseRustParserCandidate()) {
+    CPDF_Action action = cBookmark.GetAction();
+    switch (pdfium::rust::RustPublicDestinationSource(
+        !!dest.GetArray(), action.HasDict())) {
+      case 1:
+        return FPDFDestFromCPDFArray(dest.GetArray());
+      case 2:
+        return FPDFDestFromCPDFArray(action.GetDest(doc).GetArray());
+      default:
+        return nullptr;
+    }
+  }
   if (dest.GetArray()) {
     return FPDFDestFromCPDFArray(dest.GetArray());
   }
@@ -203,10 +254,13 @@ FPDFBookmark_GetColor(FPDF_BOOKMARK bookmark, float* R, float* G, float* B) {
   if (!color.has_value()) {
     return false;
   }
-  if (color->red > 1 || color->green > 1 || color->blue > 1) {
-    return false;
-  }
-  if (color->red < 0 || color->green < 0 || color->blue < 0) {
+  const bool valid = pdfium::rust::UseRustParserCandidate()
+                         ? pdfium::rust::RustPublicBookmarkColorIsValid(
+                               color->red, color->green, color->blue)
+                         : !(color->red > 1 || color->green > 1 ||
+                             color->blue > 1 || color->red < 0 ||
+                             color->green < 0 || color->blue < 0);
+  if (!valid) {
     return false;
   }
   *R = color->red;
@@ -221,6 +275,10 @@ FPDF_EXPORT unsigned long FPDF_CALLCONV FPDFAction_GetType(FPDF_ACTION action) {
   }
 
   CPDF_Action cAction(pdfium::WrapRetain(CPDFDictionaryFromFPDFAction(action)));
+  if (pdfium::rust::UseRustParserCandidate()) {
+    return pdfium::rust::RustPublicActionType(
+        static_cast<uint8_t>(cAction.GetType()));
+  }
   switch (cAction.GetType()) {
     case CPDF_Action::Type::kGoTo:
       return PDFACTION_GOTO;
@@ -245,8 +303,13 @@ FPDF_EXPORT FPDF_DEST FPDF_CALLCONV FPDFAction_GetDest(FPDF_DOCUMENT document,
   }
 
   unsigned long type = FPDFAction_GetType(action);
-  if (type != PDFACTION_GOTO && type != PDFACTION_REMOTEGOTO &&
-      type != PDFACTION_EMBEDDEDGOTO) {
+  const bool allowed = pdfium::rust::UseRustParserCandidate()
+                           ? pdfium::rust::RustPublicActionAllowsDestination(
+                                 static_cast<uint8_t>(type))
+                           : type == PDFACTION_GOTO ||
+                                 type == PDFACTION_REMOTEGOTO ||
+                                 type == PDFACTION_EMBEDDEDGOTO;
+  if (!allowed) {
     return nullptr;
   }
   CPDF_Action cAction(pdfium::WrapRetain(CPDFDictionaryFromFPDFAction(action)));
@@ -256,8 +319,12 @@ FPDF_EXPORT FPDF_DEST FPDF_CALLCONV FPDFAction_GetDest(FPDF_DOCUMENT document,
 FPDF_EXPORT unsigned long FPDF_CALLCONV
 FPDFAction_GetFilePath(FPDF_ACTION action, void* buffer, unsigned long buflen) {
   unsigned long type = FPDFAction_GetType(action);
-  if (type != PDFACTION_REMOTEGOTO && type != PDFACTION_EMBEDDEDGOTO &&
-      type != PDFACTION_LAUNCH) {
+  const bool allowed =
+      pdfium::rust::UseRustParserCandidate()
+          ? pdfium::rust::RustPublicActionAllowsFile(static_cast<uint8_t>(type))
+          : type == PDFACTION_REMOTEGOTO || type == PDFACTION_EMBEDDEDGOTO ||
+                type == PDFACTION_LAUNCH;
+  if (!allowed) {
     return 0;
   }
   CPDF_Action cAction(pdfium::WrapRetain(CPDFDictionaryFromFPDFAction(action)));
@@ -277,7 +344,11 @@ FPDFAction_GetURIPath(FPDF_DOCUMENT document,
     return 0;
   }
   unsigned long type = FPDFAction_GetType(action);
-  if (type != PDFACTION_URI) {
+  const bool allowed =
+      pdfium::rust::UseRustParserCandidate()
+          ? pdfium::rust::RustPublicActionAllowsUri(static_cast<uint8_t>(type))
+          : type == PDFACTION_URI;
+  if (!allowed) {
     return 0;
   }
   // SAFETY: required from caller.
@@ -432,6 +503,32 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFLink_Enumerate(FPDF_PAGE page,
   RetainPtr<CPDF_Array> pAnnots = pPage->GetMutableAnnotsArray();
   if (!pAnnots) {
     return false;
+  }
+  if (pdfium::rust::UseRustParserCandidate()) {
+    auto is_link = [](void* opaque, size_t index, bool* result) {
+      auto* annotations = static_cast<CPDF_Array*>(opaque);
+      RetainPtr<CPDF_Dictionary> dictionary =
+          ToDictionary(annotations->GetMutableDirectObjectAt(index));
+      *result =
+          dictionary && dictionary->GetByteStringFor("Subtype") == "Link";
+      return true;
+    };
+    std::optional<pdfium::rust::RustLinkEnumerationResult> result =
+        pdfium::rust::RustFindNextLink(*start_pos, pAnnots->size(),
+                                      pAnnots.Get(), is_link);
+    if (result.has_value()) {
+      if (!result->found) {
+        return false;
+      }
+      RetainPtr<CPDF_Dictionary> dictionary = ToDictionary(
+          pAnnots->GetMutableDirectObjectAt(result->index));
+      if (!dictionary) {
+        return false;
+      }
+      *start_pos = pdfium::checked_cast<int>(result->index + 1);
+      *link_annot = FPDFLinkFromCPDFDictionary(dictionary.Get());
+      return true;
+    }
   }
   for (size_t i = *start_pos; i < pAnnots->size(); i++) {
     RetainPtr<CPDF_Dictionary> dict =

@@ -14,6 +14,9 @@
 #include "core/fxcrt/retain_ptr.h"
 
 class CPDF_Dictionary;
+namespace pdfium::rust {
+class RustCrossRefTable;
+}
 
 class CPDF_CrossRefTable {
  public:
@@ -67,9 +70,7 @@ class CPDF_CrossRefTable {
 
   const ObjectInfo* GetObjectInfo(uint32_t obj_num) const;
 
-  const std::map<uint32_t, ObjectInfo>& objects_info() const {
-    return objects_info_;
-  }
+  const std::map<uint32_t, ObjectInfo>& objects_info() const;
 
   void Update(std::unique_ptr<CPDF_CrossRefTable> new_cross_ref);
 
@@ -79,13 +80,18 @@ class CPDF_CrossRefTable {
  private:
   void UpdateInfo(std::map<uint32_t, ObjectInfo> new_objects_info);
   void UpdateTrailer(RetainPtr<CPDF_Dictionary> new_trailer);
+  void EnsureObjectsInfoView() const;
+  void MarkObjectsInfoViewDirty();
 
   RetainPtr<CPDF_Dictionary> trailer_;
   // `trailer_` can be the dictionary part of a XRef stream object. Since it is
   // inline, it has no object number. Store the stream's object number, or 0 if
   // there is none.
   uint32_t trailer_object_number_ = 0;
-  std::map<uint32_t, ObjectInfo> objects_info_;
+  const bool use_rust_objects_info_;
+  std::unique_ptr<pdfium::rust::RustCrossRefTable> rust_objects_info_;
+  mutable std::map<uint32_t, ObjectInfo> objects_info_;
+  mutable bool objects_info_view_dirty_ = false;
 };
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_CROSS_REF_TABLE_H_

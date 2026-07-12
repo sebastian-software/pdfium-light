@@ -18,8 +18,10 @@
 #include "core/fxcrt/zip.h"
 #include "core/fxge/dib/blend.h"
 #include "core/fxge/dib/fx_dib.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 
 using fxge::Blend;
+using fxge::RustBlendAdapter;
 using GrayWithAlpha = CFX_ScanlineCompositor::GrayWithAlpha;
 
 namespace {
@@ -1996,6 +1998,15 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgrx(
 
   const int src_Bpp = GetCompsFromFormat(src_format_);
   CHECK_GE(src_Bpp, 0);
+  const int dest_Bpp = GetCompsFromFormat(dest_format_);
+  if (RustBlendAdapter::UseCandidate() &&
+      RustBlendAdapter::CompositeOpaqueRow(
+          blend_type_, dest_format_,
+          src_scan.first(static_cast<size_t>(width) * src_Bpp), src_Bpp,
+          clip_scan, rgb_byte_order_,
+          dest_scan.first(static_cast<size_t>(width) * dest_Bpp))) {
+    return;
+  }
   switch (dest_format_) {
     case FXDIB_Format::kInvalid:
     case FXDIB_Format::k1bppRgb:
@@ -2015,7 +2026,6 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgrx(
     }
     case FXDIB_Format::kBgr:
     case FXDIB_Format::kBgrx: {
-      const int dest_Bpp = GetCompsFromFormat(dest_format_);
       if (rgb_byte_order_) {
         if (blend_type_ == BlendMode::kNormal) {
           if (!clip_scan.empty()) {
@@ -2058,6 +2068,12 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgrx(
       return;
     }
     case FXDIB_Format::kBgra: {
+      if (RustBlendAdapter::UseCandidate() &&
+          RustBlendAdapter::CompositeBgraRow(
+              blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
+              clip_scan, dest_scan.first(static_cast<size_t>(width) * 4))) {
+        return;
+      }
       if (rgb_byte_order_) {
         if (blend_type_ == BlendMode::kNormal) {
           if (!clip_scan.empty()) {
@@ -2117,6 +2133,7 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgra(
     int width,
     pdfium::span<const uint8_t> clip_scan) const {
   CHECK_EQ(src_format_, FXDIB_Format::kBgra);
+  CHECK_GE(width, 0);
 
   auto src_span =
       fxcrt::reinterpret_span<const FX_BGRA_STRUCT<uint8_t>>(src_scan).first(
@@ -2130,15 +2147,37 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgra(
     }
     case FXDIB_Format::k8bppRgb: {
       CHECK(!rgb_byte_order_);  // Disallowed by Init();
+      if (RustBlendAdapter::UseCandidate() &&
+          RustBlendAdapter::CompositeBgraToByteRow(
+              blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
+              clip_scan, /*is_mask=*/false,
+              dest_scan.first(static_cast<size_t>(width)))) {
+        return;
+      }
       CompositeRowBgra2Gray(src_span, clip_scan, dest_scan, blend_type_);
       return;
     }
     case FXDIB_Format::k8bppMask: {
       CHECK(!rgb_byte_order_);  // Disallowed by Init();
+      if (RustBlendAdapter::UseCandidate() &&
+          RustBlendAdapter::CompositeBgraToByteRow(
+              blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
+              clip_scan, /*is_mask=*/true,
+              dest_scan.first(static_cast<size_t>(width)))) {
+        return;
+      }
       CompositeRowBgra2Mask(src_span, clip_scan, dest_scan);
       return;
     }
     case FXDIB_Format::kBgr: {
+      if (RustBlendAdapter::UseCandidate() &&
+          RustBlendAdapter::CompositeBgraToBgrRow(
+              blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
+              clip_scan, /*output_components=*/3,
+              rgb_byte_order_,
+              dest_scan.first(static_cast<size_t>(width) * 3))) {
+        return;
+      }
       if (rgb_byte_order_) {
         auto dest_span =
             fxcrt::reinterpret_span<FX_RGB_STRUCT<uint8_t>>(dest_scan);
@@ -2152,6 +2191,14 @@ void CFX_ScanlineCompositor::CompositeRgbBitmapLineSrcBgra(
       return;
     }
     case FXDIB_Format::kBgrx: {
+      if (RustBlendAdapter::UseCandidate() &&
+          RustBlendAdapter::CompositeBgraToBgrRow(
+              blend_type_, src_scan.first(static_cast<size_t>(width) * 4),
+              clip_scan, /*output_components=*/4,
+              rgb_byte_order_,
+              dest_scan.first(static_cast<size_t>(width) * 4))) {
+        return;
+      }
       if (rgb_byte_order_) {
         auto dest_span =
             fxcrt::reinterpret_span<FX_RGBA_STRUCT<uint8_t>>(dest_scan);
@@ -2202,6 +2249,28 @@ void CFX_ScanlineCompositor::CompositePalBitmapLineSrcBpp1(
     int width,
     pdfium::span<const uint8_t> clip_scan) const {
   CHECK_EQ(src_format_, FXDIB_Format::k1bppRgb);
+  CHECK_GE(src_left, 0);
+  CHECK_GE(width, 0);
+
+  const auto gray_palette = dest_format_ == FXDIB_Format::k8bppRgb
+                                ? src_palette_.Get8BitPalette()
+                                : pdfium::span<const uint8_t>();
+  const auto argb_palette =
+      dest_format_ != FXDIB_Format::k8bppRgb &&
+              dest_format_ != FXDIB_Format::k8bppMask
+          ? src_palette_.Get32BitPalette()
+          : pdfium::span<const uint32_t>();
+  const int dest_Bpp = GetCompsFromFormat(dest_format_);
+  const size_t source_size =
+      (static_cast<size_t>(src_left) + static_cast<size_t>(width) + 7) / 8;
+  if (RustBlendAdapter::UseCandidate() &&
+      RustBlendAdapter::CompositePaletteRow(
+          blend_type_, dest_format_, src_scan.first(source_size), src_left,
+          /*source_is_bit=*/true, gray_palette, argb_palette, clip_scan,
+          rgb_byte_order_,
+          dest_scan.first(static_cast<size_t>(width) * dest_Bpp))) {
+    return;
+  }
 
   switch (dest_format_) {
     case FXDIB_Format::kInvalid:
@@ -2256,6 +2325,27 @@ void CFX_ScanlineCompositor::CompositePalBitmapLineSrcBpp8(
     int width,
     pdfium::span<const uint8_t> clip_scan) const {
   CHECK_EQ(src_format_, FXDIB_Format::k8bppRgb);
+  CHECK_GE(src_left, 0);
+  CHECK_GE(width, 0);
+
+  const auto gray_palette = dest_format_ == FXDIB_Format::k8bppRgb
+                                ? src_palette_.Get8BitPalette()
+                                : pdfium::span<const uint8_t>();
+  const auto argb_palette =
+      dest_format_ != FXDIB_Format::k8bppRgb &&
+              dest_format_ != FXDIB_Format::k8bppMask
+          ? src_palette_.Get32BitPalette()
+          : pdfium::span<const uint32_t>();
+  const int dest_Bpp = GetCompsFromFormat(dest_format_);
+  if (RustBlendAdapter::UseCandidate() &&
+      RustBlendAdapter::CompositePaletteRow(
+          blend_type_, dest_format_,
+          src_scan.first(static_cast<size_t>(width)),
+          /*source_left=*/0, /*source_is_bit=*/false, gray_palette,
+          argb_palette, clip_scan, rgb_byte_order_,
+          dest_scan.first(static_cast<size_t>(width) * dest_Bpp))) {
+    return;
+  }
 
   switch (dest_format_) {
     case FXDIB_Format::kInvalid:
@@ -2309,6 +2399,27 @@ void CFX_ScanlineCompositor::CompositeByteMaskLine(
     int width,
     pdfium::span<const uint8_t> clip_scan) const {
   CHECK_EQ(src_format_, FXDIB_Format::k8bppMask);
+  CHECK_GE(width, 0);
+
+  uint32_t mask_argb;
+  if (dest_format_ == FXDIB_Format::k8bppRgb) {
+    const auto mask = std::get<GrayWithAlpha>(mask_color_);
+    mask_argb = ArgbEncode(mask.alpha, mask.gray, mask.gray, mask.gray);
+  } else if (dest_format_ == FXDIB_Format::k8bppMask) {
+    mask_argb = ArgbEncode(std::get<uint8_t>(mask_color_), 0, 0, 0);
+  } else {
+    const auto mask = std::get<FX_BGRA_STRUCT<uint8_t>>(mask_color_);
+    mask_argb = ArgbEncode(mask.alpha, mask.red, mask.green, mask.blue);
+  }
+  const int dest_Bpp = GetCompsFromFormat(dest_format_);
+  if (RustBlendAdapter::UseCandidate() &&
+      RustBlendAdapter::CompositeMaskRow(
+          blend_type_, dest_format_,
+          src_scan.first(static_cast<size_t>(width)), /*source_left=*/0,
+          /*source_is_bit_mask=*/false, clip_scan, mask_argb, rgb_byte_order_,
+          dest_scan.first(static_cast<size_t>(width) * dest_Bpp))) {
+    return;
+  }
 
   switch (dest_format_) {
     case FXDIB_Format::kInvalid:
@@ -2369,6 +2480,29 @@ void CFX_ScanlineCompositor::CompositeBitMaskLine(
     int width,
     pdfium::span<const uint8_t> clip_scan) const {
   CHECK_EQ(src_format_, FXDIB_Format::k1bppMask);
+  CHECK_GE(src_left, 0);
+  CHECK_GE(width, 0);
+
+  uint32_t mask_argb;
+  if (dest_format_ == FXDIB_Format::k8bppRgb) {
+    const auto mask = std::get<GrayWithAlpha>(mask_color_);
+    mask_argb = ArgbEncode(mask.alpha, mask.gray, mask.gray, mask.gray);
+  } else if (dest_format_ == FXDIB_Format::k8bppMask) {
+    mask_argb = ArgbEncode(std::get<uint8_t>(mask_color_), 0, 0, 0);
+  } else {
+    const auto mask = std::get<FX_BGRA_STRUCT<uint8_t>>(mask_color_);
+    mask_argb = ArgbEncode(mask.alpha, mask.red, mask.green, mask.blue);
+  }
+  const int dest_Bpp = GetCompsFromFormat(dest_format_);
+  const size_t source_size =
+      (static_cast<size_t>(src_left) + static_cast<size_t>(width) + 7) / 8;
+  if (RustBlendAdapter::UseCandidate() &&
+      RustBlendAdapter::CompositeMaskRow(
+          blend_type_, dest_format_, src_scan.first(source_size), src_left,
+          /*source_is_bit_mask=*/true, clip_scan, mask_argb, rgb_byte_order_,
+          dest_scan.first(static_cast<size_t>(width) * dest_Bpp))) {
+    return;
+  }
 
   switch (dest_format_) {
     case FXDIB_Format::kInvalid:

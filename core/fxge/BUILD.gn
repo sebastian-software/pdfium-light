@@ -104,7 +104,11 @@ source_set("fxge") {
     "../../:pdfium_strict_config",
     "../../:pdfium_noshorten_config",
   ]
-  deps = [ "../fxcrt" ]
+  deps = [
+    "../fxcrt",
+    "dib/rust:rust_dib_adapter",
+    "freetype/rust:rust_glyph_adapter",
+  ]
   public_deps = []
   defines = []
 
@@ -125,7 +129,10 @@ source_set("fxge") {
       "agg/cfx_agg_imagerenderer.cpp",
       "agg/cfx_agg_imagerenderer.h",
     ]
-    deps += [ "../../third_party:fx_agg" ]
+    deps += [
+      "../../third_party:fx_agg",
+      "agg/rust:rust_agg_adapter",
+    ]
   }
 
   if (is_android) {
@@ -197,6 +204,7 @@ pdfium_unittest_source_set("unittests") {
     "dib/cfx_scanlinecompositor_unittest.cpp",
     "dib/cstretchengine_unittest.cpp",
     "dib/fx_dib_unittest.cpp",
+    "dib/rust_blend_parity_unittest.cpp",
     "fx_font_unittest.cpp",
   ]
   deps = [

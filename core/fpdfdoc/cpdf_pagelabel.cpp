@@ -14,6 +14,7 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fpdfdoc/cpdf_numbertree.h"
 
 namespace {
@@ -135,6 +136,14 @@ std::optional<WideString> CPDF_PageLabel::GetLabel(int page_index) const {
   ByteString style = label_dict->GetByteStringFor("S", ByteStringView());
   int label_number =
       page_index - lower_bound.value().key + label_dict->GetIntegerFor("St", 1);
+  if (pdfium::rust::UseRustParserCandidate()) {
+    std::optional<std::vector<uint8_t>> number =
+        pdfium::rust::RustPageLabelNumber(label_number, style.unsigned_span());
+    if (number.has_value()) {
+      label += WideString::FromASCII(ByteStringView(pdfium::span(*number)));
+      return label;
+    }
+  }
   label += GetLabelNumPortion(label_number, style);
   return label;
 }

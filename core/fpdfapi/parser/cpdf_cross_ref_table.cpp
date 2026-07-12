@@ -8,6 +8,7 @@
 
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/check_op.h"
 #include "core/fxcrt/containers/contains.h"
 
@@ -27,12 +28,22 @@ std::unique_ptr<CPDF_CrossRefTable> CPDF_CrossRefTable::MergeUp(
   return current;
 }
 
-CPDF_CrossRefTable::CPDF_CrossRefTable() = default;
+CPDF_CrossRefTable::CPDF_CrossRefTable()
+    : use_rust_objects_info_(pdfium::rust::UseRustParserCandidate()),
+      rust_objects_info_(
+          use_rust_objects_info_
+              ? std::make_unique<pdfium::rust::RustCrossRefTable>()
+              : nullptr) {}
 
 CPDF_CrossRefTable::CPDF_CrossRefTable(RetainPtr<CPDF_Dictionary> trailer,
                                        uint32_t trailer_object_number)
     : trailer_(std::move(trailer)),
-      trailer_object_number_(trailer_object_number) {}
+      trailer_object_number_(trailer_object_number),
+      use_rust_objects_info_(pdfium::rust::UseRustParserCandidate()),
+      rust_objects_info_(
+          use_rust_objects_info_
+              ? std::make_unique<pdfium::rust::RustCrossRefTable>()
+              : nullptr) {}
 
 CPDF_CrossRefTable::~CPDF_CrossRefTable() = default;
 
@@ -42,11 +53,17 @@ void CPDF_CrossRefTable::AddCompressed(uint32_t obj_num,
   CHECK_LE(obj_num, CPDF_Parser::kMaxObjectNumber);
   CHECK_LE(archive_obj_num, CPDF_Parser::kMaxObjectNumber);
 
+  if (use_rust_objects_info_) {
+    CHECK(rust_objects_info_->AddCompressed(obj_num, archive_obj_num,
+                                            archive_obj_index));
+    MarkObjectsInfoViewDirty();
+    return;
+  }
+
   auto& info = objects_info_[obj_num];
   if (info.gennum > 0) {
     return;
   }
-
   // Don't add known object streams to object streams.
   if (info.is_object_stream_flag) {
     return;
@@ -66,6 +83,13 @@ void CPDF_CrossRefTable::AddNormal(uint32_t obj_num,
                                    FX_FILESIZE pos) {
   CHECK_LE(obj_num, CPDF_Parser::kMaxObjectNumber);
 
+  if (use_rust_objects_info_) {
+    CHECK(
+        rust_objects_info_->AddNormal(obj_num, gen_num, is_object_stream, pos));
+    MarkObjectsInfoViewDirty();
+    return;
+  }
+
   auto& info = objects_info_[obj_num];
   if (info.gennum > gen_num) {
     return;
@@ -79,6 +103,12 @@ void CPDF_CrossRefTable::AddNormal(uint32_t obj_num,
 
 void CPDF_CrossRefTable::SetFree(uint32_t obj_num, uint16_t gen_num) {
   CHECK_LE(obj_num, CPDF_Parser::kMaxObjectNumber);
+
+  if (use_rust_objects_info_) {
+    CHECK(rust_objects_info_->SetFree(obj_num, gen_num));
+    MarkObjectsInfoViewDirty();
+    return;
+  }
 
   auto& info = objects_info_[obj_num];
   info.type = ObjectType::kFree;
@@ -94,17 +124,37 @@ void CPDF_CrossRefTable::SetTrailer(RetainPtr<CPDF_Dictionary> trailer,
 
 const CPDF_CrossRefTable::ObjectInfo* CPDF_CrossRefTable::GetObjectInfo(
     uint32_t obj_num) const {
+  EnsureObjectsInfoView();
   const auto it = objects_info_.find(obj_num);
   return it != objects_info_.end() ? &it->second : nullptr;
 }
 
+const std::map<uint32_t, CPDF_CrossRefTable::ObjectInfo>&
+CPDF_CrossRefTable::objects_info() const {
+  EnsureObjectsInfoView();
+  return objects_info_;
+}
+
 void CPDF_CrossRefTable::Update(
     std::unique_ptr<CPDF_CrossRefTable> new_cross_ref) {
-  UpdateInfo(std::move(new_cross_ref->objects_info_));
+  CHECK_EQ(use_rust_objects_info_, new_cross_ref->use_rust_objects_info_);
+  if (use_rust_objects_info_) {
+    CHECK(rust_objects_info_->OverlayFrom(
+        new_cross_ref->rust_objects_info_.get()));
+    MarkObjectsInfoViewDirty();
+  } else {
+    UpdateInfo(std::move(new_cross_ref->objects_info_));
+  }
   UpdateTrailer(std::move(new_cross_ref->trailer_));
 }
 
 void CPDF_CrossRefTable::SetObjectMapSize(uint32_t size) {
+  if (use_rust_objects_info_) {
+    CHECK(rust_objects_info_->SetSize(size));
+    MarkObjectsInfoViewDirty();
+    return;
+  }
+
   if (size == 0) {
     objects_info_.clear();
     return;
@@ -150,6 +200,43 @@ void CPDF_CrossRefTable::UpdateInfo(
     new_objects_info.insert(new_objects_info.end(), *cur_it);
   }
   objects_info_ = std::move(new_objects_info);
+}
+
+void CPDF_CrossRefTable::EnsureObjectsInfoView() const {
+  if (!use_rust_objects_info_ || !objects_info_view_dirty_) {
+    return;
+  }
+
+  objects_info_.clear();
+  const auto append =
+      [](void* raw_context, uint32_t object_number,
+         const pdfium::rust::RustCrossRefObjectInfo& rust_info) -> bool {
+    auto* objects =
+        static_cast<std::map<uint32_t, CPDF_CrossRefTable::ObjectInfo>*>(
+            raw_context);
+    if (rust_info.type > static_cast<uint8_t>(ObjectType::kCompressed)) {
+      return false;
+    }
+    ObjectInfo info;
+    info.type = static_cast<ObjectType>(rust_info.type);
+    info.is_object_stream_flag = rust_info.is_object_stream;
+    info.gennum = rust_info.generation;
+    if (info.type == ObjectType::kCompressed) {
+      info.archive.obj_num = rust_info.archive_object_number;
+      info.archive.obj_index = rust_info.archive_object_index;
+    } else {
+      info.pos = rust_info.position;
+    }
+    objects->emplace(object_number, info);
+    return true;
+  };
+  CHECK(rust_objects_info_->Snapshot(&objects_info_, append));
+  objects_info_view_dirty_ = false;
+}
+
+void CPDF_CrossRefTable::MarkObjectsInfoViewDirty() {
+  CHECK(use_rust_objects_info_);
+  objects_info_view_dirty_ = true;
 }
 
 void CPDF_CrossRefTable::UpdateTrailer(RetainPtr<CPDF_Dictionary> new_trailer) {

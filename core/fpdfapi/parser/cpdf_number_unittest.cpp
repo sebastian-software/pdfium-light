@@ -4,8 +4,12 @@
 
 #include "core/fpdfapi/parser/cpdf_number.h"
 
+#include <bit>
 #include <limits>
+#include <tuple>
+#include <vector>
 
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/bytestring.h"
 #include "core/fxcrt/fx_stream.h"
 #include "core/fxcrt/notreached.h"
@@ -32,7 +36,61 @@ class ByteStringArchiveStream : public IFX_ArchiveStream {
   ByteString str_;
 };
 
+struct NumberSnapshot {
+  bool is_integer;
+  int integer;
+  uint32_t float_bits;
+  ByteString string;
+
+  bool operator==(const NumberSnapshot&) const = default;
+};
+
+std::vector<NumberSnapshot> RunNumberScenario(bool use_rust_candidate) {
+  pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+      use_rust_candidate);
+  constexpr const char* kInputs[] = {
+      "",
+      "123x",
+      "1e2",
+      "4294967295",
+      "4294967296",
+      "+2147483647",
+      "-2147483648",
+      "+2147483648",
+      "-2147483649",
+      "38.895285",
+      "+-100.0",
+      "++100.0",
+      "invalid.",
+      "999999999999999999999999999999999999999.",
+  };
+  std::vector<NumberSnapshot> result;
+  const auto append = [&result](const CPDF_Number& number) {
+    result.push_back({
+        .is_integer = number.IsInteger(),
+        .integer = number.GetInteger(),
+        .float_bits = std::bit_cast<uint32_t>(number.GetNumber()),
+        .string = number.GetString(),
+    });
+  };
+  for (const char* input : kInputs) {
+    auto number = pdfium::MakeRetain<CPDF_Number>(ByteStringView(input));
+    append(*number);
+    append(*ToNumber(number->Clone()));
+  }
+  auto mutable_number = pdfium::MakeRetain<CPDF_Number>(1);
+  mutable_number->SetString("-7.5");
+  append(*mutable_number);
+  mutable_number->SetString("17");
+  append(*mutable_number);
+  return result;
+}
+
 }  // namespace
+
+TEST(CPDFNumber, RustCandidateMatchesCppValueScenario) {
+  EXPECT_EQ(RunNumberScenario(false), RunNumberScenario(true));
+}
 
 TEST(CPDFNumber, WriteToFloat) {
   {

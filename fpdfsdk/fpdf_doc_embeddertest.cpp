@@ -10,6 +10,7 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/bytestring.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxge/cfx_renderdevice.h"
@@ -85,7 +86,7 @@ TEST_F(FPDFDocEmbedderTest, MultipleSamePage) {
     ref.reset(FPDF_LoadPage(document(), 0));
     unique_pages.insert(ref.get());
   }
-EXPECT_EQ(4u, unique_pages.size());
+  EXPECT_EQ(4u, unique_pages.size());
   EXPECT_EQ(4u, doc->GetParsedPageCountForTesting());
 }
 
@@ -204,6 +205,49 @@ TEST_F(FPDFDocEmbedderTest, DestGetLocationInPage) {
   EXPECT_EQ(1, zoom);
 }
 
+TEST_F(FPDFDocEmbedderTest, RustDestinationPolicyMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("named_dests.pdf"));
+
+  struct Snapshot {
+    int page_index;
+    unsigned long view;
+    unsigned long parameter_count;
+    std::array<float, 4> parameters;
+    bool location_valid;
+    std::array<int, 3> has_values;
+    std::array<float, 3> location;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [&](FPDF_DEST destination, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    Snapshot result = {};
+    result.page_index = FPDFDest_GetDestPageIndex(document(), destination);
+    result.parameter_count = 42;
+    result.parameters.fill(42.4242f);
+    result.view = FPDFDest_GetView(destination, &result.parameter_count,
+                                   result.parameters.data());
+    FPDF_BOOL has_x = 7;
+    FPDF_BOOL has_y = 7;
+    FPDF_BOOL has_zoom = 7;
+    result.location.fill(-1.0f);
+    result.location_valid = !!FPDFDest_GetLocationInPage(
+        destination, &has_x, &has_y, &has_zoom, &result.location[0],
+        &result.location[1], &result.location[2]);
+    result.has_values = {has_x, has_y, has_zoom};
+    return result;
+  };
+
+  static constexpr const char* kNames[] = {"First", "Next", "FirstAlternate",
+                                           "LastAlternate"};
+  for (const char* name : kNames) {
+    FPDF_DEST destination = FPDF_GetNamedDestByName(document(), name);
+    ASSERT_TRUE(destination) << name;
+    EXPECT_EQ(snapshot(destination, false), snapshot(destination, true))
+        << name;
+  }
+}
+
 TEST_F(FPDFDocEmbedderTest, Bug1506First) {
   ASSERT_TRUE(OpenDocument("bug_1506.pdf"));
 
@@ -309,6 +353,32 @@ TEST_F(FPDFDocEmbedderTest, Bug821454) {
     EXPECT_FALSE(has_zoom);
     EXPECT_FLOAT_EQ(150.0f, x);
     EXPECT_FLOAT_EQ(250.0f, y);
+  }
+}
+
+TEST_F(FPDFDocEmbedderTest, RustLinkHitTestingMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bug_821454.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    FPDF_LINK link;
+    int z_order;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [&](double x, double y, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    return Snapshot{FPDFLink_GetLinkAtPoint(page.get(), x, y),
+                    FPDFLink_GetLinkZOrderAtPoint(page.get(), x, y)};
+  };
+
+  static constexpr std::array<std::array<double, 2>, 4> kPoints = {
+      std::array{150.0, 360.0}, std::array{150.0, 420.0},
+      std::array{0.0, 0.0}, std::array{612.0, 792.0}};
+  for (const auto& point : kPoints) {
+    EXPECT_EQ(snapshot(point[0], point[1], false),
+              snapshot(point[0], point[1], true));
   }
 }
 
@@ -512,6 +582,58 @@ TEST_F(FPDFDocEmbedderTest, ActionNonesuch) {
   EXPECT_EQ(0u, FPDFAction_GetURIPath(document(), action, buf, sizeof(buf)));
 }
 
+TEST_F(FPDFDocEmbedderTest, RustActionRoutingMatchesCppOracle) {
+  struct Snapshot {
+    unsigned long type;
+    bool has_destination;
+    std::vector<uint8_t> file_path;
+    std::vector<uint8_t> uri;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [&](FPDF_ACTION action, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    Snapshot result = {FPDFAction_GetType(action),
+                       !!FPDFAction_GetDest(document(), action),
+                       {},
+                       {}};
+    const unsigned long file_size = FPDFAction_GetFilePath(action, nullptr, 0);
+    result.file_path.resize(file_size);
+    if (file_size != 0) {
+      EXPECT_EQ(file_size,
+                FPDFAction_GetFilePath(action, result.file_path.data(),
+                                       result.file_path.size()));
+    }
+    const unsigned long uri_size =
+        FPDFAction_GetURIPath(document(), action, nullptr, 0);
+    result.uri.resize(uri_size);
+    if (uri_size != 0) {
+      EXPECT_EQ(uri_size,
+                FPDFAction_GetURIPath(document(), action, result.uri.data(),
+                                      result.uri.size()));
+    }
+    return result;
+  };
+
+  static constexpr const char* kFiles[] = {
+      "launch_action.pdf", "uri_action.pdf",   "uri_action_nonascii.pdf",
+      "goto_action.pdf",   "gotoe_action.pdf", "nonesuch_action.pdf",
+  };
+  for (const char* filename : kFiles) {
+    ASSERT_TRUE(OpenDocument(filename)) << filename;
+    {
+      ScopedPage page = LoadScopedPage(0);
+      ASSERT_TRUE(page) << filename;
+      FPDF_LINK link = FPDFLink_GetLinkAtPoint(page.get(), 100, 100);
+      ASSERT_TRUE(link) << filename;
+      FPDF_ACTION action = FPDFLink_GetAction(link);
+      ASSERT_TRUE(action) << filename;
+      EXPECT_EQ(snapshot(action, false), snapshot(action, true)) << filename;
+    }
+    CloseDocument();
+  }
+}
+
 TEST_F(FPDFDocEmbedderTest, NoBookmarks) {
   unsigned short buf[128];
 
@@ -575,6 +697,28 @@ TEST_F(FPDFDocEmbedderTest, Bookmarks) {
   EXPECT_FALSE(FPDFBookmark_GetNextSibling(document(), grand_child));
 }
 
+TEST_F(FPDFDocEmbedderTest, RustBookmarkDestinationMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bookmarks.pdf"));
+
+  FPDF_BOOKMARK child = FPDFBookmark_GetFirstChild(document(), nullptr);
+  ASSERT_TRUE(child);
+  FPDF_BOOKMARK sibling = FPDFBookmark_GetNextSibling(document(), child);
+  ASSERT_TRUE(sibling);
+  FPDF_BOOKMARK grand_child =
+      FPDFBookmark_GetFirstChild(document(), sibling);
+  ASSERT_TRUE(grand_child);
+
+  auto get_destination = [&](FPDF_BOOKMARK bookmark, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    return FPDFBookmark_GetDest(document(), bookmark);
+  };
+  for (FPDF_BOOKMARK bookmark : {child, sibling, grand_child}) {
+    EXPECT_EQ(get_destination(bookmark, false),
+              get_destination(bookmark, true));
+  }
+}
+
 TEST_F(FPDFDocEmbedderTest, FindBookmarks) {
   unsigned short buf[128];
 
@@ -596,6 +740,24 @@ TEST_F(FPDFDocEmbedderTest, FindBookmarks) {
   // Try to find one using a non-existent title.
   ScopedFPDFWideString bad_title = GetFPDFWideString(L"A BAD Beginning");
   EXPECT_FALSE(FPDFBookmark_Find(document(), bad_title.get()));
+}
+
+TEST_F(FPDFDocEmbedderTest, RustBookmarkSearchMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bookmarks.pdf"));
+
+  auto find = [&](const wchar_t* title, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFWideString encoded_title = GetFPDFWideString(title);
+    return FPDFBookmark_Find(document(), encoded_title.get());
+  };
+
+  static constexpr std::array<const wchar_t*, 4> kTitles = {
+      L"A Good Beginning", L"a good beginning", L"Open Middle Descendant",
+      L"A BAD Beginning"};
+  for (const wchar_t* title : kTitles) {
+    EXPECT_EQ(find(title, false), find(title, true));
+  }
 }
 
 TEST_F(FPDFDocEmbedderTest, FindBookmarksWithColor) {
@@ -654,6 +816,40 @@ TEST_F(FPDFDocEmbedderTest, FindBookmarksWithColor) {
   EXPECT_FLOAT_EQ(blue, 0.3);
 }
 
+TEST_F(FPDFDocEmbedderTest, RustBookmarkColorMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bookmarks_color.pdf"));
+
+  struct ColorResult {
+    bool found;
+    float red;
+    float green;
+    float blue;
+    bool operator==(const ColorResult&) const = default;
+  };
+  auto read_color = [](FPDF_BOOKMARK bookmark, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ColorResult result = {false, 100.0f, 101.0f, 102.0f};
+    result.found = FPDFBookmark_GetColor(
+        bookmark, &result.red, &result.green, &result.blue);
+    return result;
+  };
+
+  static constexpr std::array<const wchar_t*, 6> kTitles = {
+      L"No Color Array",
+      L"Color Is Not An Array",
+      L"Color Array Has The Wrong Number Of Elements",
+      L"Color Array Has Entries Greater Than 1",
+      L"Color Array Has Entries Less Than 0",
+      L"Valid Color Array"};
+  for (const wchar_t* title : kTitles) {
+    ScopedFPDFWideString encoded_title = GetFPDFWideString(title);
+    FPDF_BOOKMARK bookmark = FPDFBookmark_Find(document(), encoded_title.get());
+    ASSERT_TRUE(bookmark);
+    EXPECT_EQ(read_color(bookmark, false), read_color(bookmark, true));
+  }
+}
+
 // Check circular bookmarks will not cause infinite loop.
 TEST_F(FPDFDocEmbedderTest, FindBookmarksBug420) {
   // Open a file with circular bookmarks.
@@ -661,7 +857,20 @@ TEST_F(FPDFDocEmbedderTest, FindBookmarksBug420) {
 
   // Try to find a title.
   ScopedFPDFWideString title = GetFPDFWideString(L"anything");
-  EXPECT_FALSE(FPDFBookmark_Find(document(), title.get()));
+  FPDF_BOOKMARK cpp_result;
+  {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        false);
+    cpp_result = FPDFBookmark_Find(document(), title.get());
+  }
+  FPDF_BOOKMARK rust_result;
+  {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        true);
+    rust_result = FPDFBookmark_Find(document(), title.get());
+  }
+  EXPECT_EQ(cpp_result, rust_result);
+  EXPECT_FALSE(rust_result);
 }
 
 TEST_F(FPDFDocEmbedderTest, DeletePage) {
@@ -976,4 +1185,27 @@ TEST_F(FPDFDocEmbedderTest, GetPageLabels) {
 
   ASSERT_EQ(0u, FPDF_GetPageLabel(document(), 7, buf, sizeof(buf)));
   ASSERT_EQ(0u, FPDF_GetPageLabel(document(), 8, buf, sizeof(buf)));
+}
+
+TEST_F(FPDFDocEmbedderTest, RustPageLabelsMatchCppOracle) {
+  ASSERT_TRUE(OpenDocument("page_labels.pdf"));
+
+  struct Snapshot {
+    unsigned long required_length;
+    std::array<unsigned short, 128> buffer;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [&](int page_index, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    Snapshot result = {};
+    result.buffer.fill(0x4242);
+    result.required_length = FPDF_GetPageLabel(
+        document(), page_index, result.buffer.data(), sizeof(result.buffer));
+    return result;
+  };
+
+  for (int page_index = -1; page_index <= 8; ++page_index) {
+    EXPECT_EQ(snapshot(page_index, false), snapshot(page_index, true));
+  }
 }

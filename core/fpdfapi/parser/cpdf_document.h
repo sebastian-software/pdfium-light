@@ -25,6 +25,11 @@ class CPDF_StreamAcc;
 class IFX_SeekableReadStream;
 class JBig2_DocumentContext;
 
+namespace pdfium::rust {
+class RustDocumentPageIndex;
+class RustDocumentPageTraversal;
+}  // namespace pdfium::rust
+
 class CPDF_Document : public Observable,
                       public CPDF_Parser::ParsedObjectsHolder {
  public:
@@ -209,8 +214,38 @@ class CPDF_Document : public Observable,
                            RetainPtr<CPDF_Dictionary> page_dict,
                            bool is_insert,
                            std::set<RetainPtr<CPDF_Dictionary>>* visited);
+  bool ApplyPageMutationPath(RetainPtr<CPDF_Dictionary> pages_dict,
+                             pdfium::span<const size_t> path,
+                             RetainPtr<CPDF_Dictionary> page_dict,
+                             bool is_insert);
 
   bool InsertNewPage(int iPage, RetainPtr<CPDF_Dictionary> pPageDict);
+  size_t PageListSize() const;
+  bool IsPageIndexValid(int page_index) const;
+  uint32_t GetPageObjNumAt(size_t page_index) const;
+  void SetPageObjNumAt(size_t page_index, uint32_t object_number);
+  void ResizePageList(size_t size);
+  void InsertPageObjNumAt(size_t page_index, uint32_t object_number);
+  void RemovePageObjNumAt(size_t page_index);
+  bool PageListContains(uint32_t object_number) const;
+  static bool RetainTraversalHandle(void* context, uintptr_t handle);
+  static bool ReleaseTraversalHandle(void* context, uintptr_t handle);
+  static bool DescribeTraversalNode(void* context,
+                                    uintptr_t handle,
+                                    bool* has_kids_array,
+                                    uint8_t* node_type,
+                                    uint32_t* object_number,
+                                    size_t* child_count);
+  static bool DescribeTraversalChild(void* context,
+                                     uintptr_t handle,
+                                     size_t child_index,
+                                     uintptr_t* child_handle,
+                                     bool* has_kids,
+                                     uint32_t* object_number);
+  static bool CacheTraversedPage(void* context,
+                                 int32_t page_index,
+                                 uint32_t object_number);
+  static bool SelectTraversedPage(void* context, uintptr_t handle);
   void ResetTraversal();
   CPDF_Parser::Error HandleLoadResult(CPDF_Parser::Error error);
 
@@ -237,7 +272,12 @@ class CPDF_Document : public Observable,
   std::unique_ptr<JBig2_DocumentContext> codec_context_;
   std::unique_ptr<LinkListIface> links_context_;
   std::set<uint32_t> modified_apstream_ids_;
+  const bool use_rust_page_index_;
+  std::unique_ptr<pdfium::rust::RustDocumentPageIndex> rust_page_index_;
   std::vector<uint32_t> page_list_;  // Page number to page's dict objnum.
+  std::vector<RetainPtr<CPDF_Dictionary>> rust_traversal_handles_;
+  RetainPtr<CPDF_Dictionary> rust_traversal_result_;
+  std::unique_ptr<pdfium::rust::RustDocumentPageTraversal> rust_page_traversal_;
 
   // Must be second to last.
   StockFontClearer stock_font_clearer_;

@@ -3,10 +3,12 @@
 // found in the LICENSE file.
 
 #include "core/fpdfdoc/cpdf_pagelabel.h"
+#include "core/fpdfdoc/cpdf_numbertree.h"
 
 #include <memory>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #include "constants/catalog.h"
 #include "core/fpdfapi/page/test_with_page_module.h"
@@ -16,6 +18,7 @@
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfapi/parser/cpdf_test_document.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -160,6 +163,7 @@ class PageLabelTest : public TestWithPageModule {
   }
 
   const CPDF_PageLabel* page_label() const { return page_label_.get(); }
+  const CPDF_TestDocument* document() const { return doc_.get(); }
 
  private:
   std::unique_ptr<CPDF_TestDocument> doc_;
@@ -201,6 +205,40 @@ TEST_F(PageLabelTest, GetLabel) {
   EXPECT_THAT(page_label()->GetLabel(8001), Optional(WideString(L"x")));
   EXPECT_THAT(page_label()->GetLabel(10000), Optional(WideString(L"x")));
   EXPECT_THAT(page_label()->GetLabel(10001), Eq(std::nullopt));
+}
+
+TEST_F(PageLabelTest, RustFormattingMatchesCppOracle) {
+  auto snapshot = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    std::vector<std::optional<WideString>> result;
+    result.reserve(10003);
+    for (int page_index = -1; page_index <= 10001; ++page_index) {
+      result.push_back(page_label()->GetLabel(page_index));
+    }
+    return result;
+  };
+
+  EXPECT_EQ(snapshot(false), snapshot(true));
+}
+
+TEST_F(PageLabelTest, RustNumberTreeLookupMatchesCppOracle) {
+  RetainPtr<const CPDF_Dictionary> root = document()->GetRoot()->GetDictFor(
+      pdfium::catalog::kPageLabels);
+  ASSERT_TRUE(root);
+  CPDF_NumberTree number_tree(std::move(root));
+  auto snapshot = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    std::vector<const CPDF_Object*> result;
+    result.reserve(10003);
+    for (int key = -1; key <= 10001; ++key) {
+      result.push_back(number_tree.LookupValue(key).Get());
+    }
+    return result;
+  };
+
+  EXPECT_EQ(snapshot(false), snapshot(true));
 }
 
 TEST_F(PageLabelTest, GetLabelPerf) {

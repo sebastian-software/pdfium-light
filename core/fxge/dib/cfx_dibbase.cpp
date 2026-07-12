@@ -28,6 +28,7 @@
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/cfx_imagestretcher.h"
 #include "core/fxge/dib/cfx_imagetransformer.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 
 namespace {
 
@@ -496,28 +497,35 @@ RetainPtr<CFX_DIBitmap> CFX_DIBBase::ClipToInternal(
   }
 
   pNewBitmap->SetPalette(GetPaletteSpan());
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    bool clipped = true;
+    for (int row = rect.top; clipped && row < rect.bottom; ++row) {
+      clipped = fxge::RustBlendAdapter::ClipBitmapRow(
+          GetScanline(row), rect.left, GetBPP(),
+          pNewBitmap->GetWritableScanline(row - rect.top), rect.Width());
+    }
+    if (clipped) {
+      return pNewBitmap;
+    }
+  }
   if (GetBPP() == 1 && rect.left % 8 != 0) {
     int left_shift = rect.left % 32;
     int right_shift = 32 - left_shift;
     int dword_count = pNewBitmap->GetPitch() / 4;
     for (int row = rect.top; row < rect.bottom; ++row) {
-      auto src_span = GetScanlineAs<uint32_t>(row);
-      auto dst_span =
-          pNewBitmap->GetWritableScanlineAs<uint32_t>(row - rect.top);
-      // Bounds check for free with first/subspan.
-      const uint32_t* src_scan =
-          src_span
-              .subspan(static_cast<size_t>(rect.left / 32),
-                       static_cast<size_t>(dword_count + 1))
-              .data();
-      uint32_t* dst_scan =
-          dst_span.first(static_cast<size_t>(dword_count)).data();
-      UNSAFE_TODO({
-        for (int i = 0; i < dword_count; ++i) {
-          dst_scan[i] =
-              (src_scan[i] << left_shift) | (src_scan[i + 1] >> right_shift);
-        }
-      });
+      auto src_words =
+          fxcrt::reinterpret_span<const uint32_t>(GetScanline(row))
+              .subspan(static_cast<size_t>(rect.left / 32));
+      auto dst_words = fxcrt::reinterpret_span<uint32_t>(
+                           pNewBitmap->GetWritableScanline(row - rect.top))
+                           .first(static_cast<size_t>(dword_count));
+      for (int i = 0; i < dword_count; ++i) {
+        const size_t index = static_cast<size_t>(i);
+        const uint32_t next =
+            index + 1 < src_words.size() ? src_words[index + 1] : 0;
+        dst_words[index] =
+            (src_words[index] << left_shift) | (next >> right_shift);
+      }
     }
   } else {
     std::optional<uint32_t> copy_len = fxge::CalculatePitch8(
@@ -551,10 +559,19 @@ void CFX_DIBBase::BuildPalette() {
     return;
   }
 
-  if (GetBPP() == 1) {
-    palette_ = {0xff000000, 0xffffffff};
-  } else if (GetBPP() == 8) {
-    palette_.resize(256);
+  const int bits_per_pixel = GetBPP();
+  if (bits_per_pixel != 1 && bits_per_pixel != 8) {
+    return;
+  }
+  palette_.resize(bits_per_pixel == 1 ? 2 : 256);
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::BuildDefaultPalette(bits_per_pixel, palette_)) {
+    return;
+  }
+  if (bits_per_pixel == 1) {
+    palette_[0] = 0xff000000;
+    palette_[1] = 0xffffffff;
+  } else {
     for (int i = 0; i < 256; ++i) {
       palette_[i] = ArgbEncode(0xff, i, i, i);
     }
@@ -582,6 +599,14 @@ uint32_t CFX_DIBBase::GetPaletteArgb(int index) const {
     return GetPaletteSpan()[index];
   }
 
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const auto candidate =
+        fxge::RustBlendAdapter::GetDefaultPaletteArgb(GetBPP(), index);
+    if (candidate.has_value()) {
+      return candidate.value();
+    }
+  }
+
   if (GetBPP() == 1) {
     return index ? 0xffffffff : 0xff000000;
   }
@@ -597,6 +622,13 @@ void CFX_DIBBase::SetPaletteArgb(int index, uint32_t color) {
 
 int CFX_DIBBase::FindPalette(uint32_t color) const {
   DCHECK((GetBPP() == 1 || GetBPP() == 8) && !IsMaskFormat());
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const auto candidate = fxge::RustBlendAdapter::FindPalette(
+        GetBPP(), GetPaletteSpan(), color);
+    if (candidate.has_value()) {
+      return candidate.value();
+    }
+  }
   if (HasPalette()) {
     int palsize = (1 << GetBPP());
     pdfium::span<const uint32_t> palette = GetPaletteSpan();
@@ -625,6 +657,23 @@ bool CFX_DIBBase::GetOverlapRect(int& dest_left,
                                  const FX_RECT* clip_rect) const {
   if (width == 0 || height == 0) {
     return false;
+  }
+
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const auto candidate = fxge::RustBlendAdapter::GetOverlapRect(
+        GetWidth(), GetHeight(), dest_left, dest_top, width, height, src_width,
+        src_height, src_left, src_top, clip_rect != nullptr,
+        clip_rect ? clip_rect->left : 0, clip_rect ? clip_rect->top : 0,
+        clip_rect ? clip_rect->right : 0, clip_rect ? clip_rect->bottom : 0);
+    if (candidate.has_value()) {
+      dest_left = (*candidate)[0];
+      dest_top = (*candidate)[1];
+      width = (*candidate)[2];
+      height = (*candidate)[3];
+      src_left = (*candidate)[4];
+      src_top = (*candidate)[5];
+      return true;
+    }
   }
 
   DCHECK_GT(width, 0);
@@ -747,6 +796,17 @@ RetainPtr<CFX_DIBitmap> CFX_DIBBase::CloneAlphaMask() const {
     return nullptr;
   }
 
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    bool cloned = true;
+    for (int row = 0; cloned && row < GetHeight(); ++row) {
+      cloned = fxge::RustBlendAdapter::CloneAlphaMaskRow(
+          GetScanline(row), pMask->GetWritableScanline(row), GetWidth());
+    }
+    if (cloned) {
+      return pMask;
+    }
+  }
+
   for (int row = 0; row < GetHeight(); ++row) {
     const uint8_t* src_scan = GetScanline(row).subspan<3u>().data();
     uint8_t* dest_scan = pMask->GetWritableScanline(row).data();
@@ -769,6 +829,17 @@ RetainPtr<CFX_DIBitmap> CFX_DIBBase::FlipImage(bool bXFlip, bool bYFlip) const {
 
   pFlipped->SetPalette(GetPaletteSpan());
   const int bytes_per_pixel = GetBPP() / 8;
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    bool flipped = true;
+    for (int row = 0; flipped && row < GetHeight(); ++row) {
+      flipped = fxge::RustBlendAdapter::FlipBitmapRow(
+          GetScanline(row), GetWidth(), GetBPP(), bXFlip,
+          pFlipped->GetWritableScanline(bYFlip ? GetHeight() - row - 1 : row));
+    }
+    if (flipped) {
+      return pFlipped;
+    }
+  }
   if (!bXFlip) {
     for (int row = 0; row < GetHeight(); ++row) {
       UNSAFE_TODO({
@@ -901,6 +972,21 @@ RetainPtr<CFX_DIBitmap> CFX_DIBBase::SwapXY(bool bXFlip, bool bYFlip) const {
   const int row_end = bXFlip ? GetHeight() - dest_clip.left : dest_clip.right;
   const int col_start = bYFlip ? GetWidth() - dest_clip.bottom : dest_clip.top;
   const int col_end = bYFlip ? GetWidth() - dest_clip.top : dest_clip.bottom;
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const size_t components = GetBPP() == 1 ? 0 : GetBPP() / 8;
+    if (GetBPP() == 1) {
+      std::ranges::fill(dest_span, 0xff);
+    }
+    bool swapped = true;
+    for (int row = 0; swapped && row < GetHeight(); ++row) {
+      swapped = fxge::RustBlendAdapter::SwapXYRow(
+          GetScanline(row), GetWidth(), GetHeight(), row, components, bXFlip,
+          bYFlip, dest_span, dest_pitch);
+    }
+    if (swapped) {
+      return pTransBitmap;
+    }
+  }
   if (GetBPP() == 1) {
     std::ranges::fill(dest_span, 0xff);
     if (bYFlip) {
@@ -1048,6 +1134,27 @@ DataVector<uint32_t> CFX_DIBBase::ConvertBuffer(
     const RetainPtr<const CFX_DIBBase>& pSrcBitmap,
     int src_left,
     int src_top) {
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const int destination_components = GetCompsFromFormat(dest_format);
+    bool converted = destination_components > 0;
+    for (int row = 0; converted && row < height; ++row) {
+      converted = fxge::RustBlendAdapter::ConvertBufferRow(
+          dest_format, pSrcBitmap->GetFormat(),
+          pSrcBitmap->GetScanline(src_top + row), src_left,
+          pSrcBitmap->GetPaletteSpan(),
+          dest_buf.subspan(Fx2DSizeOrDie(row, dest_pitch)), width);
+    }
+    if (converted) {
+      if (dest_format == FXDIB_Format::k8bppRgb &&
+          pSrcBitmap->HasPalette()) {
+        const size_t palette_size = pSrcBitmap->GetRequiredPaletteSize();
+        const auto palette =
+            pSrcBitmap->GetPaletteSpan().first(palette_size);
+        return DataVector<uint32_t>(palette.begin(), palette.end());
+      }
+      return {};
+    }
+  }
   switch (dest_format) {
     case FXDIB_Format::kInvalid:
     case FXDIB_Format::k1bppRgb:

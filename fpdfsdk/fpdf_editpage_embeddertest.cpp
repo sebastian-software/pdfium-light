@@ -2,10 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "public/fpdf_annot.h"
 #include "public/fpdf_edit.h"
+#include "public/fpdf_text.h"
 
 #include <array>
 
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/fx_system.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "testing/embedder_test.h"
@@ -440,6 +443,167 @@ TEST_F(FPDFEditPageEmbedderTest, GetBoundsForRotatedImage) {
   EXPECT_FLOAT_EQ(110.0f, quad.y3);
   EXPECT_FLOAT_EQ(140.0f, quad.x4);
   EXPECT_FLOAT_EQ(kExpectedTop, quad.y4);
+}
+
+TEST_F(FPDFEditPageEmbedderTest,
+       RustPageObjectMatricesMatchCppOracleAndSavedBounds) {
+  ASSERT_TRUE(OpenDocument("hello_world_2_pages.pdf"));
+  ScopedPage oracle_page = LoadScopedPage(0);
+  ScopedPage candidate_page = LoadScopedPage(1);
+  ASSERT_TRUE(oracle_page);
+  ASSERT_TRUE(candidate_page);
+
+  struct Snapshot {
+    std::array<float, 6> matrix;
+    std::array<float, 8> quad;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [](FPDF_PAGE page, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    FPDF_PAGEOBJECT object = FPDFPage_GetObject(page, 0);
+    EXPECT_EQ(FPDF_PAGEOBJ_TEXT, FPDFPageObj_GetType(object));
+    FS_MATRIX matrix;
+    EXPECT_TRUE(FPDFPageObj_GetMatrix(object, &matrix));
+    FS_QUADPOINTSF quad;
+    EXPECT_TRUE(FPDFPageObj_GetRotatedBounds(object, &quad));
+    return Snapshot{
+        {matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f},
+        {quad.x1, quad.y1, quad.x2, quad.y2, quad.x3, quad.y3, quad.x4,
+         quad.y4}};
+  };
+  auto set_matrix = [](FPDF_PAGE page, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    FPDF_PAGEOBJECT object = FPDFPage_GetObject(page, 0);
+    const FS_MATRIX replacement = {0.75f, 0.25f, -0.125f, 1.25f, 7.0f, -3.0f};
+    return FPDFPageObj_SetMatrix(object, &replacement);
+  };
+
+  ASSERT_TRUE(set_matrix(oracle_page.get(), false));
+  ASSERT_TRUE(set_matrix(candidate_page.get(), true));
+  EXPECT_EQ(snapshot(oracle_page.get(), false),
+            snapshot(candidate_page.get(), true));
+
+  ASSERT_TRUE(FPDFPage_GenerateContent(oracle_page.get()));
+  ASSERT_TRUE(FPDFPage_GenerateContent(candidate_page.get()));
+  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_document);
+  ScopedSavedPage saved_oracle_page = LoadScopedSavedPage(0);
+  ScopedSavedPage saved_candidate_page = LoadScopedSavedPage(1);
+  ASSERT_TRUE(saved_oracle_page);
+  ASSERT_TRUE(saved_candidate_page);
+  EXPECT_EQ(snapshot(saved_oracle_page.get(), false),
+            snapshot(saved_candidate_page.get(), true));
+}
+
+TEST_F(FPDFEditPageEmbedderTest,
+       RustPageObjectActiveStateMatchesCppOracleAndSavedText) {
+  ASSERT_TRUE(OpenDocument("hello_world_2_pages.pdf"));
+  ScopedPage oracle_page = LoadScopedPage(0);
+  ScopedPage candidate_page = LoadScopedPage(1);
+  ASSERT_TRUE(oracle_page);
+  ASSERT_TRUE(candidate_page);
+
+  struct Snapshot {
+    bool first_object_active;
+    int object_count;
+    int text_character_count;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [](FPDF_PAGE page, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    FPDF_BOOL active = false;
+    EXPECT_TRUE(FPDFPageObj_GetIsActive(FPDFPage_GetObject(page, 0), &active));
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page));
+    EXPECT_TRUE(text_page);
+    return Snapshot{!!active, FPDFPage_CountObjects(page),
+                    FPDFText_CountChars(text_page.get())};
+  };
+  auto deactivate = [](FPDF_PAGE page, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    FPDF_PAGEOBJECT object = FPDFPage_GetObject(page, 0);
+    return FPDFPageObj_SetIsActive(object, false) &&
+           FPDFPageObj_SetIsActive(object, false);
+  };
+
+  EXPECT_EQ(snapshot(oracle_page.get(), false),
+            snapshot(candidate_page.get(), true));
+  ASSERT_TRUE(deactivate(oracle_page.get(), false));
+  ASSERT_TRUE(deactivate(candidate_page.get(), true));
+  EXPECT_EQ(snapshot(oracle_page.get(), false),
+            snapshot(candidate_page.get(), true));
+
+  ASSERT_TRUE(FPDFPage_GenerateContent(oracle_page.get()));
+  ASSERT_TRUE(FPDFPage_GenerateContent(candidate_page.get()));
+  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_document);
+  ScopedSavedPage saved_oracle_page = LoadScopedSavedPage(0);
+  ScopedSavedPage saved_candidate_page = LoadScopedSavedPage(1);
+  ASSERT_TRUE(saved_oracle_page);
+  ASSERT_TRUE(saved_candidate_page);
+  EXPECT_EQ(snapshot(saved_oracle_page.get(), false),
+            snapshot(saved_candidate_page.get(), true));
+}
+
+TEST_F(FPDFEditPageEmbedderTest,
+       RustAnnotationGeometryMatchesCppOracleAndSavedRect) {
+  CreateEmptyDocument();
+  ScopedFPDFPage oracle_page(FPDFPage_New(document(), 0, 200, 200));
+  ScopedFPDFPage candidate_page(FPDFPage_New(document(), 1, 200, 200));
+  ASSERT_TRUE(oracle_page);
+  ASSERT_TRUE(candidate_page);
+
+  auto add_annotation = [](FPDF_PAGE page) {
+    ScopedFPDFAnnotation annotation(
+        FPDFPage_CreateAnnot(page, FPDF_ANNOT_SQUARE));
+    if (!annotation) {
+      return false;
+    }
+    const FS_RECTF rect = {10.0f, 40.0f, 30.0f, 20.0f};
+    return !!FPDFAnnot_SetRect(annotation.get(), &rect);
+  };
+  ASSERT_TRUE(add_annotation(oracle_page.get()));
+  ASSERT_TRUE(add_annotation(candidate_page.get()));
+
+  struct Snapshot {
+    std::array<float, 4> rect;
+    int rotation;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [](FPDF_PAGE page) {
+    ScopedFPDFAnnotation annotation(FPDFPage_GetAnnot(page, 0));
+    EXPECT_TRUE(annotation);
+    FS_RECTF rect;
+    EXPECT_TRUE(FPDFAnnot_GetRect(annotation.get(), &rect));
+    return Snapshot{{rect.left, rect.bottom, rect.right, rect.top},
+                    FPDFPage_GetRotation(page)};
+  };
+  auto mutate = [](FPDF_PAGE page, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    FPDFPage_SetRotation(page, -5);
+    FPDFPage_TransformAnnots(page, 1, 2, 3, 4, 5, 6);
+  };
+
+  EXPECT_EQ(snapshot(oracle_page.get()), snapshot(candidate_page.get()));
+  mutate(oracle_page.get(), false);
+  mutate(candidate_page.get(), true);
+  EXPECT_EQ(snapshot(oracle_page.get()), snapshot(candidate_page.get()));
+
+  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_document);
+  ScopedSavedPage saved_oracle_page = LoadScopedSavedPage(0);
+  ScopedSavedPage saved_candidate_page = LoadScopedSavedPage(1);
+  ASSERT_TRUE(saved_oracle_page);
+  ASSERT_TRUE(saved_candidate_page);
+  EXPECT_EQ(snapshot(saved_oracle_page.get()),
+            snapshot(saved_candidate_page.get()));
 }
 
 TEST_F(FPDFEditPageEmbedderTest, VerifyDashArraySaved) {

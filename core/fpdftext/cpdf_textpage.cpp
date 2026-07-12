@@ -23,6 +23,8 @@
 #include "core/fpdfapi/page/cpdf_textobject.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
+#include "core/fpdftext/rust/rust_text_adapter.h"
 #include "core/fpdftext/unicodenormalizationdata.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/check_op.h"
@@ -160,6 +162,21 @@ bool IsRectIntersect(const CFX_FloatRect& rect1, const CFX_FloatRect& rect2) {
   CFX_FloatRect rect = rect1;
   rect.Intersect(rect2);
   return !rect.IsEmpty();
+}
+
+pdfium::rust::RustTextDirection ToRustTextDirection(
+    CFX_BidiChar::Direction direction) {
+  switch (direction) {
+    case CFX_BidiChar::Direction::kNeutral:
+      return pdfium::rust::RustTextDirection::kNeutral;
+    case CFX_BidiChar::Direction::kLeft:
+      return pdfium::rust::RustTextDirection::kLeft;
+    case CFX_BidiChar::Direction::kRight:
+      return pdfium::rust::RustTextDirection::kRight;
+    case CFX_BidiChar::Direction::kLeftWeak:
+      return pdfium::rust::RustTextDirection::kLeftWeak;
+  }
+  NOTREACHED();
 }
 
 bool IsRightToLeft(const CPDF_TextObject& text_obj) {
@@ -371,7 +388,10 @@ CPDF_TextPage::CharInfo::CharInfo(const CharInfo&) = default;
 CPDF_TextPage::CharInfo::~CharInfo() = default;
 
 CPDF_TextPage::CPDF_TextPage(const CPDF_Page* page, bool rtl)
-    : page_(page), rtl_(rtl), display_matrix_(page_->GetDisplayMatrix()) {
+    : page_(page),
+      use_rust_(pdfium::rust::UseRustParserCandidate()),
+      rtl_(rtl),
+      display_matrix_(page_->GetDisplayMatrix()) {
   Init();
 }
 
@@ -382,6 +402,18 @@ void CPDF_TextPage::Init() {
   ProcessObject();
 
   const int count = CountChars();
+  if (use_rust_) {
+    std::vector<uint8_t> included(count);
+    for (int i = 0; i < count; ++i) {
+      const CharInfo& charinfo = char_list_[i];
+      included[i] = charinfo.char_type() == CharType::kGenerated ||
+                    IsNormalCharacter(charinfo);
+    }
+    rust_index_map_ =
+        std::make_unique<pdfium::rust::RustTextIndexMap>(included);
+    return;
+  }
+
   if (count) {
     char_indices_.push_back({0, 0});
   }
@@ -409,6 +441,10 @@ int CPDF_TextPage::CountChars() const {
 }
 
 int CPDF_TextPage::CharIndexFromTextIndex(int text_index) const {
+  if (use_rust_) {
+    return rust_index_map_->CharacterFromText(text_index);
+  }
+
   int count = 0;
   for (const auto& info : char_indices_) {
     count += info.count;
@@ -420,6 +456,10 @@ int CPDF_TextPage::CharIndexFromTextIndex(int text_index) const {
 }
 
 int CPDF_TextPage::TextIndexFromCharIndex(int char_index) const {
+  if (use_rust_) {
+    return rust_index_map_->TextFromCharacter(char_index);
+  }
+
   int count = 0;
   for (const auto& info : char_indices_) {
     int text_index = char_index - info.index;
@@ -432,8 +472,48 @@ int CPDF_TextPage::TextIndexFromCharIndex(int char_index) const {
   return -1;
 }
 
+bool CPDF_TextPage::GetRustSelectionCharacter(
+    void* context,
+    size_t index,
+    bool* generated,
+    uintptr_t* text_object,
+    float* left,
+    float* bottom,
+    float* right,
+    float* top) {
+  const auto* text_page = static_cast<const CPDF_TextPage*>(context);
+  if (index >= text_page->char_list_.size()) {
+    return false;
+  }
+  const CharInfo& info = text_page->char_list_[index];
+  const CFX_FloatRect& rect = info.char_box();
+  *generated = info.char_type() == CharType::kGenerated;
+  *text_object = reinterpret_cast<uintptr_t>(info.text_object());
+  *left = rect.left;
+  *bottom = rect.bottom;
+  *right = rect.right;
+  *top = rect.top;
+  return true;
+}
+
 std::vector<CFX_FloatRect> CPDF_TextPage::GetRectArray(int start,
                                                        int count) const {
+  if (use_rust_) {
+    pdfium::rust::RustTextSelectionRects rust_rects(
+        char_list_.size(), start, count, const_cast<CPDF_TextPage*>(this),
+        GetRustSelectionCharacter);
+    std::vector<CFX_FloatRect> rects;
+    rects.reserve(rust_rects.size());
+    for (size_t i = 0; i < rust_rects.size(); ++i) {
+      const auto rect = rust_rects.GetRect(i);
+      if (!rect.has_value()) {
+        return {};
+      }
+      rects.emplace_back(rect->left, rect->bottom, rect->right, rect->top);
+    }
+    return rects;
+  }
+
   std::vector<CFX_FloatRect> rects;
   if (start < 0 || count == 0) {
     return rects;
@@ -484,6 +564,26 @@ std::vector<CFX_FloatRect> CPDF_TextPage::GetRectArray(int start,
 
 int CPDF_TextPage::GetIndexAtPos(const CFX_PointF& point,
                                  const CFX_SizeF& tolerance) const {
+  if (use_rust_) {
+    auto get_rect = [](void* context, size_t index, float* left, float* bottom,
+                       float* right, float* top) {
+      const auto* text_page = static_cast<const CPDF_TextPage*>(context);
+      if (index >= text_page->char_list_.size()) {
+        return false;
+      }
+      const CFX_FloatRect& rect = text_page->char_list_[index].char_box();
+      *left = rect.left;
+      *bottom = rect.bottom;
+      *right = rect.right;
+      *top = rect.top;
+      return true;
+    };
+    return pdfium::rust::RustTextIndexAtPosition(
+               char_list_.size(), point.x, point.y, tolerance.width,
+               tolerance.height, const_cast<CPDF_TextPage*>(this), get_rect)
+        .value_or(-1);
+  }
+
   int pos;
   int near_pos = -1;
   double xdif = 5000;
@@ -524,6 +624,28 @@ int CPDF_TextPage::GetIndexAtPos(const CFX_PointF& point,
 
 WideString CPDF_TextPage::GetTextByPredicate(
     const std::function<bool(const CharInfo&)>& predicate) const {
+  if (use_rust_) {
+    struct PredicateContext {
+      const CPDF_TextPage* text_page;
+      const std::function<bool(const CharInfo&)>* predicate;
+    } context = {this, &predicate};
+    auto get_character = [](void* opaque_context, size_t index, bool* included,
+                            uint32_t* unicode, float* origin_y) {
+      const auto* context = static_cast<const PredicateContext*>(opaque_context);
+      if (index >= context->text_page->char_list_.size()) {
+        return false;
+      }
+      const CharInfo& info = context->text_page->char_list_[index];
+      *included = (*context->predicate)(info);
+      *unicode = static_cast<uint32_t>(info.unicode());
+      *origin_y = info.origin().y;
+      return true;
+    };
+    pdfium::rust::RustTextPredicateResult result(char_list_.size(), &context,
+                                                 get_character);
+    return result.GetText().value_or(WideString());
+  }
+
   float posy = 0;
   bool IsContainPreChar = false;
   bool IsAddLineFeed = false;
@@ -595,6 +717,15 @@ WideString CPDF_TextPage::GetPageText(int start, int count) const {
     return WideString();
   }
 
+  if (use_rust_) {
+    const auto range = rust_index_map_->PageTextRange(start, count, CountChars());
+    if (!range.has_value()) {
+      return WideString();
+    }
+    return WideString(
+        text_buf_.AsStringView().Substr(range->first, range->second));
+  }
+
   const int count_chars = CountChars();
   int text_start = TextIndexFromCharIndex(start);
 
@@ -640,11 +771,29 @@ int CPDF_TextPage::CountRects(int start, int count) {
     return -1;
   }
 
+  if (use_rust_) {
+    rust_sel_rects_ = std::make_unique<pdfium::rust::RustTextSelectionRects>(
+        char_list_.size(), start, count, this, GetRustSelectionCharacter);
+    return pdfium::checked_cast<int>(rust_sel_rects_->size());
+  }
+
   sel_rects_ = GetRectArray(start, count);
   return fxcrt::CollectionSize<int>(sel_rects_);
 }
 
 bool CPDF_TextPage::GetRect(int rectIndex, CFX_FloatRect* pRect) const {
+  if (use_rust_) {
+    if (rectIndex < 0 || !rust_sel_rects_) {
+      return false;
+    }
+    const auto rect = rust_sel_rects_->GetRect(rectIndex);
+    if (!rect.has_value()) {
+      return false;
+    }
+    *pRect = CFX_FloatRect(rect->left, rect->bottom, rect->right, rect->top);
+    return true;
+  }
+
   if (!fxcrt::IndexInBounds(sel_rects_, rectIndex)) {
     return false;
   }
@@ -659,6 +808,39 @@ CPDF_TextPage::TextOrientation CPDF_TextPage::FindTextlineFlowOrientation()
   const int32_t nPageHeight = static_cast<int32_t>(page_->GetPageHeight());
   if (nPageWidth <= 0 || nPageHeight <= 0) {
     return TextOrientation::kUnknown;
+  }
+
+  if (use_rust_) {
+    auto get_object = [](void* context, size_t index, bool* active,
+                         bool* is_text, float* left, float* bottom,
+                         float* right, float* top) {
+      auto* page = static_cast<const CPDF_Page*>(context);
+      CPDF_PageObject* page_object = page->GetPageObjectByIndex(index);
+      if (!page_object) {
+        return false;
+      }
+      *active = page_object->IsActive();
+      *is_text = page_object->IsText();
+      const CFX_FloatRect rect = page_object->GetRect();
+      *left = rect.left;
+      *bottom = rect.bottom;
+      *right = rect.right;
+      *top = rect.top;
+      return true;
+    };
+    const auto orientation = pdfium::rust::RustTextFlowOrientation(
+        nPageWidth, nPageHeight, page_->GetPageObjectCount(),
+        const_cast<CPDF_Page*>(page_.get()), get_object);
+    if (orientation.has_value()) {
+      switch (*orientation) {
+        case pdfium::rust::RustTextOrientation::kHorizontal:
+          return TextOrientation::kHorizontal;
+        case pdfium::rust::RustTextOrientation::kVertical:
+          return TextOrientation::kVertical;
+        case pdfium::rust::RustTextOrientation::kUnknown:
+          return TextOrientation::kUnknown;
+      }
+    }
   }
 
   std::vector<bool> nHorizontalMask(nPageWidth);
@@ -786,6 +968,59 @@ void CPDF_TextPage::ProcessFormObject(CPDF_FormObject* form_obj,
 }
 
 void CPDF_TextPage::AddCharInfo(wchar_t wc, const CharInfo& info, bool is_rtl) {
+  if (use_rust_) {
+    auto process_rust = [&]() {
+      pdfium::rust::RustTextAddCharacterPlan plan(
+          static_cast<uint8_t>(info.char_type()), info.char_code(),
+          static_cast<uint32_t>(info.unicode()), static_cast<uint32_t>(wc),
+          is_rtl);
+      if (!plan.valid()) {
+        return false;
+      }
+      wchar_t display_character = wc;
+      if (plan.needs_display_unicode()) {
+        display_character = pdfium::unicode::GetMirrorChar(wc);
+        if (!plan.SetDisplayUnicode(
+                static_cast<uint32_t>(display_character))) {
+          return false;
+        }
+      }
+      if (plan.needs_normalization()) {
+        DataVector<wchar_t> normalized =
+            GetUnicodeNormalization(display_character);
+        if (!plan.SetNormalization(normalized)) {
+          return false;
+        }
+      }
+      std::vector<pdfium::rust::RustTextCharacterEmission> emissions;
+      emissions.reserve(plan.emission_count());
+      for (size_t index = 0; index < plan.emission_count(); ++index) {
+        const auto emission = plan.GetEmission(index);
+        if (!emission.has_value() ||
+            emission->char_type > static_cast<uint8_t>(CharType::kPiece)) {
+          return false;
+        }
+        emissions.push_back(*emission);
+      }
+      for (const auto& emission : emissions) {
+        CharInfo modified_info = info;
+        modified_info.set_char_type(
+            static_cast<CharType>(emission.char_type));
+        if (emission.set_unicode) {
+          modified_info.set_unicode(static_cast<wchar_t>(emission.unicode));
+        }
+        if (emission.append_text) {
+          text_buf_.AppendChar(static_cast<wchar_t>(emission.unicode));
+        }
+        char_list_.push_back(modified_info);
+      }
+      return true;
+    };
+    if (process_rust()) {
+      return;
+    }
+  }
+
   if (!IsNormalCharacter(info)) {
     char_list_.push_back(info);
     return;
@@ -824,6 +1059,61 @@ void CPDF_TextPage::CloseTempLine() {
   }
 
   WideString str = temp_text_buf_.MakeString();
+  if (use_rust_) {
+    auto process_rust = [&]() {
+      pdfium::rust::RustTextLinePlan plan(str.AsStringView());
+      WideString collapsed;
+      collapsed.Reserve(plan.kept_count());
+      std::vector<CharInfo> collapsed_characters;
+      collapsed_characters.reserve(plan.kept_count());
+      for (size_t index = 0; index < plan.kept_count(); ++index) {
+        const auto source_index = plan.GetKeptIndex(index);
+        if (!source_index.has_value() || *source_index >= str.GetLength() ||
+            *source_index >= temp_char_list_.size()) {
+          return false;
+        }
+        collapsed += str[*source_index];
+        collapsed_characters.push_back(temp_char_list_[*source_index]);
+      }
+
+      CFX_BidiString bidi(collapsed);
+      if (rtl_) {
+        bidi.SetOverallDirectionRight();
+      }
+      std::vector<pdfium::rust::RustTextBidiSegment> segments;
+      for (const auto& segment : bidi) {
+        segments.push_back({segment.start, segment.count,
+                            ToRustTextDirection(segment.direction)});
+      }
+      if (!plan.SetSegments(ToRustTextDirection(bidi.OverallDirection()),
+                            segments)) {
+        return false;
+      }
+      std::vector<pdfium::rust::RustTextEmission> emissions;
+      emissions.reserve(plan.emission_count());
+      for (size_t index = 0; index < plan.emission_count(); ++index) {
+        const auto emission = plan.GetEmission(index);
+        if (!emission.has_value() ||
+            emission->character_index >= collapsed.GetLength() ||
+            emission->character_index >= collapsed_characters.size()) {
+          return false;
+        }
+        emissions.push_back(*emission);
+      }
+      for (const auto& emission : emissions) {
+        AddCharInfo(collapsed[emission.character_index],
+                    collapsed_characters[emission.character_index],
+                    emission.is_rtl);
+      }
+      temp_char_list_.clear();
+      temp_text_buf_.Delete(0, temp_text_buf_.GetLength());
+      return true;
+    };
+    if (process_rust()) {
+      return;
+    }
+  }
+
   bool prev_char_is_space = false;
   for (size_t i = 0; i < str.GetLength(); ++i) {
     if (str[i] != ' ') {
@@ -872,6 +1162,99 @@ void CPDF_TextPage::ProcessTextObject(
     const CFX_Matrix& form_matrix,
     const CPDF_PageObjectHolder* obj_list,
     CPDF_PageObjectHolder::const_iterator obj_iter) {
+  if (use_rust_) {
+    const float object_width = text_obj->GetRect().Width();
+    const size_t object_count = text_objects_.size();
+    const bool is_duplicate =
+        fabs(object_width) >= kSizeEpsilon && object_count > 0 &&
+        IsSameAsPreTextObject(text_obj, obj_list, obj_iter);
+    struct GroupContext {
+      CPDF_TextObject* current;
+      const CFX_Matrix* current_form_matrix;
+      const CFX_Matrix* display_matrix;
+      const std::vector<TransformedTextObject>* objects;
+    } context = {text_obj, &form_matrix, &display_matrix_, &text_objects_};
+    auto get_summary = [](void* context, size_t* previous_item_count,
+                          float* previous_width, float* current_width,
+                          float* previous_y, float* current_x,
+                          float* current_y) {
+      auto* group = static_cast<GroupContext*>(context);
+      if (group->objects->empty()) {
+        return false;
+      }
+      const TransformedTextObject& previous = group->objects->back();
+      *previous_item_count = previous.text_obj_->CountItems();
+      if (*previous_item_count == 0) {
+        return true;
+      }
+
+      const auto previous_item =
+          previous.text_obj_->GetItemInfo(*previous_item_count - 1);
+      *previous_width = GetCharWidth(previous_item.char_code_,
+                                     previous.text_obj_->GetFont().Get()) *
+                        previous.text_obj_->GetFontSize() / 1000;
+      const CFX_Matrix previous_matrix =
+          previous.text_obj_->GetTextMatrix() * previous.form_matrix_;
+      *previous_width =
+          previous_matrix.TransformDistance(fabs(*previous_width));
+
+      const auto current_item = group->current->GetItemInfo(0);
+      *current_width = GetCharWidth(current_item.char_code_,
+                                    group->current->GetFont().Get()) *
+                       group->current->GetFontSize() / 1000;
+      const CFX_Matrix current_matrix =
+          group->current->GetTextMatrix() * *group->current_form_matrix;
+      *current_width = current_matrix.TransformDistance(fabs(*current_width));
+
+      const CFX_PointF previous_position = group->display_matrix->Transform(
+          previous.form_matrix_.Transform(previous.text_obj_->GetPos()));
+      const CFX_PointF current_position = group->display_matrix->Transform(
+          group->current_form_matrix->Transform(group->current->GetPos()));
+      *previous_y = previous_position.y;
+      *current_x = current_position.x;
+      *current_y = current_position.y;
+      return true;
+    };
+    auto get_object_x = [](void* context, size_t index, float* x) {
+      auto* group = static_cast<GroupContext*>(context);
+      if (index >= group->objects->size()) {
+        return false;
+      }
+      const TransformedTextObject& object = (*group->objects)[index];
+      *x = group->display_matrix
+               ->Transform(
+                   object.form_matrix_.Transform(object.text_obj_->GetPos()))
+               .x;
+      return true;
+    };
+    const auto plan = pdfium::rust::RustTextPlanObjectGroup(
+        object_width, object_count, is_duplicate, &context, get_summary,
+        get_object_x);
+    if (plan.has_value()) {
+      TransformedTextObject new_obj;
+      new_obj.text_obj_ = text_obj;
+      new_obj.form_matrix_ = form_matrix;
+      switch (plan->action) {
+        case 0:
+          return;
+        case 1:
+          text_objects_.push_back(new_obj);
+          return;
+        case 2:
+          for (const auto& object : text_objects_) {
+            ProcessTextObject(object);
+          }
+          text_objects_.clear();
+          text_objects_.push_back(new_obj);
+          return;
+        case 3:
+          text_objects_.insert(text_objects_.begin() + plan->insert_index,
+                               new_obj);
+          return;
+      }
+    }
+  }
+
   if (fabs(text_obj->GetRect().Width()) < kSizeEpsilon) {
     return;
   }
@@ -960,16 +1343,38 @@ CPDF_TextPage::MarkedContentState CPDF_TextPage::PreMarkedContent(
       actual_text = temp->GetUnicodeText();
     }
   }
+  bool repeats_previous_mark = false;
+  if (prev_text_obj_) {
+    const CPDF_ContentMarks* prev_marks = prev_text_obj_->GetContentMarks();
+    repeats_previous_mark =
+        prev_marks->CountItems() == content_marks_count &&
+        prev_marks->GetItem(content_marks_count - 1)->GetParam() == dict;
+  }
+  if (use_rust_) {
+    auto character_predicate = [](void*, uint32_t character,
+                                  uint8_t predicate) {
+      return predicate == 2 && isprint(static_cast<int>(character));
+    };
+    const auto state = pdfium::rust::RustTextSelectMarkedContentState(
+        bExist, repeats_previous_mark, actual_text.AsStringView(), nullptr,
+        character_predicate);
+    if (state.has_value()) {
+      switch (*state) {
+        case pdfium::rust::RustTextMarkedContentState::kPass:
+          return MarkedContentState::kPass;
+        case pdfium::rust::RustTextMarkedContentState::kDone:
+          return MarkedContentState::kDone;
+        case pdfium::rust::RustTextMarkedContentState::kDelay:
+          return MarkedContentState::kDelay;
+      }
+    }
+  }
   if (!bExist) {
     return MarkedContentState::kPass;
   }
 
-  if (prev_text_obj_) {
-    const CPDF_ContentMarks* prev_marks = prev_text_obj_->GetContentMarks();
-    if (prev_marks->CountItems() == content_marks_count &&
-        prev_marks->GetItem(content_marks_count - 1)->GetParam() == dict) {
-      return MarkedContentState::kDone;
-    }
+  if (repeats_previous_mark) {
+    return MarkedContentState::kDone;
   }
 
   if (actual_text.IsEmpty()) {
@@ -1010,6 +1415,41 @@ void CPDF_TextPage::ProcessMarkedContent(const TransformedTextObject& obj) {
   const bool is_rtl = IsRightToLeft(*text_obj);
   CFX_Matrix matrix = text_obj->GetTextMatrix() * obj.form_matrix_;
   CFX_FloatRect rect = text_obj->GetRect();
+  if (use_rust_) {
+    auto character_predicate = [](void*, uint32_t character,
+                                  uint8_t predicate) {
+      return predicate == 2 && isprint(static_cast<int>(character));
+    };
+    pdfium::rust::RustTextMarkedContentPlan plan(
+        actual_text.AsStringView(), is_rtl,
+        pdfium::rust::RustTextRect{rect.left, rect.bottom, rect.right, rect.top},
+        nullptr, character_predicate);
+    if (plan.valid()) {
+      std::vector<pdfium::rust::RustTextMarkedContentEmission> emissions;
+      emissions.reserve(plan.size());
+      for (size_t index = 0; index < plan.size(); ++index) {
+        const auto emission = plan.GetEmission(index);
+        if (!emission.has_value()) {
+          emissions.clear();
+          break;
+        }
+        emissions.push_back(*emission);
+      }
+      if (emissions.size() == plan.size()) {
+        for (const auto& emission : emissions) {
+          temp_text_buf_.AppendChar(static_cast<wchar_t>(emission.unicode));
+          const auto& emission_rect = emission.rect;
+          temp_char_list_.push_back(CharInfo(
+              CharType::kPiece, CPDF_Font::kInvalidCharCode,
+              static_cast<wchar_t>(emission.unicode), text_obj->GetPos(),
+              CFX_FloatRect(emission_rect.left, emission_rect.bottom,
+                            emission_rect.right, emission_rect.top),
+              matrix, text_obj));
+        }
+        return;
+      }
+    }
+  }
   float step = 0;
 
   if (is_rtl) {
@@ -1123,6 +1563,42 @@ void CPDF_TextPage::ProcessTextObject(const TransformedTextObject& obj) {
 CPDF_TextPage::TextOrientation CPDF_TextPage::GetTextObjectWritingMode(
     const CPDF_TextObject* text_obj) const {
   size_t char_count = text_obj->CharCount();
+  if (use_rust_) {
+    CFX_PointF first_origin;
+    CFX_PointF last_origin;
+    if (char_count > 1) {
+      CPDF_TextObject::Item first = text_obj->GetCharInfo(0);
+      CPDF_TextObject::Item last = text_obj->GetCharInfo(char_count - 1);
+      const CFX_Matrix text_matrix = text_obj->GetTextMatrix();
+      first_origin = text_matrix.Transform(first.origin_);
+      last_origin = text_matrix.Transform(last.origin_);
+    }
+    pdfium::rust::RustTextOrientation fallback_orientation;
+    switch (textline_dir_) {
+      case TextOrientation::kUnknown:
+        fallback_orientation = pdfium::rust::RustTextOrientation::kUnknown;
+        break;
+      case TextOrientation::kHorizontal:
+        fallback_orientation = pdfium::rust::RustTextOrientation::kHorizontal;
+        break;
+      case TextOrientation::kVertical:
+        fallback_orientation = pdfium::rust::RustTextOrientation::kVertical;
+        break;
+    }
+    const auto orientation = pdfium::rust::RustTextObjectWritingMode(
+        char_count, fallback_orientation, first_origin.x, first_origin.y,
+        last_origin.x, last_origin.y);
+    if (orientation.has_value()) {
+      switch (*orientation) {
+        case pdfium::rust::RustTextOrientation::kUnknown:
+          return TextOrientation::kUnknown;
+        case pdfium::rust::RustTextOrientation::kHorizontal:
+          return TextOrientation::kHorizontal;
+        case pdfium::rust::RustTextOrientation::kVertical:
+          return TextOrientation::kVertical;
+      }
+    }
+  }
   if (char_count <= 1) {
     return textline_dir_;
   }
@@ -1154,6 +1630,29 @@ bool CPDF_TextPage::IsHyphen(wchar_t current_char) const {
   WideStringView current_text = temp_text_buf_.AsStringView();
   if (current_text.IsEmpty()) {
     current_text = text_buf_.AsStringView();
+  }
+
+  if (use_rust_) {
+    const CharInfo* previous = GetPrevCharInfo();
+    auto character_predicate = [](void*, uint32_t character,
+                                  uint8_t predicate) {
+      switch (predicate) {
+        case 0:
+          return FXSYS_iswalpha(static_cast<wchar_t>(character));
+        case 1:
+          return FXSYS_iswalnum(static_cast<wchar_t>(character));
+        default:
+          return false;
+      }
+    };
+    const auto is_hyphen = pdfium::rust::RustTextIsHyphenJoin(
+        current_text, static_cast<uint32_t>(current_char), previous != nullptr,
+        previous ? static_cast<uint8_t>(previous->char_type()) : 0,
+        previous ? static_cast<uint32_t>(previous->unicode()) : 0, nullptr,
+        character_predicate);
+    if (is_hyphen.has_value()) {
+      return *is_hyphen;
+    }
   }
 
   if (current_text.IsEmpty()) {
@@ -1213,17 +1712,49 @@ CPDF_TextPage::GenerateCharacter CPDF_TextPage::ProcessInsertObject(
   }
 
   wchar_t current_char = unicode.Front();
-  if (WritingMode == TextOrientation::kHorizontal) {
-    if (EndHorizontalLine(this_rect, prev_rect)) {
-      return IsHyphen(current_char) ? GenerateCharacter::kHyphen
-                                    : GenerateCharacter::kLineBreak;
+  bool line_end_checked = false;
+  if (use_rust_) {
+    pdfium::rust::RustTextOrientation rust_writing_mode;
+    switch (WritingMode) {
+      case TextOrientation::kUnknown:
+        rust_writing_mode = pdfium::rust::RustTextOrientation::kUnknown;
+        break;
+      case TextOrientation::kHorizontal:
+        rust_writing_mode = pdfium::rust::RustTextOrientation::kHorizontal;
+        break;
+      case TextOrientation::kVertical:
+        rust_writing_mode = pdfium::rust::RustTextOrientation::kVertical;
+        break;
     }
-  } else if (WritingMode == TextOrientation::kVertical) {
-    if (EndVerticalLine(this_rect, prev_rect, curline_rect_,
-                        text_obj->GetFontSize(),
-                        prev_text_obj_->GetFontSize())) {
-      return IsHyphen(current_char) ? GenerateCharacter::kHyphen
-                                    : GenerateCharacter::kLineBreak;
+    auto to_rust_rect = [](const CFX_FloatRect& rect) {
+      return pdfium::rust::RustTextRect{rect.left, rect.bottom, rect.right,
+                                        rect.top};
+    };
+    const auto ends_line = pdfium::rust::RustTextObjectsEndLine(
+        rust_writing_mode, to_rust_rect(this_rect), to_rust_rect(prev_rect),
+        to_rust_rect(curline_rect_), text_obj->GetFontSize(),
+        prev_text_obj_->GetFontSize());
+    if (ends_line.has_value()) {
+      line_end_checked = true;
+      if (*ends_line) {
+        return IsHyphen(current_char) ? GenerateCharacter::kHyphen
+                                      : GenerateCharacter::kLineBreak;
+      }
+    }
+  }
+  if (!line_end_checked) {
+    if (WritingMode == TextOrientation::kHorizontal) {
+      if (EndHorizontalLine(this_rect, prev_rect)) {
+        return IsHyphen(current_char) ? GenerateCharacter::kHyphen
+                                      : GenerateCharacter::kLineBreak;
+      }
+    } else if (WritingMode == TextOrientation::kVertical) {
+      if (EndVerticalLine(this_rect, prev_rect, curline_rect_,
+                          text_obj->GetFontSize(),
+                          prev_text_obj_->GetFontSize())) {
+        return IsHyphen(current_char) ? GenerateCharacter::kHyphen
+                                      : GenerateCharacter::kLineBreak;
+      }
     }
   }
 
@@ -1299,7 +1830,15 @@ CPDF_TextPage::GenerateCharacter CPDF_TextPage::ProcessInsertObject(
 
   CFX_Matrix matrix = text_obj->GetTextMatrix() * form_matrix;
   float threshold2 = std::max(nLastWidth, nThisWidth);
-  threshold2 = NormalizeThreshold(threshold2, 400, 700, 800);
+  if (use_rust_) {
+    const auto normalized_threshold =
+        pdfium::rust::RustTextNormalizeThreshold(threshold2, 400, 700, 800);
+    threshold2 = normalized_threshold.has_value()
+                     ? *normalized_threshold
+                     : NormalizeThreshold(threshold2, 400, 700, 800);
+  } else {
+    threshold2 = NormalizeThreshold(threshold2, 400, 700, 800);
+  }
   if (nLastWidth >= nThisWidth) {
     threshold2 *= fabs(prev_text_obj_->GetFontSize());
   } else {
@@ -1312,6 +1851,14 @@ CPDF_TextPage::GenerateCharacter CPDF_TextPage::ProcessInsertObject(
       (threshold2 < 1.39001 && threshold2 > 1.38999)) {
     threshold2 *= 1.5;
   }
+  if (use_rust_) {
+    const auto generate_space = pdfium::rust::RustTextShouldGenerateSpace(
+        pos.x, last_pos, this_width, last_width, threshold2);
+    if (generate_space.has_value()) {
+      return *generate_space ? GenerateCharacter::kSpace
+                             : GenerateCharacter::kNone;
+    }
+  }
   return GenerateSpace(pos, last_pos, this_width, last_width, threshold2)
              ? GenerateCharacter::kSpace
              : GenerateCharacter::kNone;
@@ -1320,6 +1867,55 @@ CPDF_TextPage::GenerateCharacter CPDF_TextPage::ProcessInsertObject(
 bool CPDF_TextPage::ProcessGenerateCharacter(GenerateCharacter type,
                                              const CPDF_TextObject* text_object,
                                              const CFX_Matrix& form_matrix) {
+  if (use_rust_) {
+    uint32_t first_unicode = 0;
+    if (type == GenerateCharacter::kHyphen &&
+        text_object->CharCount() == 1) {
+      const CPDF_TextObject::Item item = text_object->GetCharInfo(0);
+      WideString unicode =
+          text_object->GetFont()->UnicodeFromCharCode(item.char_code_);
+      if (unicode.IsEmpty()) {
+        unicode += static_cast<wchar_t>(item.char_code_);
+      }
+      first_unicode = static_cast<uint32_t>(unicode.Front());
+    }
+    const auto plan = pdfium::rust::RustTextPlanGeneratedCharacter(
+        static_cast<uint8_t>(type), text_object->CharCount(), first_unicode,
+        temp_text_buf_.AsStringView());
+    if (plan.has_value() &&
+        (plan->action != 3 ||
+         plan->trim_trailing_spaces < temp_char_list_.size())) {
+      switch (plan->action) {
+        case 0:
+          return plan->continue_processing;
+        case 1:
+          AppendGeneratedCharacter(L' ', form_matrix,
+                                   /*use_temp_buffer=*/true);
+          return plan->continue_processing;
+        case 2:
+          CloseTempLine();
+          if (text_buf_.GetSize()) {
+            AppendGeneratedCharacter(L'\r', form_matrix,
+                                     /*use_temp_buffer=*/false);
+            AppendGeneratedCharacter(L'\n', form_matrix,
+                                     /*use_temp_buffer=*/false);
+          }
+          return plan->continue_processing;
+        case 3:
+          for (size_t i = 0; i < plan->trim_trailing_spaces; ++i) {
+            temp_text_buf_.Delete(temp_text_buf_.GetLength() - 1, 1);
+            temp_char_list_.pop_back();
+          }
+          CharInfo& charinfo = temp_char_list_.back();
+          temp_text_buf_.Delete(temp_text_buf_.GetLength() - 1, 1);
+          charinfo.set_char_type(CharType::kHyphen);
+          charinfo.set_unicode(0x2);
+          temp_text_buf_.AppendChar(0xfffe);
+          return plan->continue_processing;
+      }
+    }
+  }
+
   switch (type) {
     case GenerateCharacter::kNone:
       return true;
@@ -1365,42 +1961,125 @@ bool CPDF_TextPage::ProcessGenerateCharacter(GenerateCharacter type,
 void CPDF_TextPage::ProcessTextObjectItems(CPDF_TextObject* text_object,
                                            const CFX_Matrix& form_matrix,
                                            const CFX_Matrix& matrix) {
-  const float base_space = CalculateBaseSpace(text_object, matrix) +
+  const size_t nItems = text_object->CountItems();
+  const std::vector<float>& kernings = text_object->GetCharKernings();
+  float base_space = 0.0f;
+  if (use_rust_) {
+    const float char_space = text_object->text_state().GetCharSpace();
+    const auto rust_base_space = pdfium::rust::RustTextObjectBaseSpace(
+        nItems, char_space, matrix.TransformDistance(char_space),
+        matrix.TransformDistance(fabs(char_space)),
+        text_object->text_state().GetFontSizeH(), pdfium::span(kernings));
+    base_space = rust_base_space.has_value()
+                     ? *rust_base_space
+                     : CalculateBaseSpace(text_object, matrix) +
                            CalculateBaseSpaceAdjustment(text_object, matrix);
+  } else {
+    base_space = CalculateBaseSpace(text_object, matrix) +
+                 CalculateBaseSpaceAdjustment(text_object, matrix);
+  }
   RetainPtr<CPDF_Font> const font = text_object->GetFont();
 
   float spacing = 0;
-  const size_t nItems = text_object->CountItems();
-  const std::vector<float>& kernings = text_object->GetCharKernings();
   for (size_t i = 0; i < nItems; ++i) {
     CPDF_TextObject::Item item = text_object->GetItemInfo(i);
-    if (i > 0 && kernings[i - 1] != 0) {
+    bool used_rust_space_plan = false;
+    if (use_rust_) {
       WideStringView str = temp_text_buf_.AsStringView();
       if (str.IsEmpty()) {
         str = text_buf_.AsStringView();
       }
-      if (!str.IsEmpty() && str.Back() != L' ') {
-        float fontsize_h = text_object->text_state().GetFontSizeH();
-        spacing = -fontsize_h * kernings[i - 1] / 1000;
+      const uint32_t space_char_code = font->CharCodeFromUnicode(' ');
+      const bool has_space_character =
+          space_char_code != CPDF_Font::kInvalidCharCode;
+      const int32_t space_character_width =
+          has_space_character ? font->GetCharWidth(space_char_code) : 0;
+      struct WidthContext {
+        CPDF_Font* font;
+        uint32_t char_code;
+      } context = {font.Get(), item.char_code_};
+      auto get_fallback_width = [](void* context, int32_t* width) {
+        auto* width_context = static_cast<WidthContext*>(context);
+        *width = GetCharWidth(width_context->char_code, width_context->font);
+        return true;
+      };
+      const auto plan = pdfium::rust::RustTextPlanItemSpace(
+          i, i > 0 ? kernings[i - 1] : 0.0f, !str.IsEmpty(),
+          !str.IsEmpty() && str.Back() == L' ',
+          text_object->text_state().GetFontSizeH(), base_space,
+          has_space_character, space_character_width, &context,
+          get_fallback_width);
+      if (plan.has_value()) {
+        used_rust_space_plan = true;
+        spacing = plan->spacing;
+        if (plan->generate_space) {
+          temp_text_buf_.AppendChar(L' ');
+          CFX_PointF origin = matrix.Transform(item.origin_);
+          temp_char_list_.push_back(CharInfo(
+              CharType::kGenerated, CPDF_Font::kInvalidCharCode, L' ', origin,
+              CFX_FloatRect(origin.x, origin.y, origin.x, origin.y),
+              form_matrix, text_object));
+        }
+        spacing = 0;
       }
     }
 
-    spacing -= base_space;
-
-    if (spacing && i > 0) {
-      const float threshold = CalculateSpaceThreshold(
-          font, text_object->text_state().GetFontSizeH(), item.char_code_);
-      if (threshold && spacing && spacing >= threshold) {
-        temp_text_buf_.AppendChar(L' ');
-        CFX_PointF origin = matrix.Transform(item.origin_);
-        temp_char_list_.push_back(CharInfo(
-            CharType::kGenerated, CPDF_Font::kInvalidCharCode, L' ', origin,
-            CFX_FloatRect(origin.x, origin.y, origin.x, origin.y), form_matrix,
-            text_object));
+    if (!used_rust_space_plan) {
+      if (i > 0 && kernings[i - 1] != 0) {
+        WideStringView str = temp_text_buf_.AsStringView();
+        if (str.IsEmpty()) {
+          str = text_buf_.AsStringView();
+        }
+        if (!str.IsEmpty() && str.Back() != L' ') {
+          float fontsize_h = text_object->text_state().GetFontSizeH();
+          spacing = -fontsize_h * kernings[i - 1] / 1000;
+        }
       }
-    }
 
-    spacing = 0;
+      spacing -= base_space;
+
+      if (spacing && i > 0) {
+        float threshold = 0.0f;
+        if (use_rust_) {
+          const uint32_t space_char_code = font->CharCodeFromUnicode(' ');
+          const bool has_space_character =
+              space_char_code != CPDF_Font::kInvalidCharCode;
+          const int32_t space_character_width =
+              has_space_character ? font->GetCharWidth(space_char_code) : 0;
+          struct WidthContext {
+            CPDF_Font* font;
+            uint32_t char_code;
+          } context = {font.Get(), item.char_code_};
+          auto get_fallback_width = [](void* context, int32_t* width) {
+            auto* width_context = static_cast<WidthContext*>(context);
+            *width =
+                GetCharWidth(width_context->char_code, width_context->font);
+            return true;
+          };
+          const auto rust_threshold = pdfium::rust::RustTextSpaceThreshold(
+              text_object->text_state().GetFontSizeH(), has_space_character,
+              space_character_width, &context, get_fallback_width);
+          threshold = rust_threshold.has_value()
+                          ? *rust_threshold
+                          : CalculateSpaceThreshold(
+                                font, text_object->text_state().GetFontSizeH(),
+                                item.char_code_);
+        } else {
+          threshold = CalculateSpaceThreshold(
+              font, text_object->text_state().GetFontSizeH(), item.char_code_);
+        }
+        if (threshold && spacing && spacing >= threshold) {
+          temp_text_buf_.AppendChar(L' ');
+          CFX_PointF origin = matrix.Transform(item.origin_);
+          temp_char_list_.push_back(CharInfo(
+              CharType::kGenerated, CPDF_Font::kInvalidCharCode, L' ', origin,
+              CFX_FloatRect(origin.x, origin.y, origin.x, origin.y),
+              form_matrix, text_object));
+        }
+      }
+
+      spacing = 0;
+    }
     WideString unicode = font->UnicodeFromCharCode(item.char_code_);
     CharType char_type = CharType::kNormal;
     if (unicode.IsEmpty() && item.char_code_) {
@@ -1437,16 +2116,54 @@ void CPDF_TextPage::ProcessTextObjectItems(CPDF_TextObject* text_object,
     static constexpr float kTextCharRatioGapDelta = 0.07f;
     float threshold = charinfo.matrix().TransformXDistance(
         kTextCharRatioGapDelta * text_object->GetFontSize());
-    for (int n = fxcrt::CollectionSize<int>(temp_char_list_);
-         n > fxcrt::CollectionSize<int>(temp_char_list_) - count; --n) {
-      const CharInfo& charinfo1 = temp_char_list_[n - 1];
-      CFX_PointF diff = charinfo1.origin() - charinfo.origin();
-      if (charinfo1.char_code() == charinfo.char_code() &&
-          charinfo1.text_object()->GetFont() ==
-              charinfo.text_object()->GetFont() &&
-          fabs(diff.x) < threshold && fabs(diff.y) < threshold) {
-        add_unicode = false;
-        break;
+    bool used_rust_suppression = false;
+    if (use_rust_) {
+      auto get_character = [](void* context, size_t index, uint32_t* char_code,
+                              uintptr_t* font, float* origin_x,
+                              float* origin_y) {
+        const auto* characters =
+            static_cast<const std::vector<CharInfo>*>(context);
+        if (index >= characters->size()) {
+          return false;
+        }
+        const CharInfo& character = (*characters)[index];
+        *char_code = character.char_code();
+        *font = character.text_object()
+                    ? reinterpret_cast<uintptr_t>(
+                          character.text_object()->GetFont().Get())
+                    : 0;
+        *origin_x = character.origin().x;
+        *origin_y = character.origin().y;
+        return true;
+      };
+      WideStringView temporary_text = temp_text_buf_.AsStringView();
+      const auto action = pdfium::rust::RustTextCharacterSuppressionAction(
+          i, charinfo.char_code(), reinterpret_cast<uintptr_t>(font.Get()),
+          charinfo.origin().x, charinfo.origin().y, threshold,
+          temp_char_list_.size(),
+          !temporary_text.IsEmpty() && temporary_text.Back() == L' ',
+          &temp_char_list_, get_character);
+      if (action.has_value()) {
+        used_rust_suppression = true;
+        add_unicode = *action == 0;
+        if (*action == 2) {
+          temp_text_buf_.Delete(temp_text_buf_.GetLength() - 1, 1);
+          temp_char_list_.pop_back();
+        }
+      }
+    }
+    if (!used_rust_suppression) {
+      for (int n = fxcrt::CollectionSize<int>(temp_char_list_);
+           n > fxcrt::CollectionSize<int>(temp_char_list_) - count; --n) {
+        const CharInfo& charinfo1 = temp_char_list_[n - 1];
+        CFX_PointF diff = charinfo1.origin() - charinfo.origin();
+        if (charinfo1.char_code() == charinfo.char_code() &&
+            charinfo1.text_object()->GetFont() ==
+                charinfo.text_object()->GetFont() &&
+            fabs(diff.x) < threshold && fabs(diff.y) < threshold) {
+          add_unicode = false;
+          break;
+        }
       }
     }
     if (add_unicode) {
@@ -1469,6 +2186,52 @@ bool CPDF_TextPage::IsSameTextObject(CPDF_TextObject* text_obj1,
                                      CPDF_TextObject* text_obj2) const {
   if (!text_obj1 || !text_obj2) {
     return false;
+  }
+
+  if (use_rust_) {
+    const CFX_FloatRect& previous_rect = text_obj2->GetRect();
+    const CFX_FloatRect& current_rect = text_obj1->GetRect();
+    std::optional<float> previous_char_box_width;
+    if (char_list_.size() >= 2) {
+      previous_char_box_width =
+          char_list_[char_list_.size() - 2].char_box().Width();
+    }
+    const size_t previous_item_count = text_obj2->CountItems();
+    const size_t current_item_count = text_obj1->CountItems();
+    struct ItemContext {
+      CPDF_TextObject* previous;
+      CPDF_TextObject* current;
+    } context = {text_obj2, text_obj1};
+    auto get_item_characters = [](void* context, size_t index,
+                                  uint32_t* previous, uint32_t* current) {
+      auto* item_context = static_cast<ItemContext*>(context);
+      if (index >= item_context->previous->CountItems() ||
+          index >= item_context->current->CountItems()) {
+        return false;
+      }
+      *previous = item_context->previous->GetItemInfo(index).char_code_;
+      *current = item_context->current->GetItemInfo(index).char_code_;
+      return true;
+    };
+    const CFX_PointF difference = text_obj1->GetPos() - text_obj2->GetPos();
+    float last_character_width = 0.0f;
+    if (previous_item_count > 0) {
+      const auto last_item = text_obj2->GetItemInfo(previous_item_count - 1);
+      last_character_width =
+          GetCharWidth(last_item.char_code_, text_obj2->GetFont().Get());
+    }
+    const auto same = pdfium::rust::RustTextObjectsAreSame(
+        {previous_rect.left, previous_rect.bottom, previous_rect.right,
+         previous_rect.top},
+        {current_rect.left, current_rect.bottom, current_rect.right,
+         current_rect.top},
+        previous_char_box_width, text_obj2->GetFontSize(),
+        text_obj1->GetFontSize(), previous_item_count, current_item_count,
+        &context, get_item_characters, difference.x, difference.y,
+        last_character_width);
+    if (same.has_value()) {
+      return *same;
+    }
   }
 
   CFX_FloatRect prev_obj_rect = text_obj2->GetRect();
@@ -1552,6 +2315,31 @@ std::optional<CPDF_TextPage::CharInfo> CPDF_TextPage::GenerateCharInfo(
   const CharInfo* prev_char_info = GetPrevCharInfo();
   if (!prev_char_info) {
     return std::nullopt;
+  }
+
+  if (use_rust_) {
+    const bool has_text_object = !!prev_char_info->text_object();
+    const bool has_valid_character =
+        prev_char_info->char_code() != CPDF_Font::kInvalidCharCode;
+    int previous_character_width = 0;
+    if (has_text_object && has_valid_character) {
+      previous_character_width =
+          GetCharWidth(prev_char_info->char_code(),
+                       prev_char_info->text_object()->GetFont().Get());
+    }
+    const auto origin = pdfium::rust::RustTextGeneratedCharacterOrigin(
+        has_text_object, has_valid_character, previous_character_width,
+        has_text_object ? prev_char_info->text_object()->GetFontSize() : 0.0f,
+        prev_char_info->char_box().Height(), prev_char_info->origin().x,
+        prev_char_info->origin().y);
+    if (origin.has_value()) {
+      return CharInfo(
+          CharType::kGenerated, CPDF_Font::kInvalidCharCode, unicode,
+          CFX_PointF(origin->first, origin->second),
+          CFX_FloatRect(origin->first, origin->second, origin->first,
+                        origin->second),
+          form_matrix, /*text_object=*/nullptr);
+    }
   }
 
   int pre_width = 0;

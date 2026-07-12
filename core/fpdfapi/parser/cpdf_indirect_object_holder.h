@@ -7,9 +7,11 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_INDIRECT_OBJECT_HOLDER_H_
 #define CORE_FPDFAPI_PARSER_CPDF_INDIRECT_OBJECT_HOLDER_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <type_traits>
 #include <utility>
 
@@ -17,6 +19,10 @@
 #include "core/fxcrt/bytestring_pool.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/weak_ptr.h"
+
+namespace pdfium::rust {
+class RustIndirectObjectIndex;
+}
 
 class CPDF_IndirectObjectHolder {
  public:
@@ -62,15 +68,15 @@ class CPDF_IndirectObjectHolder {
   bool ReplaceIndirectObjectIfHigherGeneration(uint32_t objnum,
                                                RetainPtr<CPDF_Object> pObj);
 
-  uint32_t GetLastObjNum() const { return last_obj_num_; }
-  void SetLastObjNum(uint32_t objnum) { last_obj_num_ = objnum; }
+  uint32_t GetLastObjNum() const;
+  void SetLastObjNum(uint32_t objnum);
 
   WeakPtr<ByteStringPool> GetByteStringPool() const {
     return byte_string_pool_;
   }
 
-  const_iterator begin() const { return indirect_objs_.begin(); }
-  const_iterator end() const { return indirect_objs_.end(); }
+  const_iterator begin() const;
+  const_iterator end() const;
 
  protected:
   virtual RetainPtr<CPDF_Object> ParseIndirectObject(uint32_t objnum);
@@ -78,11 +84,24 @@ class CPDF_IndirectObjectHolder {
  private:
   friend class CPDF_Reference;
 
+  struct ObjectHandle {
+    RetainPtr<CPDF_Object> object;
+  };
+
   const CPDF_Object* GetIndirectObjectInternal(uint32_t objnum) const;
   CPDF_Object* GetOrParseIndirectObjectInternal(uint32_t objnum);
+  uintptr_t RegisterObject(RetainPtr<CPDF_Object> object);
+  CPDF_Object* GetObjectForHandle(uintptr_t handle) const;
+  void ReleaseObjectHandleIfUnused(uintptr_t handle);
+  void MarkIndirectObjectsViewDirty();
+  void EnsureIndirectObjectsView() const;
 
+  const bool use_rust_object_index_;
+  std::unique_ptr<pdfium::rust::RustIndirectObjectIndex> rust_object_index_;
   uint32_t last_obj_num_ = 0;
-  std::map<uint32_t, RetainPtr<CPDF_Object>> indirect_objs_;
+  mutable std::map<uint32_t, RetainPtr<CPDF_Object>> indirect_objs_;
+  std::map<uintptr_t, ObjectHandle> indirect_object_handles_;
+  mutable bool indirect_objects_view_dirty_ = false;
   WeakPtr<ByteStringPool> byte_string_pool_;
 };
 

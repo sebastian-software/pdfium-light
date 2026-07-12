@@ -1,0 +1,458 @@
+// Copyright 2026 Sebastian Werner
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#ifndef CORE_FPDFTEXT_RUST_RUST_TEXT_ADAPTER_H_
+#define CORE_FPDFTEXT_RUST_RUST_TEXT_ADAPTER_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include <optional>
+#include <utility>
+
+#include "core/fxcrt/span.h"
+#include "core/fxcrt/widestring.h"
+
+namespace pdfium::rust {
+
+enum class RustTextOrientation : uint8_t {
+  kUnknown = 0,
+  kHorizontal = 1,
+  kVertical = 2,
+};
+
+using RustTextOrientationObjectCallback = bool (*)(void* context,
+                                                   size_t index,
+                                                   bool* active,
+                                                   bool* is_text,
+                                                   float* left,
+                                                   float* bottom,
+                                                   float* right,
+                                                   float* top);
+
+std::optional<RustTextOrientation> RustTextFlowOrientation(
+    int32_t page_width,
+    int32_t page_height,
+    size_t object_count,
+    void* context,
+    RustTextOrientationObjectCallback get_object);
+
+std::optional<RustTextOrientation> RustTextObjectWritingMode(
+    size_t character_count,
+    RustTextOrientation fallback_orientation,
+    float first_x,
+    float first_y,
+    float last_x,
+    float last_y);
+
+using RustTextRectCallback = bool (*)(void* context,
+                                      size_t index,
+                                      float* left,
+                                      float* bottom,
+                                      float* right,
+                                      float* top);
+
+std::optional<int> RustTextIndexAtPosition(
+    size_t character_count,
+    float point_x,
+    float point_y,
+    float tolerance_width,
+    float tolerance_height,
+    void* context,
+    RustTextRectCallback get_rect);
+
+class RustTextIndexMap final {
+ public:
+  explicit RustTextIndexMap(pdfium::span<const uint8_t> included);
+  RustTextIndexMap(const RustTextIndexMap&) = delete;
+  RustTextIndexMap& operator=(const RustTextIndexMap&) = delete;
+  ~RustTextIndexMap();
+
+  bool valid() const { return state_ != nullptr; }
+  int CharacterFromText(int text_index) const;
+  int TextFromCharacter(int character_index) const;
+  std::optional<std::pair<int, int>> PageTextRange(int start,
+                                                   int count,
+                                                   int character_count) const;
+
+ private:
+  void* state_;
+};
+
+using RustTextIndexMapCallback = bool (*)(void* context,
+                                          int32_t input,
+                                          int32_t* output);
+
+class RustTextPageFind final {
+ public:
+  RustTextPageFind(WideStringView page_text,
+                   WideStringView query,
+                   bool match_whole_word,
+                   bool consecutive,
+                   std::optional<size_t> start,
+                   void* context,
+                   RustTextIndexMapCallback text_to_character,
+                   RustTextIndexMapCallback character_to_text);
+  RustTextPageFind(const RustTextPageFind&) = delete;
+  RustTextPageFind& operator=(const RustTextPageFind&) = delete;
+  ~RustTextPageFind();
+
+  bool valid() const { return state_ != nullptr; }
+  bool FindFirst() const;
+  std::optional<bool> FindNext();
+  std::optional<bool> FindPrevious();
+  std::optional<std::pair<size_t, size_t>> GetResult() const;
+
+ private:
+  void* state_;
+  void* context_;
+  RustTextIndexMapCallback text_to_character_;
+  RustTextIndexMapCallback character_to_text_;
+};
+
+using RustTextIsAlphanumericCallback = bool (*)(void* context,
+                                                uint32_t character);
+
+struct RustTextLinkRange {
+  size_t start;
+  size_t count;
+};
+
+using RustTextSelectionRectCallback = bool (*)(void* context,
+                                               size_t index,
+                                               bool* generated,
+                                               uintptr_t* text_object,
+                                               float* left,
+                                               float* bottom,
+                                               float* right,
+                                               float* top);
+
+struct RustTextRect {
+  float left;
+  float bottom;
+  float right;
+  float top;
+};
+
+std::optional<bool> RustTextObjectsEndLine(
+    RustTextOrientation writing_mode,
+    const RustTextRect& this_rect,
+    const RustTextRect& previous_rect,
+    const RustTextRect& current_line_rect,
+    float this_font_size,
+    float previous_font_size);
+
+std::optional<float> RustTextNormalizeThreshold(float threshold,
+                                                int32_t first,
+                                                int32_t second,
+                                                int32_t third);
+
+std::optional<bool> RustTextShouldGenerateSpace(float position_x,
+                                                float last_position,
+                                                float this_width,
+                                                float last_width,
+                                                float threshold);
+
+using RustTextCharacterPredicateCallback = bool (*)(void* context,
+                                                     uint32_t character,
+                                                     uint8_t predicate);
+using RustTextCodePointCallback = bool (*)(void* context,
+                                           size_t index,
+                                           uint32_t* character);
+using RustTextFloatCallback = bool (*)(void* context,
+                                       size_t index,
+                                       float* value);
+using RustTextWidthCallback = bool (*)(void* context, int32_t* width);
+using RustTextSameObjectItemCallback = bool (*)(void* context,
+                                                size_t index,
+                                                uint32_t* previous,
+                                                uint32_t* current);
+using RustTextRecentCharacterCallback = bool (*)(void* context,
+                                                 size_t index,
+                                                 uint32_t* char_code,
+                                                 uintptr_t* font,
+                                                 float* origin_x,
+                                                 float* origin_y);
+using RustTextObjectGroupSummaryCallback = bool (*)(void* context,
+                                                    size_t* previous_item_count,
+                                                    float* previous_width,
+                                                    float* current_width,
+                                                    float* previous_y,
+                                                    float* current_x,
+                                                    float* current_y);
+using RustTextObjectPositionCallback = bool (*)(void* context,
+                                                size_t index,
+                                                float* x);
+
+std::optional<bool> RustTextIsHyphenJoin(
+    WideStringView current_text,
+    uint32_t current_character,
+    bool has_previous_character,
+    uint8_t previous_char_type,
+    uint32_t previous_unicode,
+    void* context,
+    RustTextCharacterPredicateCallback character_predicate);
+
+struct RustTextGenerateCharacterPlan {
+  uint8_t action;
+  size_t trim_trailing_spaces;
+  bool continue_processing;
+};
+
+std::optional<RustTextGenerateCharacterPlan> RustTextPlanGeneratedCharacter(
+    uint8_t generate_type,
+    size_t text_object_character_count,
+    uint32_t first_unicode,
+    WideStringView temporary_text);
+
+std::optional<float> RustTextObjectBaseSpace(
+    size_t item_count,
+    float character_space,
+    float transformed_character_space,
+    float transformed_absolute_character_space,
+    float font_size_h,
+    pdfium::span<const float> kernings);
+
+std::optional<float> RustTextSpaceThreshold(
+    float font_size_h,
+    bool has_space_character,
+    int32_t space_character_width,
+    void* context,
+    RustTextWidthCallback get_fallback_width);
+
+struct RustTextItemSpacePlan {
+  float spacing;
+  bool generate_space;
+};
+
+std::optional<RustTextItemSpacePlan> RustTextPlanItemSpace(
+    size_t item_index,
+    float kerning,
+    bool previous_text_exists,
+    bool previous_is_space,
+    float font_size_h,
+    float base_space,
+    bool has_space_character,
+    int32_t space_character_width,
+    void* context,
+    RustTextWidthCallback get_fallback_width);
+
+std::optional<bool> RustTextObjectsAreSame(
+    const RustTextRect& previous_rect,
+    const RustTextRect& current_rect,
+    std::optional<float> previous_char_box_width,
+    float previous_font_size,
+    float current_font_size,
+    size_t previous_item_count,
+    size_t current_item_count,
+    void* context,
+    RustTextSameObjectItemCallback get_item_characters,
+    float difference_x,
+    float difference_y,
+    float last_character_width);
+
+std::optional<std::pair<float, float>> RustTextGeneratedCharacterOrigin(
+    bool has_text_object,
+    bool has_valid_character,
+    int32_t previous_character_width,
+    float text_object_font_size,
+    float previous_box_height,
+    float previous_origin_x,
+    float previous_origin_y);
+
+std::optional<uint8_t> RustTextCharacterSuppressionAction(
+    size_t item_index,
+    uint32_t current_char_code,
+    uintptr_t current_font,
+    float current_origin_x,
+    float current_origin_y,
+    float threshold,
+    size_t recent_character_count,
+    bool temporary_text_ends_space,
+    void* context,
+    RustTextRecentCharacterCallback get_character);
+
+struct RustTextObjectGroupPlan {
+  uint8_t action;
+  size_t insert_index;
+};
+
+std::optional<RustTextObjectGroupPlan> RustTextPlanObjectGroup(
+    float object_width,
+    size_t object_count,
+    bool is_duplicate,
+    void* context,
+    RustTextObjectGroupSummaryCallback get_summary,
+    RustTextObjectPositionCallback get_object_x);
+
+enum class RustTextMarkedContentState : uint8_t {
+  kPass = 0,
+  kDone = 1,
+  kDelay = 2,
+};
+
+std::optional<RustTextMarkedContentState> RustTextSelectMarkedContentState(
+    bool has_actual_text,
+    bool repeats_previous_mark,
+    WideStringView actual_text,
+    void* context,
+    RustTextCharacterPredicateCallback character_predicate);
+
+struct RustTextMarkedContentEmission {
+  uint32_t unicode;
+  RustTextRect rect;
+};
+
+class RustTextMarkedContentPlan final {
+ public:
+  RustTextMarkedContentPlan(
+      WideStringView actual_text,
+      bool is_rtl,
+      const RustTextRect& rect,
+      void* context,
+      RustTextCharacterPredicateCallback character_predicate);
+  RustTextMarkedContentPlan(const RustTextMarkedContentPlan&) = delete;
+  RustTextMarkedContentPlan& operator=(const RustTextMarkedContentPlan&) =
+      delete;
+  ~RustTextMarkedContentPlan();
+
+  bool valid() const { return state_ != nullptr; }
+  size_t size() const;
+  std::optional<RustTextMarkedContentEmission> GetEmission(size_t index) const;
+
+ private:
+  void* state_;
+};
+
+class RustTextSelectionRects final {
+ public:
+  RustTextSelectionRects(size_t character_count,
+                         int start,
+                         int count,
+                         void* context,
+                         RustTextSelectionRectCallback get_character);
+  RustTextSelectionRects(const RustTextSelectionRects&) = delete;
+  RustTextSelectionRects& operator=(const RustTextSelectionRects&) = delete;
+  ~RustTextSelectionRects();
+
+  bool valid() const { return state_ != nullptr; }
+  size_t size() const;
+  std::optional<RustTextRect> GetRect(size_t index) const;
+
+ private:
+  void* state_;
+};
+
+using RustTextPredicateCharacterCallback = bool (*)(void* context,
+                                                    size_t index,
+                                                    bool* included,
+                                                    uint32_t* unicode,
+                                                    float* origin_y);
+
+class RustTextPredicateResult final {
+ public:
+  RustTextPredicateResult(size_t character_count,
+                          void* context,
+                          RustTextPredicateCharacterCallback get_character);
+  RustTextPredicateResult(const RustTextPredicateResult&) = delete;
+  RustTextPredicateResult& operator=(const RustTextPredicateResult&) = delete;
+  ~RustTextPredicateResult();
+
+  bool valid() const { return state_ != nullptr; }
+  std::optional<WideString> GetText() const;
+
+ private:
+  void* state_;
+};
+
+enum class RustTextDirection : uint8_t {
+  kNeutral = 0,
+  kLeft = 1,
+  kRight = 2,
+  kLeftWeak = 3,
+};
+
+struct RustTextBidiSegment {
+  size_t start;
+  size_t count;
+  RustTextDirection direction;
+};
+
+struct RustTextEmission {
+  size_t character_index;
+  bool is_rtl;
+};
+
+class RustTextLinePlan final {
+ public:
+  explicit RustTextLinePlan(WideStringView text);
+  RustTextLinePlan(const RustTextLinePlan&) = delete;
+  RustTextLinePlan& operator=(const RustTextLinePlan&) = delete;
+  ~RustTextLinePlan();
+
+  bool valid() const { return state_ != nullptr; }
+  size_t kept_count() const;
+  std::optional<size_t> GetKeptIndex(size_t index) const;
+  bool SetSegments(RustTextDirection overall_direction,
+                   pdfium::span<const RustTextBidiSegment> segments);
+  size_t emission_count() const;
+  std::optional<RustTextEmission> GetEmission(size_t index) const;
+
+ private:
+  void* state_;
+};
+
+struct RustTextCharacterEmission {
+  uint32_t unicode;
+  bool append_text;
+  bool set_unicode;
+  uint8_t char_type;
+};
+
+class RustTextAddCharacterPlan final {
+ public:
+  RustTextAddCharacterPlan(uint8_t char_type,
+                           uint32_t char_code,
+                           uint32_t info_unicode,
+                           uint32_t display_unicode,
+                           bool is_rtl);
+  RustTextAddCharacterPlan(const RustTextAddCharacterPlan&) = delete;
+  RustTextAddCharacterPlan& operator=(const RustTextAddCharacterPlan&) = delete;
+  ~RustTextAddCharacterPlan();
+
+  bool valid() const { return state_ != nullptr; }
+  bool needs_display_unicode() const;
+  bool SetDisplayUnicode(uint32_t display_unicode);
+  bool needs_normalization() const;
+  bool SetNormalization(pdfium::span<const wchar_t> normalized);
+  size_t emission_count() const;
+  std::optional<RustTextCharacterEmission> GetEmission(size_t index) const;
+
+ private:
+  void* state_;
+};
+
+class RustTextLinkExtract final {
+ public:
+  RustTextLinkExtract();
+  RustTextLinkExtract(const RustTextLinkExtract&) = delete;
+  RustTextLinkExtract& operator=(const RustTextLinkExtract&) = delete;
+  ~RustTextLinkExtract();
+
+  bool Extract(WideStringView page_text,
+               pdfium::span<const uint32_t> characters,
+               pdfium::span<const uint8_t> flags,
+               void* context,
+               RustTextIsAlphanumericCallback is_alphanumeric);
+  size_t size() const;
+  std::optional<RustTextLinkRange> GetRange(size_t index) const;
+  std::optional<WideString> GetUrl(size_t index) const;
+
+ private:
+  void* state_;
+};
+
+}  // namespace pdfium::rust
+
+#endif  // CORE_FPDFTEXT_RUST_RUST_TEXT_ADAPTER_H_

@@ -9,6 +9,8 @@
 
 #include <stddef.h>
 
+#include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <type_traits>
@@ -20,6 +22,10 @@
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/retain_ptr.h"
+
+namespace pdfium::rust {
+class RustPdfArray;
+}
 
 // Arrays never contain nullptrs for objects within bounds, but some of the
 // methods will tolerate out-of-bounds indices and return nullptr for those
@@ -37,8 +43,8 @@ class CPDF_Array final : public CPDF_Object {
   bool WriteTo(IFX_ArchiveStream* archive,
                const CPDF_Encryptor* encryptor) const override;
 
-  bool IsEmpty() const { return objects_.empty(); }
-  size_t size() const { return objects_.size(); }
+  bool IsEmpty() const { return size() == 0; }
+  size_t size() const;
 
   // The Get*ObjectAt() methods tolerate out-of-bounds indices and return
   // nullptr in those cases. Otherwise, for in-bound indices, the result
@@ -162,12 +168,25 @@ class CPDF_Array final : public CPDF_Object {
   CPDF_Object* AppendInternal(RetainPtr<CPDF_Object> pObj);
   CPDF_Object* SetAtInternal(size_t index, RetainPtr<CPDF_Object> pObj);
   CPDF_Object* InsertAtInternal(size_t index, RetainPtr<CPDF_Object> pObj);
+  uintptr_t RegisterObject(RetainPtr<CPDF_Object> object);
+  CPDF_Object* GetObjectForHandle(uintptr_t handle) const;
+  void ReleaseObjectHandleIfUnused(uintptr_t handle);
+  void MarkObjectsViewDirty();
+  void EnsureObjectsView() const;
 
   RetainPtr<CPDF_Object> CloneNonCyclic(
       bool bDirect,
       std::set<const CPDF_Object*>* pVisited) const override;
 
-  std::vector<RetainPtr<CPDF_Object>> objects_;
+  struct ObjectHandle {
+    RetainPtr<CPDF_Object> object;
+  };
+
+  const bool use_rust_array_;
+  std::unique_ptr<pdfium::rust::RustPdfArray> rust_array_;
+  mutable std::vector<RetainPtr<CPDF_Object>> objects_;
+  std::map<uintptr_t, ObjectHandle> object_handles_;
+  mutable bool objects_view_dirty_ = false;
   WeakPtr<ByteStringPool> pool_;
   mutable uint32_t lock_count_ = 0;
 };
@@ -184,10 +203,12 @@ class CPDF_ArrayLocker {
 
   const_iterator begin() const {
     CHECK(array_->IsLocked());
+    array_->EnsureObjectsView();
     return array_->objects_.begin();
   }
   const_iterator end() const {
     CHECK(array_->IsLocked());
+    array_->EnsureObjectsView();
     return array_->objects_.end();
   }
 

@@ -4,11 +4,15 @@
 
 #include "core/fpdfdoc/cpdf_nametree.h"
 
+#include <utility>
+#include <vector>
+
 #include "constants/catalog.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -103,6 +107,28 @@ void FillNameTreeDict(CPDF_Dictionary* pRootDict) {
   AddNameKeyValue(pNames.Get(), "5.txt", 555);
 }
 
+void CollectNameTreeLimits(
+    const CPDF_Dictionary* node,
+    std::vector<std::pair<WideString, WideString>>* limits,
+    std::vector<size_t>* limit_sizes) {
+  RetainPtr<const CPDF_Array> node_limits = node->GetArrayFor("Limits");
+  if (node_limits) {
+    limit_sizes->push_back(node_limits->size());
+    limits->push_back(
+        {node_limits->GetUnicodeTextAt(0), node_limits->GetUnicodeTextAt(1)});
+  }
+  RetainPtr<const CPDF_Array> kids = node->GetArrayFor("Kids");
+  if (!kids) {
+    return;
+  }
+  for (size_t index = 0; index < kids->size(); ++index) {
+    RetainPtr<const CPDF_Dictionary> kid = kids->GetDictAt(index);
+    if (kid) {
+      CollectNameTreeLimits(kid.Get(), limits, limit_sizes);
+    }
+  }
+}
+
 }  // namespace
 
 TEST(CPDFNameTreeTest, GetUnicodeNameWithBOM) {
@@ -176,6 +202,117 @@ TEST(CPDFNameTreeTest, GetFromTreeWithLimitsArrayWith4Items) {
                                          L"1a.txt"));
   EXPECT_EQ(2u, pGrandKid2Limits->size());
   EXPECT_EQ(2u, pGrandKid3Limits->size());
+}
+
+TEST(CPDFNameTreeTest, RustCountAndIndexMatchCppOracle) {
+  auto root = pdfium::MakeRetain<CPDF_Dictionary>();
+  FillNameTreeDict(root.Get());
+  std::unique_ptr<CPDF_NameTree> name_tree =
+      CPDF_NameTree::CreateForTesting(root.Get());
+
+  struct Entry {
+    WideString name;
+    const CPDF_Object* value;
+    bool operator==(const Entry&) const = default;
+  };
+  struct Snapshot {
+    size_t count;
+    std::vector<Entry> entries;
+    std::vector<const CPDF_Object*> named_values;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    Snapshot result = {name_tree->GetCount(), {}, {}};
+    for (size_t index = 0; index < 7; ++index) {
+      WideString name = L"sentinel";
+      RetainPtr<CPDF_Object> value =
+          name_tree->LookupValueAndName(index, &name);
+      result.entries.push_back({std::move(name), value.Get()});
+    }
+    static constexpr const wchar_t* kNames[] = {
+        L"0.txt", L"1.txt", L"2.txt", L"3.txt",
+        L"5.txt", L"6.txt", L"9.txt", L"99.txt"};
+    for (const wchar_t* name : kNames) {
+      result.named_values.push_back(name_tree->LookupValue(name).Get());
+    }
+    return result;
+  };
+
+  Snapshot cpp = snapshot(false);
+  EXPECT_EQ(5u, cpp.count);
+  EXPECT_EQ(cpp, snapshot(true));
+}
+
+TEST(CPDFNameTreeTest, RustInsertionPlanningMatchesCppOracle) {
+  struct Entry {
+    WideString name;
+    int value;
+    bool operator==(const Entry&) const = default;
+  };
+  struct Snapshot {
+    std::vector<bool> insertion_results;
+    std::vector<Entry> entries;
+    std::vector<std::pair<WideString, WideString>> limits;
+    std::vector<size_t> limit_sizes;
+    bool inserted_handles_match = true;
+    bool operator==(const Snapshot&) const = default;
+  };
+  enum class Shape { kEmpty, kFlat, kThreeLevel };
+
+  auto mutate = [](Shape shape, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    auto root = pdfium::MakeRetain<CPDF_Dictionary>();
+    std::vector<std::pair<const wchar_t*, int>> insertions;
+    if (shape == Shape::kEmpty) {
+      root->SetNewFor<CPDF_Array>(pdfium::catalog::kNames);
+      insertions = {{L"2.txt", 111}, {L"2.txt", 222}, {L"1.txt", 111},
+                    {L"5.txt", 555}, {L"9.txt", 999}};
+    } else if (shape == Shape::kFlat) {
+      auto names = root->SetNewFor<CPDF_Array>(pdfium::catalog::kNames);
+      AddNameKeyValue(names.Get(), "2.txt", 222);
+      AddNameKeyValue(names.Get(), "7.txt", 777);
+      insertions = {{L"2.txt", 111}, {L"1.txt", 111}, {L"5.txt", 555},
+                    {L"9.txt", 999}};
+    } else {
+      FillNameTreeDict(root.Get());
+      insertions = {{L"9.txt", 444}, {L"4.txt", 444}, {L"6.txt", 666},
+                    {L"99.txt", 99}, {L"0.txt", -5}};
+    }
+
+    std::unique_ptr<CPDF_NameTree> name_tree =
+        CPDF_NameTree::CreateForTesting(root.Get());
+    Snapshot result;
+    for (const auto& [name, number] : insertions) {
+      RetainPtr<CPDF_Number> value = pdfium::MakeRetain<CPDF_Number>(number);
+      const CPDF_Object* expected_handle = value.Get();
+      bool inserted = name_tree->AddValueAndName(std::move(value), name);
+      result.insertion_results.push_back(inserted);
+      if (inserted) {
+        result.inserted_handles_match &=
+            name_tree->LookupValue(name).Get() == expected_handle;
+      }
+    }
+    for (size_t index = 0; index < name_tree->GetCount(); ++index) {
+      WideString name;
+      RetainPtr<CPDF_Object> value =
+          name_tree->LookupValueAndName(index, &name);
+      result.entries.push_back(
+          {std::move(name), value ? value->GetInteger() : 0});
+    }
+    CollectNameTreeLimits(root.Get(), &result.limits, &result.limit_sizes);
+    return result;
+  };
+
+  for (Shape shape : {Shape::kEmpty, Shape::kFlat, Shape::kThreeLevel}) {
+    Snapshot cpp = mutate(shape, false);
+    Snapshot rust = mutate(shape, true);
+    EXPECT_TRUE(cpp.inserted_handles_match);
+    EXPECT_TRUE(rust.inserted_handles_match);
+    EXPECT_EQ(cpp, rust);
+  }
 }
 
 TEST(CPDFNameTreeTest, AddIntoNames) {

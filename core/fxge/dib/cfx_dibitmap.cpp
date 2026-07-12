@@ -27,6 +27,7 @@
 #include "core/fxge/calculate_pitch.h"
 #include "core/fxge/cfx_gemodule.h"
 #include "core/fxge/dib/cfx_scanlinecompositor.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 
 namespace {
 
@@ -92,7 +93,13 @@ bool CFX_DIBitmap::Copy(RetainPtr<const CFX_DIBBase> source) {
 
   SetPalette(source->GetPaletteSpan());
   for (int row = 0; row < source->GetHeight(); row++) {
-    fxcrt::spancpy(GetWritableScanline(row), source->GetScanline(row));
+    auto destination = GetWritableScanline(row);
+    auto source_row = source->GetScanline(row);
+    if (fxge::RustBlendAdapter::UseCandidate() &&
+        fxge::RustBlendAdapter::CopyBitmapRow(source_row, destination)) {
+      continue;
+    }
+    fxcrt::spancpy(destination, source_row);
   }
   return true;
 }
@@ -140,25 +147,55 @@ void CFX_DIBitmap::Clear(uint32_t color) {
   if (buffer.empty()) {
     return;
   }
+  const auto clear_with_rust = [&](size_t components,
+                                   std::array<uint8_t, 4> pixel,
+                                   bool fill_padding) {
+    return fxge::RustBlendAdapter::UseCandidate() &&
+           fxge::RustBlendAdapter::ClearBitmap(
+               buffer, GetWidth(), GetHeight(), GetPitch(), components, pixel,
+               fill_padding);
+  };
 
   switch (GetFormat()) {
     case FXDIB_Format::kInvalid:
       break;
-    case FXDIB_Format::k1bppMask:
-      std::ranges::fill(buffer, (color & 0xff000000) ? 0xff : 0);
+    case FXDIB_Format::k1bppMask: {
+      const uint8_t value = (color & 0xff000000) ? 0xff : 0;
+      if (!clear_with_rust(1, {value, 0, 0, 0}, /*fill_padding=*/true)) {
+        std::ranges::fill(buffer, value);
+      }
       break;
-    case FXDIB_Format::k1bppRgb:
-      std::ranges::fill(buffer, FindPalette(color) ? 0xff : 0);
+    }
+    case FXDIB_Format::k1bppRgb: {
+      const uint8_t value = FindPalette(color) ? 0xff : 0;
+      if (!clear_with_rust(1, {value, 0, 0, 0}, /*fill_padding=*/true)) {
+        std::ranges::fill(buffer, value);
+      }
       break;
-    case FXDIB_Format::k8bppMask:
-      std::ranges::fill(buffer, color >> 24);
+    }
+    case FXDIB_Format::k8bppMask: {
+      const uint8_t value = static_cast<uint8_t>(color >> 24);
+      if (!clear_with_rust(1, {value, 0, 0, 0}, /*fill_padding=*/true)) {
+        std::ranges::fill(buffer, value);
+      }
       break;
-    case FXDIB_Format::k8bppRgb:
-      std::ranges::fill(buffer, FindPalette(color));
+    }
+    case FXDIB_Format::k8bppRgb: {
+      const uint8_t value = static_cast<uint8_t>(FindPalette(color));
+      if (!clear_with_rust(1, {value, 0, 0, 0}, /*fill_padding=*/true)) {
+        std::ranges::fill(buffer, value);
+      }
       break;
+    }
     case FXDIB_Format::kBgr: {
       const FX_BGR_STRUCT<uint8_t> bgr = ArgbToBGRStruct(color);
-      if (bgr.red == bgr.green && bgr.green == bgr.blue) {
+      const bool fill_padding =
+          bgr.red == bgr.green && bgr.green == bgr.blue;
+      if (clear_with_rust(3, {bgr.blue, bgr.green, bgr.red, 0},
+                          fill_padding)) {
+        break;
+      }
+      if (fill_padding) {
         std::ranges::fill(buffer, bgr.red);
       } else {
         for (int row = 0; row < GetHeight(); row++) {
@@ -170,11 +207,17 @@ void CFX_DIBitmap::Clear(uint32_t color) {
     }
     case FXDIB_Format::kBgrx:
       [[fallthrough]];
-    case FXDIB_Format::kBgra:
+    case FXDIB_Format::kBgra: {
+      const auto bgra = ArgbToBGRAStruct(color);
+      if (clear_with_rust(4, {bgra.blue, bgra.green, bgra.red, bgra.alpha},
+                          /*fill_padding=*/false)) {
+        break;
+      }
       for (int row = 0; row < GetHeight(); row++) {
         std::ranges::fill(GetWritableScanlineAs<uint32_t>(row), color);
       }
       break;
+    }
   }
 }
 
@@ -259,11 +302,16 @@ void CFX_DIBitmap::TransferWithMultipleBPP(int dest_left,
   const size_t src_row_offset = static_cast<size_t>(src_left) * bytes_per_pixel;
   const size_t bytes_to_copy = static_cast<size_t>(width) * bytes_per_pixel;
   for (int row = 0; row < height; ++row) {
-    pdfium::span<uint8_t> dest_span =
-        GetWritableScanline(dest_top + row).subspan(dest_row_offset);
+    pdfium::span<uint8_t> dest_row = GetWritableScanline(dest_top + row);
+    pdfium::span<const uint8_t> src_row = source->GetScanline(src_top + row);
+    if (fxge::RustBlendAdapter::UseCandidate() &&
+        fxge::RustBlendAdapter::TransferBitmapRow(
+            src_row, src_left, dest_row, dest_left, width, bytes_per_pixel)) {
+      continue;
+    }
+    pdfium::span<uint8_t> dest_span = dest_row.subspan(dest_row_offset);
     pdfium::span<const uint8_t> src_span =
-        source->GetScanline(src_top + row)
-            .subspan(src_row_offset, bytes_to_copy);
+        src_row.subspan(src_row_offset, bytes_to_copy);
     fxcrt::spancpy(dest_span, src_span);
   }
 }
@@ -276,10 +324,17 @@ void CFX_DIBitmap::TransferEqualFormatsOneBPP(
     RetainPtr<const CFX_DIBBase> source,
     int src_left,
     int src_top) {
-  UNSAFE_TODO({
-    for (int row = 0; row < height; ++row) {
-      uint8_t* dest_scan = GetWritableScanline(dest_top + row).data();
-      const uint8_t* src_scan = source->GetScanline(src_top + row).data();
+  for (int row = 0; row < height; ++row) {
+    pdfium::span<uint8_t> dest_row = GetWritableScanline(dest_top + row);
+    pdfium::span<const uint8_t> src_row = source->GetScanline(src_top + row);
+    if (fxge::RustBlendAdapter::UseCandidate() &&
+        fxge::RustBlendAdapter::Transfer1bppRow(
+            src_row, src_left, dest_row, dest_left, width)) {
+      continue;
+    }
+    UNSAFE_TODO({
+      uint8_t* dest_scan = dest_row.data();
+      const uint8_t* src_scan = src_row.data();
       for (int col = 0; col < width; ++col) {
         int src_idx = src_left + col;
         int dest_idx = dest_left + col;
@@ -289,14 +344,19 @@ void CFX_DIBitmap::TransferEqualFormatsOneBPP(
           dest_scan[(dest_idx) / 8] &= ~(1 << (7 - (dest_idx) % 8));
         }
       }
-    }
-  });
+    });
+  }
 }
 
 void CFX_DIBitmap::SetRedFromAlpha() {
   CHECK_EQ(FXDIB_Format::kBgra, GetFormat());
   CHECK(buffer_);
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::SetBgraRedFromAlpha(
+          GetWritableBuffer(), GetWidth(), GetHeight(), GetPitch())) {
+    return;
+  }
   for (int row = 0; row < GetHeight(); row++) {
     auto scanline = GetWritableScanlineAs<FX_BGRA_STRUCT<uint8_t>>(row).first(
         static_cast<size_t>(GetWidth()));
@@ -310,6 +370,11 @@ void CFX_DIBitmap::SetUniformOpaqueAlpha() {
   CHECK_EQ(FXDIB_Format::kBgra, GetFormat());
   CHECK(buffer_);
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::SetBgraOpaqueAlpha(
+          GetWritableBuffer(), GetWidth(), GetHeight(), GetPitch())) {
+    return;
+  }
   for (int row = 0; row < GetHeight(); row++) {
     auto scanline = GetWritableScanlineAs<FX_BGRA_STRUCT<uint8_t>>(row).first(
         static_cast<size_t>(GetWidth()));
@@ -325,13 +390,23 @@ bool CFX_DIBitmap::MultiplyAlphaMask(RetainPtr<const CFX_DIBitmap> mask) {
   CHECK_EQ(FXDIB_Format::k8bppMask, mask->GetFormat());
   CHECK(buffer_);
 
-  if (GetFormat() == FXDIB_Format::kBgrx) {
+  const bool converted_from_bgrx = GetFormat() == FXDIB_Format::kBgrx;
+  if (converted_from_bgrx) {
     // TODO(crbug.com/42271020): Consider adding support for
     // `FXDIB_Format::kBgraPremul`
     if (!ConvertFormat(FXDIB_Format::kBgra)) {
       return false;
     }
+  }
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::MultiplyBgraAlphaMask(
+          GetWritableBuffer(), GetPitch(), mask->GetBuffer(), mask->GetPitch(),
+          GetWidth(), GetHeight())) {
+    return true;
+  }
+
+  if (converted_from_bgrx) {
     for (int row = 0; row < GetHeight(); row++) {
       auto dest_scan =
           GetWritableScanlineAs<FX_BGRA_STRUCT<uint8_t>>(row).first(
@@ -380,6 +455,12 @@ bool CFX_DIBitmap::MultiplyAlpha(float alpha) {
   }
 
   const int bitmap_alpha = static_cast<int>(alpha * 255.0f);
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::MultiplyBgraAlpha(
+          GetWritableBuffer(), GetWidth(), GetHeight(), GetPitch(),
+          static_cast<uint8_t>(bitmap_alpha))) {
+    return true;
+  }
   for (int row = 0; row < GetHeight(); row++) {
     auto dest_scan = GetWritableScanlineAs<FX_BGRA_STRUCT<uint8_t>>(row).first(
         static_cast<size_t>(GetWidth()));
@@ -413,6 +494,12 @@ void CFX_DIBitmap::ConvertColorScale(bool is_white_on_black) {
     }
     return;
   }
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::ConvertBgrColorScale(
+          GetWritableBuffer(), GetWidth(), GetHeight(), GetPitch(),
+          GetBPP() / 8)) {
+    return;
+  }
   for (int row = 0; row < GetHeight(); ++row) {
     UNSAFE_TODO({
       uint8_t* scanline = GetWritableScanline(row).data();
@@ -434,6 +521,13 @@ std::optional<CFX_DIBitmap::PitchAndSize> CFX_DIBitmap::CalculatePitchAndSize(
     int height,
     FXDIB_Format format,
     uint32_t pitch) {
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const auto candidate = fxge::RustBlendAdapter::CalculatePitchAndSize(
+        width, height, format, pitch);
+    if (candidate.has_value()) {
+      return PitchAndSize{(*candidate)[0], (*candidate)[1]};
+    }
+  }
   if (width <= 0 || height <= 0) {
     return std::nullopt;
   }
@@ -634,6 +728,17 @@ void CFX_DIBitmap::CompositeOneBPPMask(int dest_left,
                       source->GetHeight(), src_left, src_top, nullptr)) {
     return;
   }
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    bool composited = true;
+    for (int row = 0; composited && row < height; ++row) {
+      composited = fxge::RustBlendAdapter::Composite1bppMaskRow(
+          source->GetScanline(src_top + row), src_left,
+          GetWritableScanline(dest_top + row), dest_left, width);
+    }
+    if (composited) {
+      return;
+    }
+  }
   UNSAFE_TODO({
     for (int row = 0; row < height; ++row) {
       uint8_t* dest_scan = GetWritableScanline(dest_top + row).data();
@@ -667,6 +772,14 @@ bool CFX_DIBitmap::CompositeRect(int left,
   FX_RECT rect(left, top, left + width, top + height);
   rect.Intersect(0, 0, GetWidth(), GetHeight());
   if (rect.IsEmpty()) {
+    return true;
+  }
+
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::CompositeRect(
+          GetWritableBuffer(), GetWidth(), GetHeight(), GetPitch(), GetFormat(),
+          GetPaletteSpan(), rect.left, rect.top, rect.right, rect.bottom,
+          color)) {
     return true;
   }
 
@@ -834,6 +947,11 @@ void CFX_DIBitmap::Populate8bbpMaskFrom1bppSpan(
   const uint32_t dest_pitch = GetPitch();
   pdfium::span<uint8_t> dest_span = GetWritableBuffer();
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::Expand1bppMask(
+          src_span, src_pitch, dest_span, dest_pitch, width, rows)) {
+    return;
+  }
   for (int i = 0; i < rows; i++) {
     for (int n = 0; n < width; n++) {
       dest_span[n] = (src_span[n / 8] & (0x80 >> (n % 8))) ? 255 : 0;
@@ -846,11 +964,16 @@ void CFX_DIBitmap::Populate8bbpMaskFrom1bppSpan(
 void CFX_DIBitmap::PopulateFromSpan(pdfium::span<const uint8_t> src_span,
                                     uint32_t src_pitch) {
   pdfium::span<uint8_t> dest_span = GetWritableBuffer();
-  std::ranges::fill(dest_span, 0);
   const int rows = GetHeight();
   const uint32_t dest_pitch = GetPitch();
   const uint32_t rowbytes = std::min(src_pitch, dest_pitch);
 
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::PopulateBitmap(src_span, src_pitch, dest_span,
+                                             dest_pitch, rows)) {
+    return;
+  }
+  std::ranges::fill(dest_span, 0);
   for (int row = 0; row < rows; row++) {
     fxcrt::spancpy(dest_span, src_span.first(rowbytes));
     dest_span = dest_span.subspan(dest_pitch);

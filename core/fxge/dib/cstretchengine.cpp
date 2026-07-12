@@ -20,6 +20,7 @@
 #include "core/fxge/dib/cfx_dibbase.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/fx_dib.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 #include "core/fxge/dib/scanlinecomposer_iface.h"
 
 static_assert(
@@ -85,6 +86,23 @@ bool CStretchEngine::WeightTable::CalculateWeights(
   }
 
   dest_min_ = dest_min;
+
+  if (fxge::RustBlendAdapter::UseCandidate()) {
+    const auto layout = fxge::RustBlendAdapter::CalculateStretchWeights(
+        dest_len, dest_min, dest_max, src_len, src_min, src_max,
+        options.bNoSmoothing, bilinear, {});
+    if (!layout.has_value()) {
+      return false;
+    }
+    item_size_bytes_ = (*layout)[0];
+    weight_tables_size_bytes_ = (*layout)[1];
+    weight_tables_.resize(weight_tables_size_bytes_);
+    const auto result = fxge::RustBlendAdapter::CalculateStretchWeights(
+        dest_len, dest_min, dest_max, src_len, src_min, src_max,
+        options.bNoSmoothing, bilinear, weight_tables_);
+    return result.has_value() && (*result)[0] == item_size_bytes_ &&
+           (*result)[1] == weight_tables_size_bytes_;
+  }
 
   const double scale = static_cast<double>(src_len) / dest_len;
   const double base = dest_len < 0 ? src_len : 0;
@@ -336,9 +354,20 @@ bool CStretchEngine::ContinueStretchHorz(PauseIndicatorIface* pPause) {
       rows_to_go = kStrechPauseRows;
     }
 
-    const uint8_t* src_scan = source_->GetScanline(cur_row_).data();
+    const auto source_scanline = source_->GetScanline(cur_row_);
+    const uint8_t* src_scan = source_scanline.data();
     pdfium::span<uint8_t> dest_span = inter_buf_.subspan(
         (cur_row_ - src_clip_.top) * inter_pitch_, inter_pitch_);
+    if (fxge::RustBlendAdapter::UseCandidate() &&
+        fxge::RustBlendAdapter::StretchHorizontalRow(
+            static_cast<uint8_t>(trans_method_), dest_format_, Bpp,
+            source_scanline, src_palette_, weight_table_.GetRawTableForRust(),
+            weight_table_.GetItemSizeForRust(),
+            weight_table_.GetDestinationMinimumForRust(), dest_clip_.left,
+            dest_clip_.right, dest_span)) {
+      rows_to_go--;
+      continue;
+    }
     size_t dest_span_index = 0;
     // TODO(npm): reduce duplicated code here
     switch (trans_method_) {
@@ -469,6 +498,15 @@ void CStretchEngine::StretchVert() {
   for (int row = dest_clip_.top; row < dest_clip_.bottom; ++row) {
     unsigned char* dest_scan = dest_scanline_.data();
     const PixelWeight* pWeights = table.GetPixelWeight(row);
+    if (fxge::RustBlendAdapter::UseCandidate() &&
+        fxge::RustBlendAdapter::StretchVerticalRow(
+            static_cast<uint8_t>(trans_method_), DestBpp, inter_buf_,
+            inter_pitch_, src_clip_.top, dest_clip_.left, dest_clip_.right,
+            table.GetRawTableForRust(), table.GetItemSizeForRust(),
+            table.GetDestinationMinimumForRust(), row, dest_scanline_)) {
+      dest_bitmap_->ComposeScanline(row - dest_clip_.top, dest_scanline_);
+      continue;
+    }
     switch (trans_method_) {
       case TransformMethod::k1BppTo8Bpp:
       case TransformMethod::k1BppToManyBpp:

@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "constants/catalog.h"
 #include "core/fpdfapi/page/test_with_page_module.h"
@@ -19,6 +20,7 @@
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfapi/parser/cpdf_test_document.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/check.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -157,6 +159,55 @@ class CPDF_TestDocumentAllowSetParser final : public CPDF_TestDocument {
 }  // namespace
 
 using DocumentTest = TestWithPageModule;
+
+namespace {
+
+struct DocumentPageIndexSnapshot {
+  int page_count;
+  std::vector<int> page_numbers;
+  std::vector<int> resolved_indices;
+  std::vector<uint32_t> object_numbers;
+  std::vector<bool> loaded;
+
+  bool operator==(const DocumentPageIndexSnapshot&) const = default;
+};
+
+DocumentPageIndexSnapshot RunDocumentPageIndexScenario(
+    bool use_rust_candidate) {
+  pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+      use_rust_candidate);
+  CPDF_TestDocumentForPages document;
+  for (int index : {6, 0, 3}) {
+    CHECK(document.GetPageDictionary(index));
+  }
+  CHECK(document.CreateNewPage(2));
+  const int pages_to_move[] = {0, 4};
+  CHECK(document.MovePages(pages_to_move, 3));
+  CHECK(document.DeletePage(1));
+
+  DocumentPageIndexSnapshot result{.page_count = document.GetPageCount()};
+  for (int index = 0; index < result.page_count; ++index) {
+    RetainPtr<const CPDF_Dictionary> page = document.GetPageDictionary(index);
+    CHECK(page);
+    result.page_numbers.push_back(page->GetIntegerFor("PageNumbering", -1));
+    result.object_numbers.push_back(page->GetObjNum());
+    result.loaded.push_back(document.IsPageLoaded(index));
+  }
+  for (int index = 0; index < result.page_count; ++index) {
+    document.SetPageObjNum(index, 0);
+  }
+  for (uint32_t object_number : result.object_numbers) {
+    result.resolved_indices.push_back(document.GetPageIndex(object_number));
+  }
+  return result;
+}
+
+}  // namespace
+
+TEST_F(DocumentTest, RustCandidateMatchesCppPageIndexScenario) {
+  EXPECT_EQ(RunDocumentPageIndexScenario(false),
+            RunDocumentPageIndexScenario(true));
+}
 
 TEST_F(DocumentTest, GetPages) {
   std::unique_ptr<CPDF_TestDocumentForPages> document =

@@ -16,6 +16,7 @@
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/ptr_util.h"
 #include "core/fxcrt/stl_util.h"
@@ -24,6 +25,34 @@
 namespace {
 
 constexpr int kNameTreeMaxRecursion = 32;
+
+bool DescribeNameTreeNode(void*,
+                          uintptr_t node,
+                          bool* has_names,
+                          size_t* name_count,
+                          size_t* kid_count) {
+  const auto* dictionary =
+      reinterpret_cast<const CPDF_Dictionary*>(node);
+  RetainPtr<const CPDF_Array> names = dictionary->GetArrayFor("Names");
+  *has_names = !!names;
+  *name_count = names ? names->size() / 2 : 0;
+  RetainPtr<const CPDF_Array> kids = dictionary->GetArrayFor("Kids");
+  *kid_count = kids ? kids->size() : 0;
+  return true;
+}
+
+bool ReadNameTreeKid(void*,
+                     uintptr_t node,
+                     size_t index,
+                     uintptr_t* kid) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids || index >= kids->size()) {
+    return false;
+  }
+  *kid = reinterpret_cast<uintptr_t>(kids->GetMutableDictAt(index).Get());
+  return true;
+}
 
 // The node where a new name should be inserted at `index`.
 struct NodeToInsert {
@@ -55,6 +84,116 @@ void TrimNodeLimits(CPDF_Array* limits) {
   while (limits->size() > 2) {
     limits->RemoveAt(limits->size() - 1);
   }
+}
+
+struct NameTreeSearchContext {
+  const WideString* query;
+};
+
+bool DescribeNameTreeSearchNode(void*,
+                                uintptr_t node,
+                                bool* has_limits,
+                                uint32_t* limits_token,
+                                size_t* limits_item_count,
+                                bool* has_names,
+                                uint32_t* names_token,
+                                size_t* names_item_count,
+                                size_t* name_count,
+                                uint32_t* kids_token,
+                                size_t* kid_count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> limits = dictionary->GetMutableArrayFor("Limits");
+  *has_limits = !!limits;
+  *limits_token = limits ? limits->GetObjNum() : 0;
+  *limits_item_count = limits ? limits->size() : 0;
+  RetainPtr<CPDF_Array> names = dictionary->GetMutableArrayFor("Names");
+  *has_names = !!names;
+  *names_token = names ? names->GetObjNum() : 0;
+  *names_item_count = names ? names->size() : 0;
+  *name_count = names ? names->size() / 2 : 0;
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  *kids_token = kids ? kids->GetObjNum() : 0;
+  *kid_count = kids ? kids->size() : 0;
+  return true;
+}
+
+bool ReadNameTreeSearchToken(void*,
+                             uintptr_t node,
+                             uint8_t array_kind,
+                             size_t index,
+                             uint32_t* token) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> array = dictionary->GetMutableArrayFor(
+      array_kind == 0 ? "Limits" : "Names");
+  if (!array || index >= array->size()) {
+    return false;
+  }
+  RetainPtr<const CPDF_Object> object = array->GetObjectAt(index);
+  *token = object ? object->GetObjNum() : 0;
+  return true;
+}
+
+bool CompareNameTreeSearchLimits(void* opaque,
+                                 uintptr_t node,
+                                 int32_t* query_to_lower,
+                                 int32_t* query_to_upper) {
+  auto* context = static_cast<NameTreeSearchContext*>(opaque);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> limits = dictionary->GetMutableArrayFor("Limits");
+  if (!limits) {
+    return false;
+  }
+  auto [left, right] = GetNodeLimits(limits.Get());
+  *query_to_lower = context->query->Compare(left);
+  *query_to_upper = context->query->Compare(right);
+  return true;
+}
+
+bool NormalizeAndCompareNameTreeSearchLimits(void* opaque,
+                                             uintptr_t node,
+                                             int32_t* query_to_lower,
+                                             int32_t* query_to_upper) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> limits = dictionary->GetMutableArrayFor("Limits");
+  if (!limits) {
+    return false;
+  }
+  TrimNodeLimits(limits.Get());
+  return CompareNameTreeSearchLimits(opaque, node, query_to_lower,
+                                     query_to_upper);
+}
+
+bool ReadNameTreeSearchName(void* opaque,
+                            uintptr_t node,
+                            size_t index,
+                            int32_t* name_to_query,
+                            uintptr_t* value) {
+  auto* context = static_cast<NameTreeSearchContext*>(opaque);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> names = dictionary->GetMutableArrayFor("Names");
+  if (!names || index >= names->size() / 2) {
+    return false;
+  }
+  *name_to_query = names->GetUnicodeTextAt(index * 2).Compare(*context->query);
+  *value = reinterpret_cast<uintptr_t>(
+      names->GetDirectObjectAt(index * 2 + 1).Get());
+  return true;
+}
+
+bool ReadNameTreeSearchKid(void*,
+                           uintptr_t node,
+                           size_t index,
+                           uintptr_t* kid,
+                           uint32_t* token) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids || index >= kids->size()) {
+    return false;
+  }
+  RetainPtr<CPDF_Dictionary> child = kids->GetMutableDictAt(index);
+  *kid = reinterpret_cast<uintptr_t>(child.Get());
+  *token = child ? child->GetObjNum() : 0;
+  return true;
 }
 
 // Get the limit arrays that leaf array |pFind| is under in the tree with root
@@ -554,6 +693,14 @@ RetainPtr<const CPDF_Array> CPDF_NameTree::LookupNamedDest(
 }
 
 size_t CPDF_NameTree::GetCount() const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    std::optional<size_t> result = pdfium::rust::RustNameTreeCount(
+        reinterpret_cast<uintptr_t>(root_.Get()), nullptr,
+        DescribeNameTreeNode, ReadNameTreeKid);
+    if (result.has_value()) {
+      return result.value();
+    }
+  }
   absl::flat_hash_set<const CPDF_Dictionary*> seen;
   return CountNamesInternal(root_.Get(), 0, seen);
 }
@@ -561,18 +708,41 @@ size_t CPDF_NameTree::GetCount() const {
 bool CPDF_NameTree::AddValueAndName(RetainPtr<CPDF_Object> pObj,
                                     const WideString& name) {
   NodeToInsert node_to_insert;
-  // Handle the corner case where the root node is empty. i.e. No kids and no
-  // names. In which case, just insert into it and skip all the searches.
-  RetainPtr<CPDF_Array> pNames =
-      root_->GetMutableArrayFor(pdfium::catalog::kNames);
-  if (pNames && pNames->IsEmpty() && !root_->GetArrayFor("Kids")) {
-    node_to_insert.names = pNames;
+  if (pdfium::rust::UseRustParserCandidate()) {
+    NameTreeSearchContext context = {&name};
+    std::optional<pdfium::rust::RustNameTreeInsertionResult> result =
+        pdfium::rust::RustNameTreePlanInsertion(
+            reinterpret_cast<uintptr_t>(root_.Get()), &context,
+            DescribeNameTreeSearchNode, ReadNameTreeSearchToken,
+            NormalizeAndCompareNameTreeSearchLimits, ReadNameTreeSearchName,
+            ReadNameTreeSearchKid);
+    if (result.has_value()) {
+      if (result->duplicate) {
+        return false;
+      }
+      auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(result->node);
+      RetainPtr<CPDF_Array> names =
+          dictionary ? dictionary->GetMutableArrayFor("Names") : nullptr;
+      if (names && result->pair_index <= names->size() / 2) {
+        node_to_insert.names = std::move(names);
+        node_to_insert.index =
+            pdfium::checked_cast<int32_t>(result->pair_index) - 1;
+      }
+    }
   }
 
   if (!node_to_insert.names) {
-    // Fail if the tree already contains this name or if the tree is too deep.
-    if (SearchNameNodeByName(root_, name, &node_to_insert)) {
-      return false;
+    // Handle the corner case where the root node is empty. i.e. No kids and no
+    // names. In which case, just insert into it and skip all the searches.
+    RetainPtr<CPDF_Array> names =
+        root_->GetMutableArrayFor(pdfium::catalog::kNames);
+    if (names && names->IsEmpty() && !root_->GetArrayFor("Kids")) {
+      node_to_insert.names = std::move(names);
+    } else {
+      // Fail if the tree already contains this name or if the tree is too deep.
+      if (SearchNameNodeByName(root_, name, &node_to_insert)) {
+        return false;
+      }
     }
   }
 
@@ -642,6 +812,34 @@ bool CPDF_NameTree::DeleteValueAndName(size_t nIndex) {
 RetainPtr<CPDF_Object> CPDF_NameTree::LookupValueAndName(
     size_t nIndex,
     WideString* csName) const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    std::optional<pdfium::rust::RustNameTreeIndexResult> result =
+        pdfium::rust::RustNameTreeFindIndex(
+            reinterpret_cast<uintptr_t>(root_.Get()), nIndex, nullptr,
+            DescribeNameTreeNode, ReadNameTreeKid);
+    if (result.has_value()) {
+      if (!result->found) {
+        csName->clear();
+        return nullptr;
+      }
+      auto* dictionary =
+          reinterpret_cast<CPDF_Dictionary*>(result->node);
+      RetainPtr<CPDF_Array> names = dictionary->GetMutableArrayFor("Names");
+      if (!names || result->pair_index >= names->size() / 2) {
+        csName->clear();
+        return nullptr;
+      }
+      const size_t key_index = result->pair_index * 2;
+      RetainPtr<CPDF_Object> value =
+          names->GetMutableDirectObjectAt(key_index + 1);
+      if (!value) {
+        csName->clear();
+        return nullptr;
+      }
+      *csName = names->GetUnicodeTextAt(key_index);
+      return value;
+    }
+  }
   std::optional<IndexSearchResult> result =
       SearchNameNodeByIndex(root_.Get(), nIndex);
   if (!result) {
@@ -655,6 +853,18 @@ RetainPtr<CPDF_Object> CPDF_NameTree::LookupValueAndName(
 
 RetainPtr<const CPDF_Object> CPDF_NameTree::LookupValue(
     const WideString& csName) const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    NameTreeSearchContext context = {&csName};
+    std::optional<uintptr_t> result = pdfium::rust::RustNameTreeLookup(
+        reinterpret_cast<uintptr_t>(root_.Get()), &context,
+        DescribeNameTreeSearchNode, ReadNameTreeSearchToken,
+        CompareNameTreeSearchLimits, ReadNameTreeSearchName,
+        ReadNameTreeSearchKid);
+    if (result.has_value()) {
+      return pdfium::WrapRetain(
+          reinterpret_cast<const CPDF_Object*>(result.value()));
+    }
+  }
   return SearchNameNodeByName(root_, csName, nullptr);
 }
 

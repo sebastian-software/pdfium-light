@@ -32,6 +32,7 @@
 #include "core/fxge/cfx_path.h"
 #include "core/fxge/cfx_textrenderoptions.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
+#include "core/fxge/freetype/rust/rust_glyph_adapter.h"
 #include "core/fxge/fx_font.h"
 #include "core/fxge/renderdevicedriver_iface.h"
 #include "core/fxge/text_char_pos.h"
@@ -49,6 +50,13 @@
 #endif
 
 namespace {
+
+CFX_Point PlanGlyphDeviceOriginCppReference(const CFX_PointF& device_origin,
+                                            bool anti_alias_is_lcd) {
+  return CFX_Point(anti_alias_is_lcd ? static_cast<int>(floor(device_origin.x))
+                                     : FXSYS_roundf(device_origin.x),
+                   FXSYS_roundf(device_origin.y));
+}
 
 void AdjustGlyphSpace(std::vector<TextGlyphPos>* pGlyphAndPos) {
   DCHECK_GT(pGlyphAndPos->size(), 1u);
@@ -1179,10 +1187,20 @@ bool CFX_RenderDevice::DrawNormalText(pdfium::span<const TextCharPos> pCharPos,
   const bool anti_alias_is_lcd = anti_alias == FontAntiAliasingMode::kLcd;
   for (auto [charpos, glyph] : fxcrt::Zip(pCharPos, pdfium::span(glyphs))) {
     glyph.device_origin_ = text2Device.Transform(charpos.origin_);
-    glyph.origin_.x = anti_alias_is_lcd
-                          ? static_cast<int>(floor(glyph.device_origin_.x))
-                          : FXSYS_roundf(glyph.device_origin_.x);
-    glyph.origin_.y = FXSYS_roundf(glyph.device_origin_.y);
+    if (fxge::UseRustGlyphCandidate()) {
+      const auto plan = fxge::RustPlanGlyphDeviceOrigin(
+          glyph.device_origin_.x, glyph.device_origin_.y, anti_alias_is_lcd);
+      glyph.origin_ = plan.has_value()
+                          ? CFX_Point(plan->x, plan->y)
+                          : PlanGlyphDeviceOriginCppReference(
+                                glyph.device_origin_, anti_alias_is_lcd);
+    } else {
+      glyph.origin_ = PlanGlyphDeviceOriginCppReference(glyph.device_origin_,
+                                                        anti_alias_is_lcd);
+    }
+    fxge::RecordGlyphDeviceOriginForTesting(
+        glyph.device_origin_.x, glyph.device_origin_.y, anti_alias_is_lcd,
+        glyph.origin_.x, glyph.origin_.y);
 
     CFX_Matrix matrix = charpos.GetEffectiveMatrix(char2device);
     glyph.glyph_ = font->LoadGlyphBitmap(

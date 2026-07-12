@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <type_traits>
 #include <utility>
@@ -23,6 +24,10 @@
 #include "core/fxcrt/weak_ptr.h"
 
 class CPDF_IndirectObjectHolder;
+
+namespace pdfium::rust {
+class RustPdfDictionary;
+}
 
 // Dictionaries never contain nullptr for valid keys, but some of the methods
 // will return nullptr to indicate non-existent keys.
@@ -42,8 +47,8 @@ class CPDF_Dictionary final : public CPDF_Object {
 
   bool IsLocked() const { return !!lock_count_; }
 
-  bool IsEmpty() const { return map_.empty(); }
-  size_t size() const { return map_.size(); }
+  bool IsEmpty() const { return size() == 0; }
+  size_t size() const;
   RetainPtr<const CPDF_Object> GetObjectFor(ByteStringView key) const;
   RetainPtr<CPDF_Object> GetMutableObjectFor(ByteStringView key);
 
@@ -143,6 +148,11 @@ class CPDF_Dictionary final : public CPDF_Object {
   const CPDF_String* GetStringForInternal(ByteStringView key) const;
   CPDF_Object* SetForInternal(const ByteString& key,
                               RetainPtr<CPDF_Object> pObj);
+  uintptr_t RegisterObject(RetainPtr<CPDF_Object> object);
+  CPDF_Object* GetObjectForHandle(uintptr_t handle) const;
+  void ReleaseObjectHandleIfUnused(uintptr_t handle);
+  void MarkMapViewDirty();
+  void EnsureMapView() const;
 
   ByteString MaybeIntern(const ByteString& str);
   const CPDF_Dictionary* GetDictInternal() const override;
@@ -152,7 +162,14 @@ class CPDF_Dictionary final : public CPDF_Object {
 
   mutable uint32_t lock_count_ = 0;
   WeakPtr<ByteStringPool> pool_;
-  DictMap map_;
+  struct ObjectHandle {
+    RetainPtr<CPDF_Object> object;
+  };
+  const bool use_rust_dictionary_;
+  std::unique_ptr<pdfium::rust::RustPdfDictionary> rust_dictionary_;
+  mutable DictMap map_;
+  std::map<uintptr_t, ObjectHandle> object_handles_;
+  mutable bool map_view_dirty_ = false;
 };
 
 class CPDF_DictionaryLocker {
@@ -167,10 +184,12 @@ class CPDF_DictionaryLocker {
 
   const_iterator begin() const {
     CHECK(dict_->IsLocked());
+    dict_->EnsureMapView();
     return dict_->map_.begin();
   }
   const_iterator end() const {
     CHECK(dict_->IsLocked());
+    dict_->EnsureMapView();
     return dict_->map_.end();
   }
 

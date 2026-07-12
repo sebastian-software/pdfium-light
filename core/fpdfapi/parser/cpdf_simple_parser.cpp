@@ -11,6 +11,7 @@
 #include <optional>
 
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/check_op.h"
 
 CPDF_SimpleParser::CPDF_SimpleParser(pdfium::span<const uint8_t> input)
@@ -19,6 +20,18 @@ CPDF_SimpleParser::CPDF_SimpleParser(pdfium::span<const uint8_t> input)
 CPDF_SimpleParser::~CPDF_SimpleParser() = default;
 
 ByteStringView CPDF_SimpleParser::GetWord() {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto rust_token =
+        pdfium::rust::RustScanPdfToken(data_, cur_position_);
+    if (rust_token.has_value()) {
+      cur_position_ = rust_token->position;
+      return rust_token->has_word
+                 ? ByteStringView(
+                       data_.subspan(rust_token->start, rust_token->len))
+                 : ByteStringView();
+    }
+  }
+
   std::optional<uint8_t> start_char = SkipSpacesAndComments();
   if (!start_char.has_value()) {
     return ByteStringView();
@@ -53,6 +66,10 @@ ByteStringView CPDF_SimpleParser::GetDataToCurrentPosition(
 }
 
 std::optional<uint8_t> CPDF_SimpleParser::SkipSpacesAndComments() {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    return pdfium::rust::RustSkipPdfSpacesAndComments(data_, &cur_position_);
+  }
+
   while (true) {
     if (cur_position_ >= data_.size()) {
       return std::nullopt;

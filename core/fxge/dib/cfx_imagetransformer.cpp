@@ -22,6 +22,7 @@
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/cfx_imagestretcher.h"
 #include "core/fxge/dib/fx_dib.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 
 namespace {
 
@@ -71,6 +72,10 @@ class CFX_BilinearMatrix {
     if (*res_y < 0 && *res_y > -kBase) {
       *res_y = kBase + *res_y;
     }
+  }
+
+  std::array<int32_t, 6> GetValuesForRust() const {
+    return {a, b, c, d, e, f};
   }
 
  private:
@@ -292,6 +297,15 @@ RetainPtr<CFX_DIBitmap> CFX_ImageTransformer::DetachBitmap() {
 }
 
 void CFX_ImageTransformer::CalcAlpha(const CalcData& calc_data) {
+  CFX_BilinearMatrix matrix_fix(calc_data.matrix);
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::TransformBilinearAlpha(
+          matrix_fix.GetValuesForRust(), storer_.GetBitmap()->GetBuffer(),
+          calc_data.pitch, stretch_clip_.Width(), stretch_clip_.Height(),
+          calc_data.bitmap->GetWritableBuffer(), calc_data.bitmap->GetPitch(),
+          result_.Width(), result_.Height())) {
+    return;
+  }
   auto func = [&calc_data](const BilinearData& data, uint8_t* dest) {
     *dest = BilinearInterpolate(calc_data.buf, data, 1, 0);
   };
@@ -310,6 +324,15 @@ void CFX_ImageTransformer::CalcMono(const CalcData& calc_data) {
     }
   }
   const int dest_bytes_per_pixel = calc_data.bitmap->GetBPP() / 8;
+  CFX_BilinearMatrix matrix_fix(calc_data.matrix);
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::TransformBilinearIndexed(
+          matrix_fix.GetValuesForRust(), storer_.GetBitmap()->GetBuffer(),
+          calc_data.pitch, stretch_clip_.Width(), stretch_clip_.Height(), argb,
+          calc_data.bitmap->GetWritableBuffer(), calc_data.bitmap->GetPitch(),
+          result_.Width(), result_.Height())) {
+    return;
+  }
   auto func = [&calc_data, &argb](const BilinearData& data, uint8_t* dest) {
     uint8_t idx = BilinearInterpolate(calc_data.buf, data, 1, 0);
     *reinterpret_cast<uint32_t*>(dest) = argb[idx];
@@ -323,7 +346,20 @@ void CFX_ImageTransformer::CalcColor(const CalcData& calc_data,
   DCHECK(dest_format == FXDIB_Format::k8bppMask ||
          dest_format == FXDIB_Format::kBgra);
   const int dest_bytes_per_pixel = calc_data.bitmap->GetBPP() / 8;
-  if (!storer_.GetBitmap()->IsAlphaFormat()) {
+  const bool source_has_alpha = storer_.GetBitmap()->IsAlphaFormat();
+  const uint8_t transform_mode =
+      !source_has_alpha ? 0 : dest_format == FXDIB_Format::kBgra ? 1 : 2;
+  CFX_BilinearMatrix matrix_fix(calc_data.matrix);
+  if (fxge::RustBlendAdapter::UseCandidate() &&
+      fxge::RustBlendAdapter::TransformBilinearColor(
+          matrix_fix.GetValuesForRust(), storer_.GetBitmap()->GetBuffer(),
+          calc_data.pitch, stretch_clip_.Width(), stretch_clip_.Height(),
+          src_bytes_per_pixel, transform_mode,
+          calc_data.bitmap->GetWritableBuffer(), calc_data.bitmap->GetPitch(),
+          result_.Width(), result_.Height())) {
+    return;
+  }
+  if (!source_has_alpha) {
     auto func = [&calc_data, src_bytes_per_pixel](const BilinearData& data,
                                                   uint8_t* dest) {
       uint8_t b =

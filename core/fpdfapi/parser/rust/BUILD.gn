@@ -1,0 +1,27 @@
+# Copyright 2026 Sebastian Werner
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//build/rust/rust_static_library.gni")
+
+assert(enable_rust,
+       "core/fpdfapi/parser/rust requires enable_rust=true; see docs/rust-port.md")
+
+rust_static_library("pdfium_rust_parser") {
+  crate_name = "pdfium_rust_parser"
+  crate_root = "pdfium_rust_parser.rs"
+  edition = "2021"
+  allow_unsafe = true
+  build_native_rust_unit_tests = true
+  sources = [ "pdfium_rust_parser.rs" ]
+}
+
+source_set("rust_parser_adapter") {
+  sources = [
+    "rust_parser_adapter.cpp",
+    "rust_parser_adapter.h",
+  ]
+  configs += [ "../../../../:pdfium_strict_config" ]
+  deps = [ ":pdfium_rust_parser" ]
+  visibility = [ "../../../../*" ]
+}

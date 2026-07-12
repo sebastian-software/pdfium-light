@@ -2,8 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+#include <vector>
+
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "public/cpp/fpdf_scopers.h"
 #include "public/fpdf_searchex.h"
+#include "public/fpdf_text.h"
 #include "testing/embedder_test.h"
 
 class FPDFSearchExEmbedderTest : public EmbedderTest {};
@@ -110,4 +115,26 @@ TEST_F(FPDFSearchExEmbedderTest, GetTextIndexFromCharIndexInvalid) {
   EXPECT_EQ(-1, FPDFText_GetTextIndexFromCharIndex(nullptr, 0));
   EXPECT_EQ(-1, FPDFText_GetTextIndexFromCharIndex(nullptr, 1));
   EXPECT_EQ(-1, FPDFText_GetTextIndexFromCharIndex(nullptr, 2));
+}
+
+TEST_F(FPDFSearchExEmbedderTest, RustTextIndexMapMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bug_1139.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    std::vector<std::pair<int, int>> mappings;
+    const int count = FPDFText_CountChars(text_page.get());
+    for (int index = -2; index <= count + 1; ++index) {
+      mappings.emplace_back(
+          FPDFText_GetCharIndexFromTextIndex(text_page.get(), index),
+          FPDFText_GetTextIndexFromCharIndex(text_page.get(), index));
+    }
+    return mappings;
+  };
+
+  EXPECT_EQ(run(false), run(true));
 }

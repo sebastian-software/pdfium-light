@@ -5,7 +5,9 @@
 #include "fpdfsdk/cpdfsdk_helpers.h"
 
 #include <algorithm>
+#include <array>
 
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/compiler_specific.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -45,6 +47,26 @@ TEST(CPDFSDKHelpersTest, NulTerminateMaybeCopyAndReturnLength) {
     ASSERT_EQ(1u,
               NulTerminateMaybeCopyAndReturnLength(empty, pdfium::span(buf)));
     EXPECT_EQ(empty, ByteString(buf));
+  }
+}
+
+TEST(CPDFSDKHelpersTest, RustNulTerminationMatchesCppOracle) {
+  struct Snapshot {
+    unsigned long length;
+    std::array<char, 6> buffer;
+    bool operator==(const Snapshot&) const = default;
+  };
+  const ByteString input("value");
+  for (size_t capacity : {0u, 3u, 6u}) {
+    auto run = [&](bool use_rust) {
+      pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+          use_rust);
+      Snapshot snapshot = {.buffer = {0x42, 0x42, 0x42, 0x42, 0x42, 0x42}};
+      snapshot.length = NulTerminateMaybeCopyAndReturnLength(
+          input, pdfium::span(snapshot.buffer).first(capacity));
+      return snapshot;
+    };
+    EXPECT_EQ(run(false), run(true));
   }
 }
 
@@ -90,4 +112,26 @@ TEST(CPDFSDKHelpersTest, ParsePageRangeString) {
               ElementsAre(0, 1, 2, 3, 4, 5));
   EXPECT_THAT(ParsePageRangeString("1-4,3-6", 10),
               ElementsAre(0, 1, 2, 3, 2, 3, 4, 5));
+}
+
+TEST(CPDFSDKHelpersTest, RustPageRangeMatchesCppOracle) {
+  struct Case {
+    const char* input;
+    uint32_t page_count;
+  };
+  static constexpr Case kCases[] = {
+      {"", 1},      {"clams", 10},   {"1-4,3-6", 10}, {"5  0, 1-2 ", 100},
+      {"1-2-", 10}, {"50,1-2", 100},
+  };
+  for (const auto& test_case : kCases) {
+    std::vector<uint32_t> oracle;
+    {
+      pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+          false);
+      oracle = ParsePageRangeString(test_case.input, test_case.page_count);
+    }
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(true);
+    EXPECT_EQ(oracle,
+              ParsePageRangeString(test_case.input, test_case.page_count));
+  }
 }

@@ -50,6 +50,7 @@ const FAX_WHITE_RUN_INS: &[u8] = &[
     23, 0, 9, 28, 64, 9, 29, 128, 9, 30, 192, 9, 31, 0, 10, 255,
 ];
 
+// RUST_PORT_METRICS_BEGIN abi_thunk
 #[repr(C)]
 pub struct RustCodecResult {
     data: *mut u8,
@@ -111,6 +112,7 @@ fn input_from_ffi<'a>(data: *const u8, len: usize) -> &'a [u8] {
     // length. It never calls this function with a null non-empty span.
     unsafe { slice::from_raw_parts(data, len) }
 }
+// RUST_PORT_METRICS_END abi_thunk
 
 fn is_a85_whitespace(byte: u8) -> bool {
     matches!(byte, b'\r' | b'\n' | b' ' | b'\t')
@@ -1023,6 +1025,7 @@ fn run_length_decode(input: &[u8]) -> Result<(Vec<u8>, u32), ()> {
     Ok((output, u32::try_from(consumed).map_err(|_| ())?))
 }
 
+// RUST_PORT_METRICS_BEGIN abi_thunk
 #[unsafe(no_mangle)]
 pub extern "C" fn pdfium_rust_a85_encode(data: *const u8, len: usize) -> RustCodecResult {
     RustCodecResult::from_bytes(a85_encode(input_from_ffi(data, len)), 0)
@@ -1161,6 +1164,7 @@ pub unsafe extern "C" fn pdfium_rust_fax_scanline_result_free(result: RustFaxSca
         }
     }
 }
+// RUST_PORT_METRICS_END abi_thunk
 
 #[cfg(test)]
 mod tests {

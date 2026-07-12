@@ -72,6 +72,7 @@ source_set("parser") {
     "../../fdrm",
     "../../fxcodec",
     "../edit:contentstream_write_utils",
+    "rust:rust_parser_adapter",
   ]
   public_deps = [ "../../fxcrt" ]
   allow_circular_includes_from = []
@@ -96,15 +97,20 @@ source_set("unit_test_support") {
 pdfium_unittest_source_set("unittests") {
   sources = [
     "cpdf_array_unittest.cpp",
+    "cpdf_boolean_unittest.cpp",
     "cpdf_dictionary_unittest.cpp",
     "cpdf_document_unittest.cpp",
     "cpdf_indirect_object_holder_unittest.cpp",
+    "cpdf_name_unittest.cpp",
     "cpdf_number_unittest.cpp",
     "cpdf_object_stream_unittest.cpp",
     "cpdf_object_unittest.cpp",
     "cpdf_object_walker_unittest.cpp",
     "cpdf_parser_unittest.cpp",
+    "cpdf_reference_unittest.cpp",
     "cpdf_simple_parser_unittest.cpp",
+    "cpdf_string_unittest.cpp",
+    "cpdf_stream_unittest.cpp",
     "cpdf_stream_acc_unittest.cpp",
     "cpdf_syntax_parser_unittest.cpp",
     "fpdf_parser_decode_unittest.cpp",
@@ -118,6 +124,7 @@ pdfium_unittest_source_set("unittests") {
     "../page",
     "../page:unit_test_support",
     "../render",
+    "rust:rust_parser_adapter",
   ]
   pdfium_root_dir = "../../../"
 

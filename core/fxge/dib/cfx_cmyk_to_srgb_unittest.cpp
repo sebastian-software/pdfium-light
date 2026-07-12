@@ -4,6 +4,10 @@
 
 #include "core/fxge/dib/cfx_cmyk_to_srgb.h"
 
+#include <array>
+
+#include "core/fxcrt/data_vector.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 union Float_t {
@@ -27,4 +31,55 @@ TEST(fxge, CMYKRounding) {
   }
   // Check various other 'special' numbers.
   rgb = AdobeCmykToStandardRgbF(0.0f, 0.25f, 0.5f, 1.0f);
+}
+
+TEST(fxge, RustCmykMatchesCppReferenceAcrossInterpolationBoundaries) {
+  static constexpr std::array<uint8_t, 26> kChannels = {
+      0,   1,   31,  32,  33,  63,  64,  65,  95,  96,  97,  127, 128,
+      129, 159, 160, 161, 191, 192, 193, 223, 224, 225, 254, 255, 17,
+  };
+  for (const uint8_t cyan : kChannels) {
+    for (const uint8_t magenta : kChannels) {
+      for (const uint8_t yellow : kChannels) {
+        for (const uint8_t key : kChannels) {
+          const auto expected = fxge::AdobeCmykToStandardRgbReferenceForTesting(
+              cyan, magenta, yellow, key);
+          const auto actual =
+              AdobeCmykToStandardRgb(cyan, magenta, yellow, key);
+          ASSERT_EQ(expected.red, actual.red)
+              << "cyan=" << static_cast<int>(cyan)
+              << " magenta=" << static_cast<int>(magenta)
+              << " yellow=" << static_cast<int>(yellow)
+              << " key=" << static_cast<int>(key);
+          ASSERT_EQ(expected.green, actual.green);
+          ASSERT_EQ(expected.blue, actual.blue);
+        }
+      }
+    }
+  }
+}
+
+TEST(fxge, RustCmykBatchPreservesPdfiumBgrOrder) {
+  static constexpr size_t kPixelCount = 256;
+  DataVector<uint8_t> source(kPixelCount * 4);
+  DataVector<uint8_t> expected(kPixelCount * 3);
+  for (size_t pixel = 0; pixel < kPixelCount; ++pixel) {
+    const uint8_t cyan = static_cast<uint8_t>(pixel);
+    const uint8_t magenta = static_cast<uint8_t>(255 - pixel);
+    const uint8_t yellow = static_cast<uint8_t>(pixel * 37);
+    const uint8_t key = static_cast<uint8_t>(pixel * 73);
+    source[pixel * 4] = cyan;
+    source[pixel * 4 + 1] = magenta;
+    source[pixel * 4 + 2] = yellow;
+    source[pixel * 4 + 3] = key;
+    const auto rgb = fxge::AdobeCmykToStandardRgbReferenceForTesting(
+        cyan, magenta, yellow, key);
+    expected[pixel * 3] = rgb.blue;
+    expected[pixel * 3 + 1] = rgb.green;
+    expected[pixel * 3 + 2] = rgb.red;
+  }
+
+  DataVector<uint8_t> actual(expected.size());
+  ASSERT_TRUE(fxge::RustBlendAdapter::ConvertCmykToBgrRow(source, actual));
+  EXPECT_EQ(expected, actual);
 }

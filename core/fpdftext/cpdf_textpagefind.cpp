@@ -10,7 +10,9 @@
 
 #include <vector>
 
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fpdftext/cpdf_textpage.h"
+#include "core/fpdftext/rust/rust_text_adapter.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/compiler_specific.h"
 #include "core/fxcrt/fx_extension.h"
@@ -193,23 +195,41 @@ std::unique_ptr<CPDF_TextPageFind> CPDF_TextPageFind::Create(
     const WideString& findwhat,
     const Options& options,
     std::optional<size_t> startPos) {
-  std::vector<WideString> findwhat_array =
-      ExtractFindWhat(GetStringCase(findwhat, options.bMatchCase));
-  auto find = pdfium::WrapUnique(
-      new CPDF_TextPageFind(pTextPage, findwhat_array, options, startPos));
+  WideString normalized_query = GetStringCase(findwhat, options.bMatchCase);
+  std::vector<WideString> findwhat_array;
+  if (!pdfium::rust::UseRustParserCandidate()) {
+    findwhat_array = ExtractFindWhat(normalized_query);
+  }
+  auto find = pdfium::WrapUnique(new CPDF_TextPageFind(
+      pTextPage, normalized_query, findwhat_array, options, startPos));
   find->FindFirst();
   return find;
 }
 
 CPDF_TextPageFind::CPDF_TextPageFind(
     const CPDF_TextPage* pTextPage,
+    const WideString& normalized_query,
     const std::vector<WideString>& findwhat_array,
     const Options& options,
     std::optional<size_t> startPos)
     : text_page_(pTextPage),
-      str_text_(GetStringCase(pTextPage->GetAllPageText(), options.bMatchCase)),
-      find_what_array_(findwhat_array),
+      use_rust_(pdfium::rust::UseRustParserCandidate()),
+      str_text_(use_rust_ ? WideString()
+                          : GetStringCase(pTextPage->GetAllPageText(),
+                                          options.bMatchCase)),
+      find_what_array_(use_rust_ ? std::vector<WideString>() : findwhat_array),
       options_(options) {
+  if (use_rust_) {
+    WideString page_text =
+        GetStringCase(pTextPage->GetAllPageText(), options.bMatchCase);
+    rust_find_ = std::make_unique<pdfium::rust::RustTextPageFind>(
+        page_text.AsStringView(), normalized_query.AsStringView(),
+        options.bMatchWholeWord, options.bConsecutive, startPos,
+        const_cast<CPDF_TextPage*>(pTextPage), TextIndexToCharacterIndex,
+        CharacterIndexToTextIndex);
+    CHECK(rust_find_->valid());
+    return;
+  }
   if (!str_text_.IsEmpty()) {
     find_next_start_ = startPos;
     find_pre_start_ = startPos.value_or(str_text_.GetLength() - 1);
@@ -223,10 +243,18 @@ int CPDF_TextPageFind::GetCharIndex(int index) const {
 }
 
 bool CPDF_TextPageFind::FindFirst() {
+  if (use_rust_) {
+    return rust_find_->FindFirst();
+  }
   return str_text_.IsEmpty() || !find_what_array_.empty();
 }
 
 bool CPDF_TextPageFind::FindNext() {
+  if (use_rust_) {
+    std::optional<bool> result = rust_find_->FindNext();
+    CHECK(result.has_value());
+    return *result;
+  }
   if (str_text_.IsEmpty() || !find_next_start_.has_value()) {
     return false;
   }
@@ -323,11 +351,17 @@ bool CPDF_TextPageFind::FindNext() {
 }
 
 bool CPDF_TextPageFind::FindPrev() {
+  if (use_rust_) {
+    std::optional<bool> result = rust_find_->FindPrevious();
+    CHECK(result.has_value());
+    return *result;
+  }
   if (str_text_.IsEmpty() || !find_pre_start_.has_value()) {
     return false;
   }
 
-  CPDF_TextPageFind find_engine(text_page_, find_what_array_, options_, 0);
+  CPDF_TextPageFind find_engine(text_page_, WideString(), find_what_array_,
+                                options_, 0);
   if (!find_engine.FindFirst()) {
     return false;
   }
@@ -362,11 +396,48 @@ bool CPDF_TextPageFind::FindPrev() {
 }
 
 int CPDF_TextPageFind::GetCurOrder() const {
-  return GetCharIndex(res_start_);
+  if (!use_rust_) {
+    return GetCharIndex(res_start_);
+  }
+  std::optional<std::pair<size_t, size_t>> result = rust_find_->GetResult();
+  CHECK(result.has_value());
+  return GetCharIndex(static_cast<int>(result->first));
 }
 
 int CPDF_TextPageFind::GetMatchedCount() const {
-  int resStart = GetCharIndex(res_start_);
-  int resEnd = GetCharIndex(res_end_);
+  size_t result_start = res_start_;
+  size_t result_end = res_end_;
+  if (use_rust_) {
+    std::optional<std::pair<size_t, size_t>> result = rust_find_->GetResult();
+    CHECK(result.has_value());
+    result_start = result->first;
+    result_end = result->second;
+  }
+  int resStart = GetCharIndex(static_cast<int>(result_start));
+  int resEnd = GetCharIndex(static_cast<int>(result_end));
   return resEnd - resStart + 1;
+}
+
+// static
+bool CPDF_TextPageFind::TextIndexToCharacterIndex(void* context,
+                                                  int32_t input,
+                                                  int32_t* output) {
+  auto* text_page = static_cast<CPDF_TextPage*>(context);
+  if (!text_page || !output) {
+    return false;
+  }
+  *output = text_page->CharIndexFromTextIndex(input);
+  return true;
+}
+
+// static
+bool CPDF_TextPageFind::CharacterIndexToTextIndex(void* context,
+                                                  int32_t input,
+                                                  int32_t* output) {
+  auto* text_page = static_cast<CPDF_TextPage*>(context);
+  if (!text_page || !output) {
+    return false;
+  }
+  *output = text_page->TextIndexFromCharIndex(input);
+  return true;
 }

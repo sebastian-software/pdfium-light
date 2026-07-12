@@ -7,10 +7,16 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_NAME_H_
 #define CORE_FPDFAPI_PARSER_CPDF_NAME_H_
 
+#include <memory>
+
 #include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fxcrt/bytestring_pool.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/weak_ptr.h"
+
+namespace pdfium::rust {
+class RustPdfString;
+}
 
 class CPDF_Name final : public CPDF_Object {
  public:
@@ -31,6 +37,7 @@ class CPDF_Name final : public CPDF_Object {
   ~CPDF_Name() override;
 
   ByteString name_;
+  std::unique_ptr<pdfium::rust::RustPdfString> rust_value_;
 };
 
 inline CPDF_Name* ToName(CPDF_Object* obj) {

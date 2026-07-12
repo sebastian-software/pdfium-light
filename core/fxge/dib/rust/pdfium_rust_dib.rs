@@ -1,0 +1,4364 @@
+// Copyright 2026 Sebastian Werner
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+//! Rust-owned bitmap, color, and compositing primitives.
+//!
+//! The initial boundary batches separable blend operations so production row
+//! compositors can cross the native boundary once per row instead of once per
+//! channel. The C++ implementation remains the differential oracle until that
+//! row boundary is activated.
+
+#[path = "pdfium_rust_cmyk_table.rs"]
+mod cmyk_table;
+
+use std::slice;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum BlendMode {
+    Normal = 0,
+    Multiply = 1,
+    Screen = 2,
+    Overlay = 3,
+    Darken = 4,
+    Lighten = 5,
+    ColorDodge = 6,
+    ColorBurn = 7,
+    HardLight = 8,
+    SoftLight = 9,
+    Difference = 10,
+    Exclusion = 11,
+    Hue = 12,
+    Saturation = 13,
+    Color = 14,
+    Luminosity = 15,
+}
+
+impl TryFrom<u8> for BlendMode {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Normal),
+            1 => Ok(Self::Multiply),
+            2 => Ok(Self::Screen),
+            3 => Ok(Self::Overlay),
+            4 => Ok(Self::Darken),
+            5 => Ok(Self::Lighten),
+            6 => Ok(Self::ColorDodge),
+            7 => Ok(Self::ColorBurn),
+            8 => Ok(Self::HardLight),
+            9 => Ok(Self::SoftLight),
+            10 => Ok(Self::Difference),
+            11 => Ok(Self::Exclusion),
+            12 => Ok(Self::Hue),
+            13 => Ok(Self::Saturation),
+            14 => Ok(Self::Color),
+            15 => Ok(Self::Luminosity),
+            _ => Err(()),
+        }
+    }
+}
+
+// Byte-exact PDFium soft-light transfer table. This preserves the historical
+// integer results across platforms instead of recomputing them with floating
+// point at runtime.
+const COLOR_SQRT: [u8; 256] = [
+    0x00, 0x03, 0x07, 0x0B, 0x0F, 0x12, 0x16, 0x19, 0x1D, 0x20, 0x23, 0x26, 0x29, 0x2C, 0x2F, 0x32,
+    0x35, 0x37, 0x3A, 0x3C, 0x3F, 0x41, 0x43, 0x46, 0x48, 0x4A, 0x4C, 0x4E, 0x50, 0x52, 0x54, 0x56,
+    0x57, 0x59, 0x5B, 0x5C, 0x5E, 0x60, 0x61, 0x63, 0x64, 0x65, 0x67, 0x68, 0x69, 0x6B, 0x6C, 0x6D,
+    0x6E, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E,
+    0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E,
+    0x8F, 0x90, 0x91, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C,
+    0x9C, 0x9D, 0x9E, 0x9F, 0xA0, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA4, 0xA5, 0xA6, 0xA7, 0xA7, 0xA8,
+    0xA9, 0xAA, 0xAA, 0xAB, 0xAC, 0xAD, 0xAD, 0xAE, 0xAF, 0xB0, 0xB0, 0xB1, 0xB2, 0xB3, 0xB3, 0xB4,
+    0xB5, 0xB5, 0xB6, 0xB7, 0xB7, 0xB8, 0xB9, 0xBA, 0xBA, 0xBB, 0xBC, 0xBC, 0xBD, 0xBE, 0xBE, 0xBF,
+    0xC0, 0xC0, 0xC1, 0xC2, 0xC2, 0xC3, 0xC4, 0xC4, 0xC5, 0xC6, 0xC6, 0xC7, 0xC7, 0xC8, 0xC9, 0xC9,
+    0xCA, 0xCB, 0xCB, 0xCC, 0xCC, 0xCD, 0xCE, 0xCE, 0xCF, 0xD0, 0xD0, 0xD1, 0xD1, 0xD2, 0xD3, 0xD3,
+    0xD4, 0xD4, 0xD5, 0xD6, 0xD6, 0xD7, 0xD7, 0xD8, 0xD9, 0xD9, 0xDA, 0xDA, 0xDB, 0xDC, 0xDC, 0xDD,
+    0xDD, 0xDE, 0xDE, 0xDF, 0xE0, 0xE0, 0xE1, 0xE1, 0xE2, 0xE2, 0xE3, 0xE4, 0xE4, 0xE5, 0xE5, 0xE6,
+    0xE6, 0xE7, 0xE7, 0xE8, 0xE9, 0xE9, 0xEA, 0xEA, 0xEB, 0xEB, 0xEC, 0xEC, 0xED, 0xED, 0xEE, 0xEE,
+    0xEF, 0xF0, 0xF0, 0xF1, 0xF1, 0xF2, 0xF2, 0xF3, 0xF3, 0xF4, 0xF4, 0xF5, 0xF5, 0xF6, 0xF6, 0xF7,
+    0xF7, 0xF8, 0xF8, 0xF9, 0xF9, 0xFA, 0xFA, 0xFB, 0xFB, 0xFC, 0xFC, 0xFD, 0xFD, 0xFE, 0xFE, 0xFF,
+];
+
+fn blend(mode: BlendMode, backdrop: u8, source: u8) -> u8 {
+    let backdrop = i32::from(backdrop);
+    let source = i32::from(source);
+    let result = match mode {
+        BlendMode::Normal => source,
+        BlendMode::Multiply => source * backdrop / 255,
+        BlendMode::Screen => source + backdrop - source * backdrop / 255,
+        BlendMode::Overlay => return blend(BlendMode::HardLight, source as u8, backdrop as u8),
+        BlendMode::Darken => source.min(backdrop),
+        BlendMode::Lighten => source.max(backdrop),
+        BlendMode::ColorDodge if source == 255 => 255,
+        BlendMode::ColorDodge => (backdrop * 255 / (255 - source)).min(255),
+        BlendMode::ColorBurn if source == 0 => 0,
+        BlendMode::ColorBurn => 255 - ((255 - backdrop) * 255 / source).min(255),
+        BlendMode::HardLight if source < 128 => source * backdrop * 2 / 255,
+        BlendMode::HardLight => {
+            return blend(BlendMode::Screen, backdrop as u8, (2 * source - 255) as u8)
+        }
+        BlendMode::SoftLight if source < 128 => {
+            backdrop - (255 - 2 * source) * backdrop * (255 - backdrop) / 255 / 255
+        }
+        BlendMode::SoftLight => {
+            backdrop
+                + (2 * source - 255) * (i32::from(COLOR_SQRT[backdrop as usize]) - backdrop) / 255
+        }
+        BlendMode::Difference => (backdrop - source).abs(),
+        BlendMode::Exclusion => backdrop + source - 2 * backdrop * source / 255,
+        BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity => source,
+    };
+    result as u8
+}
+
+#[derive(Clone, Copy)]
+struct Rgb {
+    red: i32,
+    green: i32,
+    blue: i32,
+}
+
+fn lum(color: Rgb) -> i32 {
+    (color.red * 30 + color.green * 59 + color.blue * 11) / 100
+}
+
+fn clip_color(mut color: Rgb) -> Rgb {
+    let luminosity = lum(color);
+    let minimum = color.red.min(color.green).min(color.blue);
+    let maximum = color.red.max(color.green).max(color.blue);
+    if minimum < 0 {
+        color.red = luminosity + (color.red - luminosity) * luminosity / (luminosity - minimum);
+        color.green = luminosity + (color.green - luminosity) * luminosity / (luminosity - minimum);
+        color.blue = luminosity + (color.blue - luminosity) * luminosity / (luminosity - minimum);
+    }
+    if maximum > 255 {
+        color.red =
+            luminosity + (color.red - luminosity) * (255 - luminosity) / (maximum - luminosity);
+        color.green =
+            luminosity + (color.green - luminosity) * (255 - luminosity) / (maximum - luminosity);
+        color.blue =
+            luminosity + (color.blue - luminosity) * (255 - luminosity) / (maximum - luminosity);
+    }
+    color
+}
+
+fn set_lum(mut color: Rgb, luminosity: i32) -> Rgb {
+    let delta = luminosity - lum(color);
+    color.red += delta;
+    color.green += delta;
+    color.blue += delta;
+    clip_color(color)
+}
+
+fn saturation(color: Rgb) -> i32 {
+    color.red.max(color.green).max(color.blue) - color.red.min(color.green).min(color.blue)
+}
+
+fn set_saturation(mut color: Rgb, saturation: i32) -> Rgb {
+    let minimum = color.red.min(color.green).min(color.blue);
+    let maximum = color.red.max(color.green).max(color.blue);
+    if minimum == maximum {
+        return Rgb { red: 0, green: 0, blue: 0 };
+    }
+    color.red = (color.red - minimum) * saturation / (maximum - minimum);
+    color.green = (color.green - minimum) * saturation / (maximum - minimum);
+    color.blue = (color.blue - minimum) * saturation / (maximum - minimum);
+    color
+}
+
+fn rgb_blend(mode: BlendMode, source: [u8; 4], backdrop: [u8; 4]) -> [u8; 3] {
+    let source =
+        Rgb { red: i32::from(source[2]), green: i32::from(source[1]), blue: i32::from(source[0]) };
+    let backdrop = Rgb {
+        red: i32::from(backdrop[2]),
+        green: i32::from(backdrop[1]),
+        blue: i32::from(backdrop[0]),
+    };
+    let result = match mode {
+        BlendMode::Hue => set_lum(set_saturation(source, saturation(backdrop)), lum(backdrop)),
+        BlendMode::Saturation => {
+            set_lum(set_saturation(backdrop, saturation(source)), lum(backdrop))
+        }
+        BlendMode::Color => set_lum(source, lum(backdrop)),
+        BlendMode::Luminosity => set_lum(backdrop, lum(source)),
+        _ => source,
+    };
+    [result.blue as u8, result.green as u8, result.red as u8]
+}
+
+fn alpha_merge(backdrop: u8, source: u8, source_alpha: u8) -> u8 {
+    let backdrop = u32::from(backdrop);
+    let source = u32::from(source);
+    let source_alpha = u32::from(source_alpha);
+    ((backdrop * (255 - source_alpha) + source * source_alpha) / 255) as u8
+}
+
+fn composite_bgra_pixel(mode: BlendMode, input: [u8; 4], clip: u8, output: &mut [u8; 4]) {
+    let source_alpha = (u16::from(input[3]) * u16::from(clip) / 255) as u8;
+    if output[3] == 0 {
+        output[..3].copy_from_slice(&input[..3]);
+        output[3] = source_alpha;
+        return;
+    }
+    if source_alpha == 0 {
+        return;
+    }
+
+    let destination_alpha = (u16::from(output[3]) + u16::from(source_alpha)
+        - u16::from(output[3]) * u16::from(source_alpha) / 255) as u8;
+    let alpha_ratio = (u16::from(source_alpha) * 255 / u16::from(destination_alpha)) as u8;
+    let non_separable = matches!(
+        mode,
+        BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity
+    );
+    let blended_channels = non_separable.then(|| rgb_blend(mode, input, *output));
+    for channel in 0..3 {
+        let candidate = if mode == BlendMode::Normal {
+            input[channel]
+        } else if let Some(blended) = blended_channels {
+            alpha_merge(input[channel], blended[channel], output[3])
+        } else {
+            let blended = blend(mode, output[channel], input[channel]);
+            alpha_merge(input[channel], blended, output[3])
+        };
+        output[channel] = alpha_merge(output[channel], candidate, alpha_ratio);
+    }
+    output[3] = destination_alpha;
+}
+
+fn composite_mask_bgra_pixel(
+    mode: BlendMode,
+    input: [u8; 4],
+    source_alpha: u8,
+    output: &mut [u8; 4],
+) {
+    if output[3] == 0 {
+        output[..3].copy_from_slice(&input[..3]);
+        output[3] = source_alpha;
+        return;
+    }
+    if source_alpha == 0 {
+        return;
+    }
+
+    let destination_alpha = (u16::from(output[3]) + u16::from(source_alpha)
+        - u16::from(output[3]) * u16::from(source_alpha) / 255) as u8;
+    let alpha_ratio = (u16::from(source_alpha) * 255 / u16::from(destination_alpha)) as u8;
+    let blended_channels = rgb_blend(mode, input, *output);
+    for channel in 0..3 {
+        output[channel] = alpha_merge(output[channel], blended_channels[channel], alpha_ratio);
+    }
+    output[3] = destination_alpha;
+}
+
+fn composite_bgra_to_bgr_pixel(
+    mode: BlendMode,
+    input: [u8; 4],
+    clip: u8,
+    rgb_byte_order: bool,
+    output: &mut [u8],
+) {
+    let source_alpha = (u16::from(input[3]) * u16::from(clip) / 255) as u8;
+    let non_separable = matches!(
+        mode,
+        BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity
+    );
+    let backdrop = if rgb_byte_order {
+        [output[2], output[1], output[0], 255]
+    } else {
+        [output[0], output[1], output[2], 255]
+    };
+    let blended_channels = non_separable.then(|| rgb_blend(mode, input, backdrop));
+    for (channel, destination) in output[..3].iter_mut().enumerate() {
+        let source_channel = if rgb_byte_order { 2 - channel } else { channel };
+        let source = if mode == BlendMode::Normal {
+            input[source_channel]
+        } else if let Some(blended) = blended_channels {
+            blended[source_channel]
+        } else {
+            blend(mode, *destination, input[source_channel])
+        };
+        *destination = alpha_merge(*destination, source, source_alpha);
+    }
+}
+
+fn gray(input: [u8; 4]) -> u8 {
+    ((u16::from(input[0]) * 11 + u16::from(input[1]) * 59 + u16::from(input[2]) * 30) / 100) as u8
+}
+
+fn composite_bgra_to_byte_pixel(
+    mode: u8,
+    input: [u8; 4],
+    clip: u8,
+    is_mask: bool,
+    output: &mut u8,
+) -> bool {
+    let source_alpha = (u16::from(input[3]) * u16::from(clip) / 255) as u8;
+    if is_mask {
+        *output = (u16::from(*output) + u16::from(source_alpha)
+            - u16::from(*output) * u16::from(source_alpha) / 255) as u8;
+        return true;
+    }
+    if source_alpha == 0 {
+        return mode <= 15;
+    }
+
+    let source_gray = gray(input);
+    let candidate = match mode {
+        0 => source_gray,
+        1..=11 => {
+            let Ok(mode) = BlendMode::try_from(mode) else {
+                return false;
+            };
+            blend(mode, *output, source_gray)
+        }
+        12..=14 => *output,
+        15 => source_gray,
+        _ => return false,
+    };
+    *output = alpha_merge(*output, candidate, source_alpha);
+    true
+}
+
+fn composite_opaque_pixel(
+    mode: u8,
+    input: [u8; 4],
+    clip: u8,
+    target: u8,
+    rgb_byte_order: bool,
+    output: &mut [u8],
+) -> bool {
+    match target {
+        0 => composite_bgra_to_byte_pixel(mode, input, clip, false, &mut output[0]),
+        1 => composite_bgra_to_byte_pixel(mode, input, clip, true, &mut output[0]),
+        2 => {
+            let Ok(mode) = BlendMode::try_from(mode) else {
+                return false;
+            };
+            composite_bgra_to_bgr_pixel(mode, input, clip, rgb_byte_order, output);
+            true
+        }
+        3 => {
+            let Ok(mode) = BlendMode::try_from(mode) else {
+                return false;
+            };
+            let mut destination = if rgb_byte_order {
+                [output[2], output[1], output[0], output[3]]
+            } else {
+                [output[0], output[1], output[2], output[3]]
+            };
+            composite_bgra_pixel(mode, input, clip, &mut destination);
+            if rgb_byte_order {
+                output[..3].copy_from_slice(&[destination[2], destination[1], destination[0]]);
+            } else {
+                output[..3].copy_from_slice(&destination[..3]);
+            }
+            output[3] = destination[3];
+            true
+        }
+        _ => false,
+    }
+}
+
+fn adobe_cmyk_to_standard_rgb(cyan: u8, magenta: u8, yellow: u8, key: u8) -> [u8; 3] {
+    let fixed = [cyan, magenta, yellow, key].map(|channel| i32::from(channel) << 8);
+    let index = fixed.map(|channel| (channel + 4096) >> 13);
+    let start = cmyk_table::CMYK
+        [((index[0] * 9 + index[1]) * 9 + index[2]) as usize * 9 + index[3] as usize];
+    let mut rgb = start.map(|channel| i32::from(channel) << 8);
+
+    for dimension in 0..4 {
+        let mut adjacent_index = fixed[dimension] >> 13;
+        if adjacent_index == index[dimension] {
+            adjacent_index = if adjacent_index == 8 { 7 } else { adjacent_index + 1 };
+        }
+        let mut adjacent = index;
+        adjacent[dimension] = adjacent_index;
+        let adjacent_rgb =
+            cmyk_table::CMYK[((adjacent[0] * 9 + adjacent[1]) * 9 + adjacent[2]) as usize * 9
+                + adjacent[3] as usize];
+        let rate =
+            (fixed[dimension] - (index[dimension] << 13)) * (index[dimension] - adjacent_index);
+        for channel in 0..3 {
+            rgb[channel] +=
+                (i32::from(start[channel]) - i32::from(adjacent_rgb[channel])) * rate / 32;
+        }
+    }
+
+    rgb.map(|channel| (channel.max(0) >> 8) as u8)
+}
+
+fn packed_rows_are_valid(width: usize, height: usize, pitch: usize, components: usize) -> bool {
+    width.checked_mul(components).is_some_and(|row_bytes| row_bytes <= pitch)
+        && pitch.checked_mul(height).is_some()
+}
+
+/// Copies BGRA alpha bytes into one 8-bpp mask row.
+///
+/// Destination row padding is intentionally left untouched.
+///
+/// # Safety
+///
+/// Source and destination pointers must cover their supplied lengths and must
+/// not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_clone_alpha_mask_row(
+    source: *const u8,
+    source_len: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    width: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() {
+        return false;
+    }
+    let Some(required_source_len) = width.checked_mul(4) else {
+        return false;
+    };
+    if source_len < required_source_len || destination_len < width {
+        return false;
+    }
+    // SAFETY: The caller contract and checked lengths guarantee distinct
+    // source and destination bitmap regions.
+    let (source, destination) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    for (column, output) in destination.iter_mut().take(width).enumerate() {
+        *output = source[column * 4 + 3];
+    }
+    true
+}
+
+fn read_native_u32(bytes: &[u8], index: usize) -> Option<u32> {
+    let offset = index.checked_mul(4)?;
+    let end = offset.checked_add(4)?;
+    Some(u32::from_ne_bytes(bytes.get(offset..end)?.try_into().ok()?))
+}
+
+fn read_native_i32_at(bytes: &[u8], offset: usize) -> Option<i32> {
+    let end = offset.checked_add(4)?;
+    Some(i32::from_ne_bytes(bytes.get(offset..end)?.try_into().ok()?))
+}
+
+fn read_native_u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
+    let end = offset.checked_add(4)?;
+    Some(u32::from_ne_bytes(bytes.get(offset..end)?.try_into().ok()?))
+}
+
+fn write_native_i32(bytes: &mut [u8], offset: usize, value: i32) -> bool {
+    let Some(end) = offset.checked_add(4) else {
+        return false;
+    };
+    let Some(destination) = bytes.get_mut(offset..end) else {
+        return false;
+    };
+    destination.copy_from_slice(&value.to_ne_bytes());
+    true
+}
+
+fn write_native_u32(bytes: &mut [u8], offset: usize, value: u32) -> bool {
+    let Some(end) = offset.checked_add(4) else {
+        return false;
+    };
+    let Some(destination) = bytes.get_mut(offset..end) else {
+        return false;
+    };
+    destination.copy_from_slice(&value.to_ne_bytes());
+    true
+}
+
+fn fixed_from_double(value: f64) -> u32 {
+    (value * 65_536.0).round() as u32
+}
+
+fn stretch_weight_layout(
+    destination_length: i32,
+    destination_minimum: i32,
+    destination_maximum: i32,
+    source_length: i32,
+) -> Option<(usize, usize, usize)> {
+    let scale = f64::from(source_length) / f64::from(destination_length);
+    let weight_count = (scale.abs().ceil() as usize).checked_add(1)?;
+    let item_size = 8usize.checked_add(weight_count.checked_mul(4)?)?;
+    let destination_range = destination_maximum.checked_sub(destination_minimum)?;
+    let destination_range = usize::try_from(destination_range).ok()?;
+    const MAXIMUM_TABLE_BYTES: usize = 512 * 1024 * 1024;
+    if destination_range > MAXIMUM_TABLE_BYTES / item_size {
+        return None;
+    }
+    Some((weight_count, item_size, destination_range.checked_mul(item_size)?))
+}
+
+fn set_stretch_weight_header(
+    output: &mut [u8],
+    item_offset: usize,
+    source_start: i32,
+    source_end: i32,
+    weight_count: usize,
+) -> bool {
+    let Some(range) = source_end.checked_sub(source_start) else {
+        return false;
+    };
+    if range >= i32::try_from(weight_count).unwrap_or(i32::MAX) {
+        return false;
+    }
+    write_native_i32(output, item_offset, source_start)
+        && write_native_i32(output, item_offset + 4, source_end)
+}
+
+fn set_stretch_weight(
+    output: &mut [u8],
+    item_offset: usize,
+    source_start: i32,
+    position: i32,
+    weight: u32,
+) -> bool {
+    let Some(index) = position.checked_sub(source_start) else {
+        return false;
+    };
+    let Ok(index) = usize::try_from(index) else {
+        return false;
+    };
+    let Some(offset) = item_offset
+        .checked_add(8)
+        .and_then(|offset| index.checked_mul(4).and_then(|index| offset.checked_add(index)))
+    else {
+        return false;
+    };
+    write_native_u32(output, offset, weight)
+}
+
+fn stretch_intermediate_offset(
+    source_row: i32,
+    source_top: i32,
+    intermediate_pitch: usize,
+    column_offset: usize,
+) -> Option<usize> {
+    let relative_row = usize::try_from(source_row.checked_sub(source_top)?).ok()?;
+    relative_row.checked_mul(intermediate_pitch)?.checked_add(column_offset)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the function mirrors the complete retained weight-table contract"
+)]
+fn calculate_stretch_weights(
+    destination_length: i32,
+    destination_minimum: i32,
+    destination_maximum: i32,
+    source_length: i32,
+    source_minimum: i32,
+    source_maximum: i32,
+    no_smoothing: bool,
+    bilinear: bool,
+    output: &mut [u8],
+    weight_count: usize,
+    item_size: usize,
+) -> bool {
+    let scale = f64::from(source_length) / f64::from(destination_length);
+    let base = if destination_length < 0 { f64::from(source_length) } else { 0.0 };
+    for destination_pixel in destination_minimum..destination_maximum {
+        let Ok(item_index) = usize::try_from(destination_pixel - destination_minimum) else {
+            return false;
+        };
+        let Some(item_offset) = item_index.checked_mul(item_size) else {
+            return false;
+        };
+        if no_smoothing || scale.abs() < 1.0 {
+            let source_position = f64::from(destination_pixel) * scale + scale / 2.0 + base;
+            if bilinear {
+                let source_start = ((source_position - 0.5).floor() as i32).max(source_minimum);
+                let source_end = ((source_position + 0.5).floor() as i32).min(source_maximum - 1);
+                if !set_stretch_weight_header(
+                    output,
+                    item_offset,
+                    source_start,
+                    source_end,
+                    weight_count,
+                ) {
+                    return false;
+                }
+                if source_start >= source_end {
+                    if !set_stretch_weight(output, item_offset, source_start, source_start, 65_536)
+                    {
+                        return false;
+                    }
+                } else {
+                    let second = fixed_from_double(source_position - f64::from(source_start) - 0.5);
+                    if !set_stretch_weight(
+                        output,
+                        item_offset,
+                        source_start,
+                        source_start + 1,
+                        second,
+                    ) || !set_stretch_weight(
+                        output,
+                        item_offset,
+                        source_start,
+                        source_start,
+                        65_536 - second,
+                    ) {
+                        return false;
+                    }
+                }
+            } else {
+                let pixel_position = source_position.floor() as i32;
+                let source_start = pixel_position.max(source_minimum);
+                let source_end = pixel_position.min(source_maximum - 1);
+                if !set_stretch_weight_header(
+                    output,
+                    item_offset,
+                    source_start,
+                    source_end,
+                    weight_count,
+                ) || !set_stretch_weight(output, item_offset, source_start, source_start, 65_536)
+                {
+                    return false;
+                }
+            }
+            continue;
+        }
+
+        let source_start_f64 = f64::from(destination_pixel) * scale + base;
+        let source_end_f64 = source_start_f64 + scale;
+        let mut source_start = source_start_f64.min(source_end_f64).floor() as i32;
+        let mut source_end = source_start_f64.max(source_end_f64).floor() as i32;
+        source_start = source_start.max(source_minimum);
+        source_end = source_end.min(source_maximum - 1);
+        if source_start > source_end {
+            source_start = source_start.min(source_maximum - 1);
+            if !set_stretch_weight_header(
+                output,
+                item_offset,
+                source_start,
+                source_start,
+                weight_count,
+            ) {
+                return false;
+            }
+            continue;
+        }
+        if !set_stretch_weight_header(output, item_offset, source_start, source_end, weight_count) {
+            return false;
+        }
+        let mut remaining = 65_536_u32;
+        let mut rounding_error = 0.0;
+        for position in source_start..source_end {
+            let mut destination_start = (f64::from(position) - base) / scale;
+            let mut destination_end = (f64::from(position + 1) - base) / scale;
+            if destination_start > destination_end {
+                std::mem::swap(&mut destination_start, &mut destination_end);
+            }
+            let area_start = destination_start.max(f64::from(destination_pixel));
+            let area_end = destination_end.min(f64::from(destination_pixel + 1));
+            let weight = (area_end - area_start).max(0.0);
+            let fixed_weight = fixed_from_double(weight + rounding_error);
+            if !set_stretch_weight(output, item_offset, source_start, position, fixed_weight) {
+                return false;
+            }
+            remaining = remaining.wrapping_sub(fixed_weight);
+            rounding_error = weight - f64::from(fixed_weight) / 65_536.0;
+        }
+        if remaining != 0 && remaining <= 65_536 {
+            if !set_stretch_weight(output, item_offset, source_start, source_end, remaining) {
+                return false;
+            }
+        } else {
+            if source_end <= source_start
+                || !write_native_i32(output, item_offset + 4, source_end - 1)
+            {
+                return false;
+            }
+            let adjusted_position = source_end - 1;
+            let Some(index) = adjusted_position.checked_sub(source_start) else {
+                return false;
+            };
+            let Ok(index) = usize::try_from(index) else {
+                return false;
+            };
+            let Some(offset) = item_offset.checked_add(8).and_then(|offset| {
+                index.checked_mul(4).and_then(|index| offset.checked_add(index))
+            }) else {
+                return false;
+            };
+            let Some(existing) = read_native_u32(&output[item_offset..], 2 + index) else {
+                return false;
+            };
+            if !write_native_u32(output, offset, existing.wrapping_add(remaining)) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Sizes or fills the complete stretch-engine weight table.
+///
+/// An empty output slice performs only the bounded layout calculation.
+///
+/// # Safety
+///
+/// Output and size pointers must cover their supplied lengths. A non-empty
+/// output must be writable and must not overlap either size output.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_calculate_stretch_weights(
+    destination_length: i32,
+    destination_minimum: i32,
+    destination_maximum: i32,
+    source_length: i32,
+    source_minimum: i32,
+    source_maximum: i32,
+    no_smoothing: bool,
+    bilinear: bool,
+    output: *mut u8,
+    output_len: usize,
+    item_size_output: *mut usize,
+    table_size_output: *mut usize,
+) -> bool {
+    if item_size_output.is_null()
+        || table_size_output.is_null()
+        || destination_length == 0
+        || destination_minimum > destination_maximum
+    {
+        return false;
+    }
+    let Some((weight_count, item_size, table_size)) = stretch_weight_layout(
+        destination_length,
+        destination_minimum,
+        destination_maximum,
+        source_length,
+    ) else {
+        return false;
+    };
+    // SAFETY: The caller contract guarantees both writable size outputs.
+    unsafe {
+        *item_size_output = item_size;
+        *table_size_output = table_size;
+    }
+    if output_len == 0 {
+        return true;
+    }
+    if output.is_null() || output_len < table_size {
+        return false;
+    }
+    // SAFETY: The caller contract and size check guarantee the complete table.
+    let output = unsafe { slice::from_raw_parts_mut(output, output_len) };
+    output[..table_size].fill(0);
+    calculate_stretch_weights(
+        destination_length,
+        destination_minimum,
+        destination_maximum,
+        source_length,
+        source_minimum,
+        source_maximum,
+        no_smoothing,
+        bilinear,
+        &mut output[..table_size],
+        weight_count,
+        item_size,
+    )
+}
+
+struct StretchPixelWeights<'a> {
+    source_start: i32,
+    source_end: i32,
+    item: &'a [u8],
+}
+
+impl StretchPixelWeights<'_> {
+    fn weight(&self, position: i32) -> Option<u32> {
+        let index = usize::try_from(position.checked_sub(self.source_start)?).ok()?;
+        read_native_u32_at(self.item, 8usize.checked_add(index.checked_mul(4)?)?)
+    }
+}
+
+fn stretch_pixel_weights<'a>(
+    table: &'a [u8],
+    item_size: usize,
+    destination_minimum: i32,
+    destination_pixel: i32,
+) -> Option<StretchPixelWeights<'a>> {
+    if item_size < 12 {
+        return None;
+    }
+    let item_index = usize::try_from(destination_pixel.checked_sub(destination_minimum)?).ok()?;
+    let item_offset = item_index.checked_mul(item_size)?;
+    let item = table.get(item_offset..item_offset.checked_add(item_size)?)?;
+    let source_start = read_native_i32_at(item, 0)?;
+    let source_end = read_native_i32_at(item, 4)?;
+    let range = source_end.checked_sub(source_start)?;
+    if range >= i32::try_from((item_size - 8) / 4).ok()? {
+        return None;
+    }
+    Some(StretchPixelWeights { source_start, source_end, item })
+}
+
+fn pixel_from_fixed(value: u32) -> u8 {
+    (value >> 16) as u8
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the row helper mirrors all six retained stretch transform methods"
+)]
+fn stretch_horizontal_row(
+    transform_method: u8,
+    destination_format: u16,
+    components: usize,
+    source: &[u8],
+    palette: &[u32],
+    weight_table: &[u8],
+    item_size: usize,
+    destination_minimum: i32,
+    destination_left: i32,
+    destination_right: i32,
+    output: &mut [u8],
+) -> bool {
+    let Some(destination_width) = destination_right.checked_sub(destination_left) else {
+        return false;
+    };
+    let Ok(destination_width) = usize::try_from(destination_width) else {
+        return false;
+    };
+    let required_output = match transform_method {
+        0..=2 => Some(destination_width),
+        3 => destination_width.checked_mul(3),
+        4 | 5 => destination_width.checked_mul(components),
+        _ => return false,
+    };
+    let Some(required_output) = required_output else {
+        return false;
+    };
+    if output.len() < required_output || !matches!(components, 1 | 3 | 4) {
+        return false;
+    }
+
+    let mut output_index = 0;
+    for destination_pixel in destination_left..destination_right {
+        let Some(weights) =
+            stretch_pixel_weights(weight_table, item_size, destination_minimum, destination_pixel)
+        else {
+            return false;
+        };
+        match transform_method {
+            0 | 1 => {
+                let mut destination_alpha = 0_u32;
+                for source_pixel in weights.source_start..=weights.source_end {
+                    let Ok(source_pixel) = usize::try_from(source_pixel) else {
+                        return false;
+                    };
+                    let Some(source_byte) = source.get(source_pixel / 8) else {
+                        return false;
+                    };
+                    if source_byte & (1 << (7 - source_pixel % 8)) != 0 {
+                        let Some(weight) = weights.weight(source_pixel as i32) else {
+                            return false;
+                        };
+                        destination_alpha += weight * 255;
+                    }
+                }
+                output[output_index] = pixel_from_fixed(destination_alpha);
+                output_index += 1;
+            }
+            2 => {
+                let mut destination_alpha = 0_u32;
+                for source_pixel in weights.source_start..=weights.source_end {
+                    let Ok(source_index) = usize::try_from(source_pixel) else {
+                        return false;
+                    };
+                    let Some(source_value) = source.get(source_index) else {
+                        return false;
+                    };
+                    let Some(weight) = weights.weight(source_pixel) else {
+                        return false;
+                    };
+                    destination_alpha += weight * u32::from(*source_value);
+                }
+                output[output_index] = pixel_from_fixed(destination_alpha);
+                output_index += 1;
+            }
+            3 => {
+                let mut destination_red = 0_u32;
+                let mut destination_green = 0_u32;
+                let mut destination_blue = 0_u32;
+                for source_pixel in weights.source_start..=weights.source_end {
+                    let Ok(source_index) = usize::try_from(source_pixel) else {
+                        return false;
+                    };
+                    let Some(palette_index) = source.get(source_index) else {
+                        return false;
+                    };
+                    let Some(argb) = palette.get(usize::from(*palette_index)) else {
+                        return false;
+                    };
+                    let Some(weight) = weights.weight(source_pixel) else {
+                        return false;
+                    };
+                    if destination_format == 0x018 {
+                        destination_red += weight * u32::from((argb >> 16) as u8);
+                        destination_green += weight * u32::from((argb >> 8) as u8);
+                        destination_blue += weight * u32::from(*argb as u8);
+                    } else {
+                        destination_blue += weight * u32::from((argb >> 24) as u8);
+                        destination_green += weight * u32::from((argb >> 16) as u8);
+                        destination_red += weight * u32::from((argb >> 8) as u8);
+                    }
+                }
+                output[output_index] = pixel_from_fixed(destination_blue);
+                output[output_index + 1] = pixel_from_fixed(destination_green);
+                output[output_index + 2] = pixel_from_fixed(destination_red);
+                output_index += 3;
+            }
+            4 | 5 => {
+                if components < 3 || (transform_method == 5 && components != 4) {
+                    return false;
+                }
+                let mut destination_alpha = 0_u32;
+                let mut destination_red = 0_u32;
+                let mut destination_green = 0_u32;
+                let mut destination_blue = 0_u32;
+                for source_position in weights.source_start..=weights.source_end {
+                    let Ok(source_index) = usize::try_from(source_position) else {
+                        return false;
+                    };
+                    let Some(source_offset) = source_index.checked_mul(components) else {
+                        return false;
+                    };
+                    let Some(source_end) = source_offset.checked_add(components) else {
+                        return false;
+                    };
+                    let Some(source_pixel) = source.get(source_offset..source_end) else {
+                        return false;
+                    };
+                    let Some(mut weight) = weights.weight(source_position) else {
+                        return false;
+                    };
+                    if transform_method == 5 {
+                        weight = weight * u32::from(source_pixel[3]) / 255;
+                        destination_alpha += weight;
+                    }
+                    destination_blue += weight * u32::from(source_pixel[0]);
+                    destination_green += weight * u32::from(source_pixel[1]);
+                    destination_red += weight * u32::from(source_pixel[2]);
+                }
+                output[output_index] = pixel_from_fixed(destination_blue);
+                output[output_index + 1] = pixel_from_fixed(destination_green);
+                output[output_index + 2] = pixel_from_fixed(destination_red);
+                if transform_method == 5 {
+                    output[output_index + 3] = pixel_from_fixed(255 * destination_alpha);
+                }
+                output_index += components;
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Horizontally stretches one source row into the C++-owned intermediate row.
+///
+/// # Safety
+///
+/// All pointers must cover their supplied lengths. Output must not overlap any
+/// input region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_stretch_horizontal_row(
+    transform_method: u8,
+    destination_format: u16,
+    components: usize,
+    source: *const u8,
+    source_len: usize,
+    palette: *const u32,
+    palette_len: usize,
+    weight_table: *const u8,
+    weight_table_len: usize,
+    item_size: usize,
+    destination_minimum: i32,
+    destination_left: i32,
+    destination_right: i32,
+    output: *mut u8,
+    output_len: usize,
+) -> bool {
+    if source.is_null()
+        || weight_table.is_null()
+        || output.is_null()
+        || (palette_len != 0 && palette.is_null())
+    {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees each region for its supplied
+    // length and forbids output/input overlap.
+    let (source, palette, weight_table, output) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            if palette_len == 0 { &[] } else { slice::from_raw_parts(palette, palette_len) },
+            slice::from_raw_parts(weight_table, weight_table_len),
+            slice::from_raw_parts_mut(output, output_len),
+        )
+    };
+    stretch_horizontal_row(
+        transform_method,
+        destination_format,
+        components,
+        source,
+        palette,
+        weight_table,
+        item_size,
+        destination_minimum,
+        destination_left,
+        destination_right,
+        output,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the row helper mirrors the retained vertical stretch state"
+)]
+fn stretch_vertical_row(
+    transform_method: u8,
+    components: usize,
+    intermediate: &[u8],
+    intermediate_pitch: usize,
+    source_top: i32,
+    destination_left: i32,
+    destination_right: i32,
+    weight_table: &[u8],
+    item_size: usize,
+    destination_minimum: i32,
+    destination_row: i32,
+    output: &mut [u8],
+) -> bool {
+    if !matches!(components, 1 | 3 | 4) || intermediate_pitch == 0 {
+        return false;
+    }
+    let Some(destination_width) = destination_right.checked_sub(destination_left) else {
+        return false;
+    };
+    let Ok(destination_width) = usize::try_from(destination_width) else {
+        return false;
+    };
+    let Some(required_output) = destination_width.checked_mul(components) else {
+        return false;
+    };
+    if output.len() < required_output {
+        return false;
+    }
+    let Some(weights) =
+        stretch_pixel_weights(weight_table, item_size, destination_minimum, destination_row)
+    else {
+        return false;
+    };
+
+    let mut output_index = 0;
+    for column in 0..destination_width {
+        let Some(column_offset) = column.checked_mul(components) else {
+            return false;
+        };
+        match transform_method {
+            0..=2 => {
+                let mut destination_alpha = 0_u32;
+                for source_row in weights.source_start..=weights.source_end {
+                    let Some(source_offset) = stretch_intermediate_offset(
+                        source_row,
+                        source_top,
+                        intermediate_pitch,
+                        column_offset,
+                    ) else {
+                        return false;
+                    };
+                    let Some(source_value) = intermediate.get(source_offset) else {
+                        return false;
+                    };
+                    let Some(weight) = weights.weight(source_row) else {
+                        return false;
+                    };
+                    destination_alpha += weight * u32::from(*source_value);
+                }
+                output[output_index] = pixel_from_fixed(destination_alpha);
+            }
+            3 | 4 => {
+                if components < 3 {
+                    return false;
+                }
+                let mut destination_red = 0_u32;
+                let mut destination_green = 0_u32;
+                let mut destination_blue = 0_u32;
+                for source_row in weights.source_start..=weights.source_end {
+                    let Some(source_offset) = stretch_intermediate_offset(
+                        source_row,
+                        source_top,
+                        intermediate_pitch,
+                        column_offset,
+                    ) else {
+                        return false;
+                    };
+                    let Some(source_end) = source_offset.checked_add(3) else {
+                        return false;
+                    };
+                    let Some(source_pixel) = intermediate.get(source_offset..source_end) else {
+                        return false;
+                    };
+                    let Some(weight) = weights.weight(source_row) else {
+                        return false;
+                    };
+                    destination_blue += weight * u32::from(source_pixel[0]);
+                    destination_green += weight * u32::from(source_pixel[1]);
+                    destination_red += weight * u32::from(source_pixel[2]);
+                }
+                output[output_index] = pixel_from_fixed(destination_blue);
+                output[output_index + 1] = pixel_from_fixed(destination_green);
+                output[output_index + 2] = pixel_from_fixed(destination_red);
+            }
+            5 => {
+                if components != 4 {
+                    return false;
+                }
+                let mut destination_alpha = 0_u32;
+                let mut destination_red = 0_u32;
+                let mut destination_green = 0_u32;
+                let mut destination_blue = 0_u32;
+                for source_row in weights.source_start..=weights.source_end {
+                    let Some(source_offset) = stretch_intermediate_offset(
+                        source_row,
+                        source_top,
+                        intermediate_pitch,
+                        column_offset,
+                    ) else {
+                        return false;
+                    };
+                    let Some(source_end) = source_offset.checked_add(4) else {
+                        return false;
+                    };
+                    let Some(source_pixel) = intermediate.get(source_offset..source_end) else {
+                        return false;
+                    };
+                    let Some(weight) = weights.weight(source_row) else {
+                        return false;
+                    };
+                    destination_blue += weight * u32::from(source_pixel[0]);
+                    destination_green += weight * u32::from(source_pixel[1]);
+                    destination_red += weight * u32::from(source_pixel[2]);
+                    destination_alpha += weight * u32::from(source_pixel[3]);
+                }
+                let blue = destination_blue.wrapping_mul(255).checked_div(destination_alpha);
+                let green = destination_green.wrapping_mul(255).checked_div(destination_alpha);
+                let red = destination_red.wrapping_mul(255).checked_div(destination_alpha);
+                if let (Some(blue), Some(green), Some(red)) = (blue, green, red) {
+                    output[output_index] = blue.min(255) as u8;
+                    output[output_index + 1] = green.min(255) as u8;
+                    output[output_index + 2] = red.min(255) as u8;
+                }
+                output[output_index + 3] = pixel_from_fixed(destination_alpha);
+            }
+            _ => return false,
+        }
+        output_index += components;
+    }
+    true
+}
+
+/// Vertically stretches one intermediate row into the C++-owned output row.
+///
+/// # Safety
+///
+/// All pointers must cover their supplied lengths. Output must not overlap any
+/// input region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_stretch_vertical_row(
+    transform_method: u8,
+    components: usize,
+    intermediate: *const u8,
+    intermediate_len: usize,
+    intermediate_pitch: usize,
+    source_top: i32,
+    destination_left: i32,
+    destination_right: i32,
+    weight_table: *const u8,
+    weight_table_len: usize,
+    item_size: usize,
+    destination_minimum: i32,
+    destination_row: i32,
+    output: *mut u8,
+    output_len: usize,
+) -> bool {
+    if intermediate.is_null() || weight_table.is_null() || output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees each region for its supplied
+    // length and forbids output/input overlap.
+    let (intermediate, weight_table, output) = unsafe {
+        (
+            slice::from_raw_parts(intermediate, intermediate_len),
+            slice::from_raw_parts(weight_table, weight_table_len),
+            slice::from_raw_parts_mut(output, output_len),
+        )
+    };
+    stretch_vertical_row(
+        transform_method,
+        components,
+        intermediate,
+        intermediate_pitch,
+        source_top,
+        destination_left,
+        destination_right,
+        weight_table,
+        item_size,
+        destination_minimum,
+        destination_row,
+        output,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the row helper preserves the retained transpose geometry"
+)]
+fn swap_xy_row(
+    source: &[u8],
+    source_width: i32,
+    source_height: i32,
+    source_row: i32,
+    components: usize,
+    flip_x: bool,
+    flip_y: bool,
+    destination: &mut [u8],
+    destination_pitch: usize,
+) -> bool {
+    let (Ok(source_width), Ok(source_height), Ok(source_row)) = (
+        usize::try_from(source_width),
+        usize::try_from(source_height),
+        usize::try_from(source_row),
+    ) else {
+        return false;
+    };
+    if source_width == 0
+        || source_height == 0
+        || source_row >= source_height
+        || !matches!(components, 0 | 1 | 3 | 4)
+    {
+        return false;
+    }
+    let source_required = if components == 0 {
+        source_width.checked_add(7).map(|bits| bits / 8)
+    } else {
+        source_width.checked_mul(components)
+    };
+    let Some(source_required) = source_required else {
+        return false;
+    };
+    let Some(destination_required) = source_width.checked_mul(destination_pitch) else {
+        return false;
+    };
+    if source.len() < source_required || destination.len() < destination_required {
+        return false;
+    }
+    let destination_column = if flip_x { source_height - source_row - 1 } else { source_row };
+    for source_column in 0..source_width {
+        let destination_row = if flip_y { source_width - source_column - 1 } else { source_column };
+        let Some(destination_row_offset) = destination_row.checked_mul(destination_pitch) else {
+            return false;
+        };
+        if components == 0 {
+            let source_mask = 1 << (7 - source_column % 8);
+            if source[source_column / 8] & source_mask == 0 {
+                let Some(destination_byte) = destination_row_offset
+                    .checked_add(destination_column / 8)
+                    .and_then(|offset| destination.get_mut(offset))
+                else {
+                    return false;
+                };
+                *destination_byte &= !(1 << (7 - destination_column % 8));
+            }
+            continue;
+        }
+        let Some(source_offset) = source_column.checked_mul(components) else {
+            return false;
+        };
+        let Some(source_end) = source_offset.checked_add(components) else {
+            return false;
+        };
+        let Some(destination_offset) = destination_column
+            .checked_mul(components)
+            .and_then(|offset| destination_row_offset.checked_add(offset))
+        else {
+            return false;
+        };
+        let Some(destination_end) = destination_offset.checked_add(components) else {
+            return false;
+        };
+        let Some(source_pixel) = source.get(source_offset..source_end) else {
+            return false;
+        };
+        let Some(destination_pixel) = destination.get_mut(destination_offset..destination_end)
+        else {
+            return false;
+        };
+        destination_pixel.copy_from_slice(source_pixel);
+    }
+    true
+}
+
+/// Transposes one source row into the C++-owned destination bitmap.
+///
+/// `components == 0` denotes packed 1-bpp pixels.
+///
+/// # Safety
+///
+/// Both pointers must cover their supplied lengths and must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_swap_xy_row(
+    source: *const u8,
+    source_len: usize,
+    source_width: i32,
+    source_height: i32,
+    source_row: i32,
+    components: usize,
+    flip_x: bool,
+    flip_y: bool,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees disjoint regions covering the
+    // supplied lengths.
+    let (source, destination) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    swap_xy_row(
+        source,
+        source_width,
+        source_height,
+        source_row,
+        components,
+        flip_x,
+        flip_y,
+        destination,
+        destination_pitch,
+    )
+}
+
+fn bilinear_coordinate(matrix: &[i32; 6], x: usize, y: usize) -> (i32, i32, i32, i32) {
+    const BASE: f32 = 256.0;
+    let x = x as f32;
+    let y = y as f32;
+    let transformed_x = matrix[0] as f32 * x + matrix[2] as f32 * y + matrix[4] as f32 + BASE / 2.0;
+    let transformed_y = matrix[1] as f32 * x + matrix[3] as f32 * y + matrix[5] as f32 + BASE / 2.0;
+    let source_x = (transformed_x / BASE) as i32;
+    let source_y = (transformed_y / BASE) as i32;
+    let mut residual_x = transformed_x as i32 % 256;
+    let mut residual_y = transformed_y as i32 % 256;
+    if residual_x < 0 && residual_x > -256 {
+        residual_x += 256;
+    }
+    if residual_y < 0 && residual_y > -256 {
+        residual_y += 256;
+    }
+    (source_x, source_y, residual_x, residual_y)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the sampler receives explicit source geometry and fixed-point coordinates"
+)]
+fn bilinear_sample(
+    source: &[u8],
+    source_pitch: usize,
+    source_width: usize,
+    source_height: usize,
+    components: usize,
+    channel: usize,
+    source_x: i32,
+    source_y: i32,
+    residual_x: i32,
+    residual_y: i32,
+) -> Option<u8> {
+    let (Ok(mut left), Ok(mut top)) = (usize::try_from(source_x), usize::try_from(source_y)) else {
+        return None;
+    };
+    if left > source_width || top > source_height {
+        return None;
+    }
+    if left == source_width {
+        left = left.checked_sub(1)?;
+    }
+    if top == source_height {
+        top = top.checked_sub(1)?;
+    }
+    let right = (left + 1).min(source_width - 1);
+    let bottom = (top + 1).min(source_height - 1);
+    let top_offset = top.checked_mul(source_pitch)?;
+    let bottom_offset = bottom.checked_mul(source_pitch)?;
+    if components == 0 || channel >= components {
+        return None;
+    }
+    let channel_offset = |row_offset: usize, column: usize| {
+        row_offset.checked_add(column.checked_mul(components)?)?.checked_add(channel)
+    };
+    let p0 = u32::from(*source.get(channel_offset(top_offset, left)?)?);
+    let p1 = u32::from(*source.get(channel_offset(top_offset, right)?)?);
+    let p2 = u32::from(*source.get(channel_offset(bottom_offset, left)?)?);
+    let p3 = u32::from(*source.get(channel_offset(bottom_offset, right)?)?);
+    let residual_x = u32::try_from(residual_x).ok()?;
+    let residual_y = u32::try_from(residual_y).ok()?;
+    if residual_x > 255 || residual_y > 255 {
+        return None;
+    }
+    let upper = (p0 * (255 - residual_x) + p1 * residual_x) >> 8;
+    let lower = (p2 * (255 - residual_x) + p3 * residual_x) >> 8;
+    Some(((upper * (255 - residual_y) + lower * residual_y) >> 8) as u8)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the helper validates both borrowed bitmap geometries"
+)]
+fn transform_bilinear_alpha(
+    matrix: &[i32; 6],
+    source: &[u8],
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    destination: &mut [u8],
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    let (Ok(source_width), Ok(source_height), Ok(destination_width), Ok(destination_height)) = (
+        usize::try_from(source_width),
+        usize::try_from(source_height),
+        usize::try_from(destination_width),
+        usize::try_from(destination_height),
+    ) else {
+        return false;
+    };
+    if source_width == 0 || source_height == 0 || destination_width == 0 || destination_height == 0
+    {
+        return false;
+    }
+    let Some(source_required) = source_height.checked_mul(source_pitch) else {
+        return false;
+    };
+    let Some(destination_required) = destination_height.checked_mul(destination_pitch) else {
+        return false;
+    };
+    if source.len() < source_required
+        || destination.len() < destination_required
+        || source_pitch < source_width
+        || destination_pitch < destination_width
+    {
+        return false;
+    }
+    for row in 0..destination_height {
+        for column in 0..destination_width {
+            let (source_x, source_y, residual_x, residual_y) =
+                bilinear_coordinate(matrix, column, row);
+            let Some(value) = bilinear_sample(
+                source,
+                source_pitch,
+                source_width,
+                source_height,
+                1,
+                0,
+                source_x,
+                source_y,
+                residual_x,
+                residual_y,
+            ) else {
+                continue;
+            };
+            let Some(destination_offset) =
+                row.checked_mul(destination_pitch).and_then(|offset| offset.checked_add(column))
+            else {
+                return false;
+            };
+            destination[destination_offset] = value;
+        }
+    }
+    true
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the helper validates source, palette, and destination geometries"
+)]
+fn transform_bilinear_indexed(
+    matrix: &[i32; 6],
+    source: &[u8],
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    palette: &[u32],
+    destination: &mut [u8],
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    let (Ok(source_width), Ok(source_height), Ok(destination_width), Ok(destination_height)) = (
+        usize::try_from(source_width),
+        usize::try_from(source_height),
+        usize::try_from(destination_width),
+        usize::try_from(destination_height),
+    ) else {
+        return false;
+    };
+    if source_width == 0
+        || source_height == 0
+        || destination_width == 0
+        || destination_height == 0
+        || palette.len() < 256
+    {
+        return false;
+    }
+    let Some(source_required) = source_height.checked_mul(source_pitch) else {
+        return false;
+    };
+    let Some(destination_row_bytes) = destination_width.checked_mul(4) else {
+        return false;
+    };
+    let Some(destination_required) = destination_height.checked_mul(destination_pitch) else {
+        return false;
+    };
+    if source.len() < source_required
+        || destination.len() < destination_required
+        || source_pitch < source_width
+        || destination_pitch < destination_row_bytes
+    {
+        return false;
+    }
+    for row in 0..destination_height {
+        for column in 0..destination_width {
+            let (source_x, source_y, residual_x, residual_y) =
+                bilinear_coordinate(matrix, column, row);
+            let Some(index) = bilinear_sample(
+                source,
+                source_pitch,
+                source_width,
+                source_height,
+                1,
+                0,
+                source_x,
+                source_y,
+                residual_x,
+                residual_y,
+            ) else {
+                continue;
+            };
+            let Some(destination_offset) = row.checked_mul(destination_pitch).and_then(|offset| {
+                column.checked_mul(4).and_then(|column| offset.checked_add(column))
+            }) else {
+                return false;
+            };
+            let Some(destination_end) = destination_offset.checked_add(4) else {
+                return false;
+            };
+            let Some(destination_pixel) = destination.get_mut(destination_offset..destination_end)
+            else {
+                return false;
+            };
+            destination_pixel.copy_from_slice(&palette[usize::from(index)].to_ne_bytes());
+        }
+    }
+    true
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the helper validates source and destination color geometries"
+)]
+fn transform_bilinear_color(
+    matrix: &[i32; 6],
+    source: &[u8],
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    source_components: usize,
+    transform_mode: u8,
+    destination: &mut [u8],
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    let (Ok(source_width), Ok(source_height), Ok(destination_width), Ok(destination_height)) = (
+        usize::try_from(source_width),
+        usize::try_from(source_height),
+        usize::try_from(destination_width),
+        usize::try_from(destination_height),
+    ) else {
+        return false;
+    };
+    if source_width == 0
+        || source_height == 0
+        || destination_width == 0
+        || destination_height == 0
+        || !matches!((source_components, transform_mode), (3 | 4, 0) | (4, 1 | 2))
+    {
+        return false;
+    }
+    let Some(source_row_bytes) = source_width.checked_mul(source_components) else {
+        return false;
+    };
+    let Some(source_required) = source_height.checked_mul(source_pitch) else {
+        return false;
+    };
+    let Some(destination_row_bytes) = destination_width.checked_mul(4) else {
+        return false;
+    };
+    let Some(destination_required) = destination_height.checked_mul(destination_pitch) else {
+        return false;
+    };
+    if source.len() < source_required
+        || destination.len() < destination_required
+        || source_pitch < source_row_bytes
+        || destination_pitch < destination_row_bytes
+    {
+        return false;
+    }
+    for row in 0..destination_height {
+        for column in 0..destination_width {
+            let (source_x, source_y, residual_x, residual_y) =
+                bilinear_coordinate(matrix, column, row);
+            let mut pixel = [0; 4];
+            let channel_count = if transform_mode == 0 { 3 } else { 4 };
+            let mut sampled = true;
+            for (channel, output) in pixel.iter_mut().enumerate().take(channel_count) {
+                let Some(value) = bilinear_sample(
+                    source,
+                    source_pitch,
+                    source_width,
+                    source_height,
+                    source_components,
+                    channel,
+                    source_x,
+                    source_y,
+                    residual_x,
+                    residual_y,
+                ) else {
+                    sampled = false;
+                    break;
+                };
+                *output = value;
+            }
+            if !sampled {
+                continue;
+            }
+            if transform_mode == 0 {
+                pixel[3] = 255;
+            }
+            let Some(destination_offset) = row.checked_mul(destination_pitch).and_then(|offset| {
+                column.checked_mul(4).and_then(|column| offset.checked_add(column))
+            }) else {
+                return false;
+            };
+            let Some(destination_end) = destination_offset.checked_add(4) else {
+                return false;
+            };
+            let Some(destination_pixel) = destination.get_mut(destination_offset..destination_end)
+            else {
+                return false;
+            };
+            destination_pixel.copy_from_slice(&pixel);
+        }
+    }
+    true
+}
+
+/// Applies the retained fixed-matrix bilinear transform to an alpha bitmap.
+///
+/// # Safety
+///
+/// All pointers must cover their supplied lengths. Destination must not
+/// overlap either input region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_transform_bilinear_alpha(
+    matrix: *const i32,
+    matrix_len: usize,
+    source: *const u8,
+    source_len: usize,
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    if matrix.is_null() || matrix_len != 6 || source.is_null() || destination.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees disjoint regions covering the
+    // supplied lengths, and the matrix length was checked above.
+    let (matrix, source, destination) = unsafe {
+        (
+            &*matrix.cast::<[i32; 6]>(),
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    transform_bilinear_alpha(
+        matrix,
+        source,
+        source_pitch,
+        source_width,
+        source_height,
+        destination,
+        destination_pitch,
+        destination_width,
+        destination_height,
+    )
+}
+
+/// Applies the retained fixed-matrix bilinear transform to indexed pixels.
+///
+/// # Safety
+///
+/// All pointers must cover their supplied lengths. Destination must not
+/// overlap either input region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_transform_bilinear_indexed(
+    matrix: *const i32,
+    matrix_len: usize,
+    source: *const u8,
+    source_len: usize,
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    palette: *const u32,
+    palette_len: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    if matrix.is_null()
+        || matrix_len != 6
+        || source.is_null()
+        || palette.is_null()
+        || destination.is_null()
+    {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees disjoint regions covering the
+    // supplied lengths, and the matrix length was checked above.
+    let (matrix, source, palette, destination) = unsafe {
+        (
+            &*matrix.cast::<[i32; 6]>(),
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts(palette, palette_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    transform_bilinear_indexed(
+        matrix,
+        source,
+        source_pitch,
+        source_width,
+        source_height,
+        palette,
+        destination,
+        destination_pitch,
+        destination_width,
+        destination_height,
+    )
+}
+
+/// Applies the retained fixed-matrix bilinear transform to color pixels.
+///
+/// `transform_mode` selects opaque BGR (`0`), BGRA (`1`), or four-channel raw
+/// CMYK (`2`) output.
+///
+/// # Safety
+///
+/// All pointers must cover their supplied lengths. Destination must not
+/// overlap either input region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_transform_bilinear_color(
+    matrix: *const i32,
+    matrix_len: usize,
+    source: *const u8,
+    source_len: usize,
+    source_pitch: usize,
+    source_width: i32,
+    source_height: i32,
+    source_components: usize,
+    transform_mode: u8,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+    destination_width: i32,
+    destination_height: i32,
+) -> bool {
+    if matrix.is_null() || matrix_len != 6 || source.is_null() || destination.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees disjoint regions covering the
+    // supplied lengths, and the matrix length was checked above.
+    let (matrix, source, destination) = unsafe {
+        (
+            &*matrix.cast::<[i32; 6]>(),
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    transform_bilinear_color(
+        matrix,
+        source,
+        source_pitch,
+        source_width,
+        source_height,
+        source_components,
+        transform_mode,
+        destination,
+        destination_pitch,
+        destination_width,
+        destination_height,
+    )
+}
+
+/// Copies one clipped bitmap row, including PDFium's unaligned 1-bpp shift.
+///
+/// # Safety
+///
+/// Source and destination pointers must cover their supplied lengths and must
+/// not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_clip_bitmap_row(
+    source: *const u8,
+    source_len: usize,
+    source_left: usize,
+    bits_per_pixel: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_width: usize,
+) -> bool {
+    if source.is_null()
+        || destination.is_null()
+        || !matches!(bits_per_pixel, 1 | 8 | 24 | 32)
+        || destination_width == 0
+    {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees distinct source and destination
+    // row regions for their supplied lengths.
+    let (source, destination) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    if bits_per_pixel == 1 && !source_left.is_multiple_of(8) {
+        let left_shift = source_left % 32;
+        let right_shift = 32 - left_shift;
+        let source_word_offset = source_left / 32;
+        let destination_word_count = destination_len / 4;
+        for index in 0..destination_word_count {
+            let Some(current) = read_native_u32(source, source_word_offset + index) else {
+                return false;
+            };
+            let next = read_native_u32(source, source_word_offset + index + 1).unwrap_or(0);
+            let output = (current << left_shift) | (next >> right_shift);
+            let offset = index * 4;
+            destination[offset..offset + 4].copy_from_slice(&output.to_ne_bytes());
+        }
+        return true;
+    }
+
+    let Some(source_offset) =
+        source_left.checked_mul(bits_per_pixel).and_then(|bits| bits.checked_div(8))
+    else {
+        return false;
+    };
+    let Some(copy_len) = destination_width
+        .checked_mul(bits_per_pixel)
+        .and_then(|bits| bits.checked_add(7))
+        .and_then(|bits| bits.checked_div(8))
+        .map(|len| len.min(source_len))
+    else {
+        return false;
+    };
+    let Some(source_end) = source_offset.checked_add(copy_len) else {
+        return false;
+    };
+    let Some(source) = source.get(source_offset..source_end) else {
+        return false;
+    };
+    let Some(destination) = destination.get_mut(..copy_len) else {
+        return false;
+    };
+    destination.copy_from_slice(source);
+    true
+}
+
+/// Copies one complete bitmap scanline, including row padding.
+///
+/// # Safety
+///
+/// Source and destination pointers must cover their supplied lengths and must
+/// not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_copy_bitmap_row(
+    source: *const u8,
+    source_len: usize,
+    destination: *mut u8,
+    destination_len: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() || destination_len < source_len {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees distinct regions, and the length
+    // check guarantees the destination covers the complete source scanline.
+    unsafe {
+        std::ptr::copy_nonoverlapping(source, destination, source_len);
+    }
+    true
+}
+
+fn flip_bitmap_row(
+    source: &[u8],
+    width: i32,
+    bits_per_pixel: i32,
+    flip_x: bool,
+    destination: &mut [u8],
+) -> bool {
+    let Ok(width) = usize::try_from(width) else {
+        return false;
+    };
+    if width == 0 || !matches!(bits_per_pixel, 1 | 8 | 24 | 32) {
+        return false;
+    }
+    if !flip_x {
+        if destination.len() < source.len() {
+            return false;
+        }
+        destination[..source.len()].copy_from_slice(source);
+        return true;
+    }
+    if bits_per_pixel == 1 {
+        let Some(required) = width.checked_add(7).map(|bits| bits / 8) else {
+            return false;
+        };
+        if source.len() < required || destination.len() < required {
+            return false;
+        }
+        destination.fill(0);
+        for source_column in 0..width {
+            if source[source_column / 8] & (1 << (7 - source_column % 8)) != 0 {
+                let destination_column = width - source_column - 1;
+                destination[destination_column / 8] |= 1 << (7 - destination_column % 8);
+            }
+        }
+        return true;
+    }
+    let components = usize::try_from(bits_per_pixel / 8).ok();
+    let Some(components) = components else {
+        return false;
+    };
+    let Some(required) = width.checked_mul(components) else {
+        return false;
+    };
+    if source.len() < required || destination.len() < required {
+        return false;
+    }
+    for source_column in 0..width {
+        let destination_column = width - source_column - 1;
+        let source_offset = source_column * components;
+        let destination_offset = destination_column * components;
+        destination[destination_offset..destination_offset + components]
+            .copy_from_slice(&source[source_offset..source_offset + components]);
+    }
+    true
+}
+
+/// Copies or horizontally flips one complete bitmap row.
+///
+/// # Safety
+///
+/// Source and destination pointers must cover their supplied lengths and must
+/// not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_flip_bitmap_row(
+    source: *const u8,
+    source_len: usize,
+    width: i32,
+    bits_per_pixel: i32,
+    flip_x: bool,
+    destination: *mut u8,
+    destination_len: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees disjoint regions covering both
+    // supplied lengths.
+    let (source, destination) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            slice::from_raw_parts_mut(destination, destination_len),
+        )
+    };
+    flip_bitmap_row(source, width, bits_per_pixel, flip_x, destination)
+}
+
+/// Clears a packed bitmap with one pixel value.
+///
+/// When `fill_padding` is set, the first pixel byte is written across the
+/// entire buffer to preserve PDFium's 1-/8-bpp and gray-BGR padding behavior.
+///
+/// # Safety
+///
+/// `buffer` must be valid for `buffer_len` writable bytes. For packed-pixel
+/// operation it must contain `pitch * height` bytes with at least
+/// `width * components` bytes per row. `components` must be in `1..=4`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_clear_bitmap(
+    buffer: *mut u8,
+    buffer_len: usize,
+    width: usize,
+    height: usize,
+    pitch: usize,
+    components: usize,
+    blue: u8,
+    green: u8,
+    red: u8,
+    alpha: u8,
+    fill_padding: bool,
+) -> bool {
+    if buffer.is_null() || !(1..=4).contains(&components) {
+        return false;
+    }
+    if fill_padding {
+        // SAFETY: The caller contract guarantees `buffer_len` writable bytes.
+        unsafe {
+            std::ptr::write_bytes(buffer, blue, buffer_len);
+        }
+        return true;
+    }
+    let Some(required_len) = pitch.checked_mul(height) else {
+        return false;
+    };
+    if !packed_rows_are_valid(width, height, pitch, components) || required_len > buffer_len {
+        return false;
+    }
+    let pixel = [blue, green, red, alpha];
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee a
+            // complete packed pixel at every computed offset.
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    pixel.as_ptr(),
+                    buffer.add(row * pitch + column * components),
+                    components,
+                );
+            }
+        }
+    }
+    true
+}
+
+#[derive(Clone, Copy)]
+struct BitmapRect {
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the helper models one complete allocation-free bitmap operation"
+)]
+fn composite_rect(
+    buffer: &mut [u8],
+    bitmap_width: usize,
+    bitmap_height: usize,
+    pitch: usize,
+    format: u16,
+    palette: &[u32],
+    rect: BitmapRect,
+    color: u32,
+) -> bool {
+    if rect.left >= rect.right
+        || rect.top >= rect.bottom
+        || rect.right > bitmap_width
+        || rect.bottom > bitmap_height
+    {
+        return false;
+    }
+    let Some(required_len) = pitch.checked_mul(bitmap_height) else {
+        return false;
+    };
+    if buffer.len() < required_len {
+        return false;
+    }
+    let alpha = (color >> 24) as u8;
+    if alpha == 0 {
+        return true;
+    }
+    let blue = color as u8;
+    let green = (color >> 8) as u8;
+    let red = (color >> 16) as u8;
+    let width = rect.right - rect.left;
+
+    if matches!(format, 0x001 | 0x101) {
+        let index = if palette.is_empty() {
+            if blue == 0xff {
+                1
+            } else {
+                0
+            }
+        } else {
+            if palette.len() < 2 {
+                return false;
+            }
+            palette.iter().take(2).rposition(|entry| *entry == color).unwrap_or(0)
+        };
+        for row in rect.top..rect.bottom {
+            let Some(row_start) = row.checked_mul(pitch) else {
+                return false;
+            };
+            let Some(row_end) = row_start.checked_add(pitch) else {
+                return false;
+            };
+            let Some(scanline) = buffer.get_mut(row_start..row_end) else {
+                return false;
+            };
+            let left_index = rect.left / 8;
+            let right_index = rect.right / 8;
+            if right_index >= scanline.len() {
+                return false;
+            }
+            let left_shift = rect.left % 8;
+            let right_shift = rect.right % 8;
+            let left_flag = scanline[left_index] & ((0xff_u16 << (8 - left_shift)) as u8);
+            let right_flag = scanline[right_index] & (0xff_u8 >> right_shift);
+            let byte_width = right_index - left_index;
+            if byte_width != 0 {
+                scanline[left_index + 1..right_index].fill(if index == 0 { 0 } else { 0xff });
+                if index == 0 {
+                    scanline[left_index] &= left_flag;
+                    scanline[right_index] &= right_flag;
+                } else {
+                    scanline[left_index] |= !left_flag;
+                    scanline[right_index] |= !right_flag;
+                }
+            } else if index == 0 {
+                scanline[left_index] &= left_flag | right_flag;
+            } else {
+                scanline[left_index] |= !(left_flag | right_flag);
+            }
+        }
+        return true;
+    }
+
+    if matches!(format, 0x008 | 0x108) {
+        let gray_value = if format == 0x108 { 255 } else { gray([blue, green, red, 255]) };
+        for row in rect.top..rect.bottom {
+            let Some(row_start) =
+                row.checked_mul(pitch).and_then(|offset| offset.checked_add(rect.left))
+            else {
+                return false;
+            };
+            let Some(row_end) = row_start.checked_add(width) else {
+                return false;
+            };
+            let Some(destination) = buffer.get_mut(row_start..row_end) else {
+                return false;
+            };
+            if alpha == 255 {
+                destination.fill(gray_value);
+            } else {
+                for pixel in destination {
+                    *pixel = alpha_merge(*pixel, gray_value, alpha);
+                }
+            }
+        }
+        return true;
+    }
+
+    let components = match format {
+        0x018 => 3,
+        0x020 | 0x220 => 4,
+        _ => return false,
+    };
+    let Some(row_bytes) = width.checked_mul(components) else {
+        return false;
+    };
+    for row in rect.top..rect.bottom {
+        let Some(row_start) = row.checked_mul(pitch).and_then(|offset| {
+            rect.left.checked_mul(components).and_then(|left| offset.checked_add(left))
+        }) else {
+            return false;
+        };
+        let Some(row_end) = row_start.checked_add(row_bytes) else {
+            return false;
+        };
+        let Some(destination) = buffer.get_mut(row_start..row_end) else {
+            return false;
+        };
+        for pixel in destination.chunks_exact_mut(components) {
+            if alpha == 255 {
+                pixel[..3].copy_from_slice(&[blue, green, red]);
+                if components == 4 {
+                    pixel[3] = 255;
+                }
+                continue;
+            }
+            if format == 0x220 {
+                let backdrop_alpha = pixel[3];
+                if backdrop_alpha == 0 {
+                    pixel.copy_from_slice(&[blue, green, red, alpha]);
+                    continue;
+                }
+                let destination_alpha = u16::from(backdrop_alpha) + u16::from(alpha)
+                    - u16::from(backdrop_alpha) * u16::from(alpha) / 255;
+                let alpha_ratio = u16::from(alpha) * 255 / destination_alpha;
+                pixel[0] = alpha_merge(pixel[0], blue, alpha_ratio as u8);
+                pixel[1] = alpha_merge(pixel[1], green, alpha_ratio as u8);
+                pixel[2] = alpha_merge(pixel[2], red, alpha_ratio as u8);
+                pixel[3] = destination_alpha as u8;
+            } else {
+                pixel[0] = alpha_merge(pixel[0], blue, alpha);
+                pixel[1] = alpha_merge(pixel[1], green, alpha);
+                pixel[2] = alpha_merge(pixel[2], red, alpha);
+                if components == 4 {
+                    pixel[3] = 255;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Composites a solid ARGB color into a clipped bitmap rectangle.
+///
+/// # Safety
+///
+/// Buffer and palette pointers must cover their supplied lengths. The regions
+/// must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_rect(
+    buffer: *mut u8,
+    buffer_len: usize,
+    bitmap_width: usize,
+    bitmap_height: usize,
+    pitch: usize,
+    format: u16,
+    palette: *const u32,
+    palette_len: usize,
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+    color: u32,
+) -> bool {
+    if buffer.is_null() || (palette_len != 0 && palette.is_null()) {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees both regions for their supplied
+    // lengths and forbids overlap.
+    let (buffer, palette) = unsafe {
+        (
+            slice::from_raw_parts_mut(buffer, buffer_len),
+            if palette_len == 0 { &[] } else { slice::from_raw_parts(palette, palette_len) },
+        )
+    };
+    composite_rect(
+        buffer,
+        bitmap_width,
+        bitmap_height,
+        pitch,
+        format,
+        palette,
+        BitmapRect { left, top, right, bottom },
+        color,
+    )
+}
+
+/// Converts packed BGR/BGRx/BGRA pixels to PDFium's integer gray value.
+///
+/// # Safety
+///
+/// `buffer` must cover `pitch * height` writable bytes, with at least
+/// `width * components` bytes per row. `components` must be 3 or 4.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_convert_bgr_color_scale(
+    buffer: *mut u8,
+    width: usize,
+    height: usize,
+    pitch: usize,
+    components: usize,
+) -> bool {
+    if buffer.is_null()
+        || !matches!(components, 3 | 4)
+        || !packed_rows_are_valid(width, height, pitch, components)
+    {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee a
+            // complete BGR/BGRx/BGRA pixel at every computed offset.
+            unsafe {
+                let pixel = buffer.add(row * pitch + column * components);
+                let gray = (u16::from(*pixel) * 11
+                    + u16::from(*pixel.add(1)) * 59
+                    + u16::from(*pixel.add(2)) * 30)
+                    / 100;
+                *pixel = gray as u8;
+                *pixel.add(1) = gray as u8;
+                *pixel.add(2) = gray as u8;
+            }
+        }
+    }
+    true
+}
+
+fn calculate_pitch_and_size(
+    width: i32,
+    height: i32,
+    format: u16,
+    requested_pitch: u32,
+) -> Option<(u32, u32)> {
+    let width = u32::try_from(width).ok().filter(|width| *width > 0)?;
+    let height = u32::try_from(height).ok().filter(|height| *height > 0)?;
+    let bits_per_pixel = u32::from(format & 0xff);
+    if bits_per_pixel == 0 {
+        return None;
+    }
+
+    let unaligned_bits = bits_per_pixel.checked_mul(width)?;
+    let pitch = if requested_pitch == 0 {
+        unaligned_bits.checked_add(31)?.checked_div(32)?.checked_mul(4)?
+    } else {
+        let minimum_pitch = unaligned_bits.checked_add(7)?.checked_div(8)?;
+        if requested_pitch < minimum_pitch {
+            return None;
+        }
+        requested_pitch
+    };
+    Some((pitch, pitch.checked_mul(height)?))
+}
+
+/// Calculates PDFium's bitmap pitch and allocation size with checked u32 math.
+///
+/// # Safety
+///
+/// `output_pitch` and `output_size` must be valid, non-overlapping writable
+/// pointers to one `u32` each.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_calculate_pitch_and_size(
+    width: i32,
+    height: i32,
+    format: u16,
+    requested_pitch: u32,
+    output_pitch: *mut u32,
+    output_size: *mut u32,
+) -> bool {
+    if output_pitch.is_null() || output_size.is_null() {
+        return false;
+    }
+    let Some((pitch, size)) = calculate_pitch_and_size(width, height, format, requested_pitch)
+    else {
+        return false;
+    };
+    // SAFETY: The caller contract guarantees two valid, non-overlapping
+    // output locations.
+    unsafe {
+        *output_pitch = pitch;
+        *output_size = size;
+    }
+    true
+}
+
+/// Expands packed 1-bpp source rows into an 8-bpp mask bitmap.
+///
+/// # Safety
+///
+/// Source and destination must cover `pitch * height` bytes for their
+/// respective pitches and must not overlap. Source rows must contain at least
+/// `ceil(width / 8)` bytes; destination rows at least `width` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_expand_1bpp_mask(
+    source: *const u8,
+    source_len: usize,
+    source_pitch: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+    width: usize,
+    height: usize,
+) -> bool {
+    let Some(source_row_bytes) = width.checked_add(7).map(|value| value / 8) else {
+        return false;
+    };
+    let Some(required_source_len) = source_pitch.checked_mul(height) else {
+        return false;
+    };
+    let Some(required_destination_len) = destination_pitch.checked_mul(height) else {
+        return false;
+    };
+    if source.is_null()
+        || destination.is_null()
+        || source_pitch < source_row_bytes
+        || destination_pitch < width
+        || required_source_len > source_len
+        || required_destination_len > destination_len
+    {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The validated pitches and lengths cover every computed
+            // source bit and destination byte, and the regions do not overlap.
+            unsafe {
+                let source_byte = *source.add(row * source_pitch + column / 8);
+                *destination.add(row * destination_pitch + column) =
+                    if source_byte & (0x80 >> (column % 8)) == 0 { 0 } else { 255 };
+            }
+        }
+    }
+    true
+}
+
+/// Zeroes a destination bitmap and copies the shared prefix of each source row.
+///
+/// # Safety
+///
+/// Source and destination must cover `pitch * height` bytes for their
+/// respective pitches and must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_populate_bitmap(
+    source: *const u8,
+    source_len: usize,
+    source_pitch: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_pitch: usize,
+    height: usize,
+) -> bool {
+    let Some(required_source_len) = source_pitch.checked_mul(height) else {
+        return false;
+    };
+    let Some(required_destination_len) = destination_pitch.checked_mul(height) else {
+        return false;
+    };
+    if source.is_null()
+        || destination.is_null()
+        || required_source_len > source_len
+        || required_destination_len > destination_len
+    {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees the complete writable region.
+    unsafe {
+        std::ptr::write_bytes(destination, 0, destination_len);
+    }
+    let row_bytes = source_pitch.min(destination_pitch);
+    for row in 0..height {
+        // SAFETY: The validated lengths cover both row prefixes and the
+        // source/destination regions do not overlap.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                source.add(row * source_pitch),
+                destination.add(row * destination_pitch),
+                row_bytes,
+            );
+        }
+    }
+    true
+}
+
+/// Copies one equal-format multi-byte bitmap row.
+///
+/// # Safety
+///
+/// Source and destination must cover their supplied lengths and must not
+/// overlap. Offsets and width are expressed in pixels.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_transfer_bitmap_row(
+    source: *const u8,
+    source_len: usize,
+    source_left: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_left: usize,
+    width: usize,
+    components: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() || components == 0 {
+        return false;
+    }
+    let Some(source_offset) = source_left.checked_mul(components) else {
+        return false;
+    };
+    let Some(destination_offset) = destination_left.checked_mul(components) else {
+        return false;
+    };
+    let Some(copy_len) = width.checked_mul(components) else {
+        return false;
+    };
+    let Some(source_end) = source_offset.checked_add(copy_len) else {
+        return false;
+    };
+    let Some(destination_end) = destination_offset.checked_add(copy_len) else {
+        return false;
+    };
+    if source_end > source_len || destination_end > destination_len {
+        return false;
+    }
+    // SAFETY: The caller contract and checked ranges guarantee two complete,
+    // non-overlapping row regions.
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            source.add(source_offset),
+            destination.add(destination_offset),
+            copy_len,
+        );
+    }
+    true
+}
+
+/// Copies one equal-format 1-bpp bitmap row at arbitrary bit offsets.
+///
+/// # Safety
+///
+/// Source and destination must cover their supplied lengths. Exact aliasing is
+/// permitted and follows the C++ loop's left-to-right bit update order.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_transfer_1bpp_row(
+    source: *const u8,
+    source_len: usize,
+    source_left: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_left: usize,
+    width: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() {
+        return false;
+    }
+    let Some(source_end) = source_left.checked_add(width) else {
+        return false;
+    };
+    let Some(destination_end) = destination_left.checked_add(width) else {
+        return false;
+    };
+    let Some(source_rounded_end) = source_end.checked_add(7) else {
+        return false;
+    };
+    let Some(destination_rounded_end) = destination_end.checked_add(7) else {
+        return false;
+    };
+    if source_rounded_end / 8 > source_len || destination_rounded_end / 8 > destination_len {
+        return false;
+    }
+    for column in 0..width {
+        let source_bit = source_left + column;
+        let destination_bit = destination_left + column;
+        // SAFETY: The checked bit ranges cover both addressed bytes. Raw
+        // pointer reads/writes preserve the reference loop's alias order.
+        unsafe {
+            let source_is_set = *source.add(source_bit / 8) & (1 << (7 - source_bit % 8)) != 0;
+            let destination_byte = destination.add(destination_bit / 8);
+            let mask = 1 << (7 - destination_bit % 8);
+            if source_is_set {
+                *destination_byte |= mask;
+            } else {
+                *destination_byte &= !mask;
+            }
+        }
+    }
+    true
+}
+
+/// OR-composites set source bits into one 1-bpp destination row.
+///
+/// # Safety
+///
+/// Source and destination must cover their supplied lengths. Exact aliasing is
+/// permitted and follows the C++ loop's left-to-right update order.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_1bpp_mask_row(
+    source: *const u8,
+    source_len: usize,
+    source_left: usize,
+    destination: *mut u8,
+    destination_len: usize,
+    destination_left: usize,
+    width: usize,
+) -> bool {
+    if source.is_null() || destination.is_null() {
+        return false;
+    }
+    let Some(source_end) = source_left.checked_add(width) else {
+        return false;
+    };
+    let Some(destination_end) = destination_left.checked_add(width) else {
+        return false;
+    };
+    let Some(source_rounded_end) = source_end.checked_add(7) else {
+        return false;
+    };
+    let Some(destination_rounded_end) = destination_end.checked_add(7) else {
+        return false;
+    };
+    if source_rounded_end / 8 > source_len || destination_rounded_end / 8 > destination_len {
+        return false;
+    }
+    for column in 0..width {
+        let source_bit = source_left + column;
+        let destination_bit = destination_left + column;
+        // SAFETY: The checked bit ranges cover both addressed bytes. Raw
+        // pointer access preserves the retained loop's alias order.
+        unsafe {
+            if *source.add(source_bit / 8) & (1 << (7 - source_bit % 8)) != 0 {
+                *destination.add(destination_bit / 8) |= 1 << (7 - destination_bit % 8);
+            }
+        }
+    }
+    true
+}
+
+#[derive(Clone, Copy)]
+struct IntRect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+impl IntRect {
+    fn normalize(mut self) -> Self {
+        if self.left > self.right {
+            std::mem::swap(&mut self.left, &mut self.right);
+        }
+        if self.top > self.bottom {
+            std::mem::swap(&mut self.top, &mut self.bottom);
+        }
+        self
+    }
+
+    fn intersect(self, other: Self) -> Self {
+        let this = self.normalize();
+        let other = other.normalize();
+        let intersection = Self {
+            left: this.left.max(other.left),
+            top: this.top.max(other.top),
+            right: this.right.min(other.right),
+            bottom: this.bottom.min(other.bottom),
+        };
+        if intersection.left > intersection.right || intersection.top > intersection.bottom {
+            Self { left: 0, top: 0, right: 0, bottom: 0 }
+        } else {
+            intersection
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        self.right <= self.left || self.bottom <= self.top
+    }
+}
+
+#[expect(clippy::too_many_arguments, reason = "C ABI mirrors PDFium's rectangle contract")]
+fn overlap_rect(
+    destination_width: i32,
+    destination_height: i32,
+    mut destination_left: i32,
+    mut destination_top: i32,
+    mut width: i32,
+    mut height: i32,
+    source_width: i32,
+    source_height: i32,
+    mut source_left: i32,
+    mut source_top: i32,
+    clip: Option<IntRect>,
+) -> Option<[i32; 6]> {
+    if width == 0
+        || height == 0
+        || destination_left > destination_width
+        || destination_top > destination_height
+    {
+        return None;
+    }
+    let source_right = source_left.checked_add(width)?;
+    let source_bottom = source_top.checked_add(height)?;
+    let source_rect =
+        IntRect { left: source_left, top: source_top, right: source_right, bottom: source_bottom }
+            .intersect(IntRect { left: 0, top: 0, right: source_width, bottom: source_height });
+    let x_offset = destination_left.checked_sub(source_left)?;
+    let y_offset = destination_top.checked_sub(source_top)?;
+    let destination_right = x_offset.checked_add(source_rect.right)?;
+    let destination_bottom = y_offset.checked_add(source_rect.bottom)?;
+    let mut destination_rect = IntRect {
+        left: x_offset.checked_add(source_rect.left)?,
+        top: y_offset.checked_add(source_rect.top)?,
+        right: destination_right,
+        bottom: destination_bottom,
+    }
+    .intersect(IntRect {
+        left: 0,
+        top: 0,
+        right: destination_width,
+        bottom: destination_height,
+    });
+    if let Some(clip) = clip {
+        destination_rect = destination_rect.intersect(clip);
+    }
+    destination_left = destination_rect.left;
+    destination_top = destination_rect.top;
+    source_left = destination_left.checked_sub(x_offset)?;
+    source_top = destination_top.checked_sub(y_offset)?;
+    if destination_rect.is_empty() {
+        return None;
+    }
+    width = destination_rect.right - destination_rect.left;
+    height = destination_rect.bottom - destination_rect.top;
+    Some([destination_left, destination_top, width, height, source_left, source_top])
+}
+
+/// Normalizes source/destination overlap and optional clipping rectangles.
+///
+/// The six output values are destination left/top, width/height, and source
+/// left/top, matching `CFX_DIBBase::GetOverlapRect()`.
+///
+/// # Safety
+///
+/// `output` must point to six writable `i32` values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_get_overlap_rect(
+    destination_width: i32,
+    destination_height: i32,
+    destination_left: i32,
+    destination_top: i32,
+    width: i32,
+    height: i32,
+    source_width: i32,
+    source_height: i32,
+    source_left: i32,
+    source_top: i32,
+    has_clip: bool,
+    clip_left: i32,
+    clip_top: i32,
+    clip_right: i32,
+    clip_bottom: i32,
+    output: *mut i32,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let clip = has_clip.then_some(IntRect {
+        left: clip_left,
+        top: clip_top,
+        right: clip_right,
+        bottom: clip_bottom,
+    });
+    let Some(result) = overlap_rect(
+        destination_width,
+        destination_height,
+        destination_left,
+        destination_top,
+        width,
+        height,
+        source_width,
+        source_height,
+        source_left,
+        source_top,
+        clip,
+    ) else {
+        return false;
+    };
+    // SAFETY: The caller contract guarantees six writable output values.
+    unsafe {
+        std::ptr::copy_nonoverlapping(result.as_ptr(), output, result.len());
+    }
+    true
+}
+
+fn default_palette_argb(bits_per_pixel: u8, index: usize) -> Option<u32> {
+    match bits_per_pixel {
+        1 if index < 2 => Some(if index == 0 { 0xff00_0000 } else { 0xffff_ffff }),
+        8 if index < 256 => Some(0xff00_0000 | ((index as u32) * 0x0001_0101)),
+        _ => None,
+    }
+}
+
+/// Fills PDFium's default 1-bpp or 8-bpp ARGB palette.
+///
+/// # Safety
+///
+/// `output` must point to `output_len` writable `u32` values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_default_palette(
+    bits_per_pixel: u8,
+    output: *mut u32,
+    output_len: usize,
+) -> bool {
+    let required_len = match bits_per_pixel {
+        1 => 2,
+        8 => 256,
+        _ => return false,
+    };
+    if output.is_null() || output_len < required_len {
+        return false;
+    }
+    for index in 0..required_len {
+        let Some(argb) = default_palette_argb(bits_per_pixel, index) else {
+            return false;
+        };
+        // SAFETY: The caller contract and length check cover every output.
+        unsafe {
+            *output.add(index) = argb;
+        }
+    }
+    true
+}
+
+fn build_1bpp_stretch_palette(first: u32, second: u32, output: &mut [u32]) -> bool {
+    if output.len() < 256 || (first >> 24) != 255 || (second >> 24) != 255 {
+        return false;
+    }
+    let first = [((first >> 16) & 255) as i32, ((first >> 8) & 255) as i32, (first & 255) as i32];
+    let second =
+        [((second >> 16) & 255) as i32, ((second >> 8) & 255) as i32, (second & 255) as i32];
+    for (index, entry) in output.iter_mut().take(256).enumerate() {
+        let index = index as i32;
+        let channels = [0, 1, 2]
+            .map(|channel| first[channel] + (second[channel] - first[channel]) * index / 255);
+        *entry = 0xff00_0000
+            | (channels[0] as u32) << 16
+            | (channels[1] as u32) << 8
+            | channels[2] as u32;
+    }
+    true
+}
+
+/// Builds the opaque 256-entry interpolation palette for 1-bpp stretching.
+///
+/// # Safety
+///
+/// `output` must cover `output_len` writable entries.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_build_1bpp_stretch_palette(
+    first: u32,
+    second: u32,
+    output: *mut u32,
+    output_len: usize,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees the writable output extent.
+    let output = unsafe { slice::from_raw_parts_mut(output, output_len) };
+    build_1bpp_stretch_palette(first, second, output)
+}
+
+/// Returns a default palette entry for a 1-bpp or 8-bpp bitmap.
+///
+/// # Safety
+///
+/// `output` must point to one writable `u32` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_get_default_palette_argb(
+    bits_per_pixel: u8,
+    index: usize,
+    output: *mut u32,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let Some(argb) = default_palette_argb(bits_per_pixel, index) else {
+        return false;
+    };
+    // SAFETY: The caller contract guarantees one writable output value.
+    unsafe {
+        *output = argb;
+    }
+    true
+}
+
+/// Finds an exact ARGB color in an explicit or default palette.
+///
+/// # Safety
+///
+/// When `palette_len` is non-zero, `palette` must cover that many `u32`
+/// entries. `output` must point to one writable `i32` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_find_palette(
+    bits_per_pixel: u8,
+    palette: *const u32,
+    palette_len: usize,
+    color: u32,
+    output: *mut i32,
+) -> bool {
+    if output.is_null() || !matches!(bits_per_pixel, 1 | 8) {
+        return false;
+    }
+    let result = if palette_len == 0 {
+        if bits_per_pixel == 1 {
+            i32::from(color as u8 == 255)
+        } else {
+            i32::from(color as u8)
+        }
+    } else {
+        let required_len = 1usize << bits_per_pixel;
+        if palette.is_null() || palette_len < required_len {
+            return false;
+        }
+        // SAFETY: The caller contract and length check cover the required
+        // palette entries.
+        let palette = unsafe { slice::from_raw_parts(palette, required_len) };
+        palette.iter().position(|entry| *entry == color).map_or(-1, |index| index as i32)
+    };
+    // SAFETY: The caller contract guarantees one writable output value.
+    unsafe {
+        *output = result;
+    }
+    true
+}
+
+fn palette_bgr(palette: &[u32], index: usize) -> Option<[u8; 3]> {
+    let argb = *palette.get(index)?;
+    Some([argb as u8, (argb >> 8) as u8, (argb >> 16) as u8])
+}
+
+fn convert_buffer_row(
+    destination_format: u16,
+    source_format: u16,
+    source: &[u8],
+    source_left: usize,
+    palette: &[u32],
+    output: &mut [u8],
+    width: usize,
+) -> bool {
+    let source_bits = usize::from(source_format & 0xff);
+    let destination_components = match destination_format {
+        0x008 | 0x108 => 1,
+        0x018 => 3,
+        0x020 | 0x220 => 4,
+        _ => return false,
+    };
+    if destination_components == 4 && source_bits == 1 {
+        return false;
+    }
+    let Some(required_output) = width.checked_mul(destination_components) else {
+        return false;
+    };
+    if output.len() < required_output {
+        return false;
+    }
+    let palette_required = if palette.is_empty() {
+        0
+    } else {
+        match source_bits {
+            1 => 2,
+            8 => 256,
+            _ => return false,
+        }
+    };
+    if palette.len() < palette_required {
+        return false;
+    }
+
+    for pixel in 0..width {
+        let Some(source_pixel) = source_left.checked_add(pixel) else {
+            return false;
+        };
+        let index = match source_bits {
+            1 => {
+                let Some(byte) = source.get(source_pixel / 8) else {
+                    return false;
+                };
+                usize::from((byte >> (7 - source_pixel % 8)) & 1)
+            }
+            8 => {
+                let Some(value) = source.get(source_pixel) else {
+                    return false;
+                };
+                usize::from(*value)
+            }
+            24 | 32 => source_pixel,
+            _ => return false,
+        };
+
+        if destination_components == 1 {
+            output[pixel] = match source_bits {
+                1 if !palette.is_empty() && destination_format == 0x008 => {
+                    if index == 0 {
+                        255
+                    } else {
+                        0
+                    }
+                }
+                1 => {
+                    if index == 0 {
+                        0
+                    } else {
+                        255
+                    }
+                }
+                8 if palette.is_empty() || destination_format == 0x008 => index as u8,
+                8 => {
+                    let Some(bgr) = palette_bgr(palette, index) else {
+                        return false;
+                    };
+                    gray([bgr[0], bgr[1], bgr[2], 255])
+                }
+                24 | 32 => {
+                    let components = source_bits / 8;
+                    let Some(offset) = index.checked_mul(components) else {
+                        return false;
+                    };
+                    let Some(end) = offset.checked_add(3) else {
+                        return false;
+                    };
+                    let Some(pixel) = source.get(offset..end) else {
+                        return false;
+                    };
+                    gray([pixel[0], pixel[1], pixel[2], 255])
+                }
+                _ => return false,
+            };
+            continue;
+        }
+
+        let bgr = match source_bits {
+            1 | 8 if !palette.is_empty() => {
+                let Some(bgr) = palette_bgr(palette, index) else {
+                    return false;
+                };
+                bgr
+            }
+            1 => {
+                let value = if index == 0 { 0 } else { 255 };
+                [value, value, value]
+            }
+            8 => {
+                let value = index as u8;
+                [value, value, value]
+            }
+            24 | 32 => {
+                let components = source_bits / 8;
+                let Some(offset) = index.checked_mul(components) else {
+                    return false;
+                };
+                let Some(end) = offset.checked_add(3) else {
+                    return false;
+                };
+                let Some(pixel) = source.get(offset..end) else {
+                    return false;
+                };
+                [pixel[0], pixel[1], pixel[2]]
+            }
+            _ => return false,
+        };
+        let destination = pixel * destination_components;
+        output[destination..destination + 3].copy_from_slice(&bgr);
+    }
+    true
+}
+
+/// Converts one DIB row between the retained mask/index/RGB formats.
+///
+/// Four-component destinations intentionally leave their fourth byte
+/// untouched, matching the retained conversion loops.
+///
+/// # Safety
+///
+/// Source, palette, and output pointers must cover their supplied lengths.
+/// Source and output must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_convert_buffer_row(
+    destination_format: u16,
+    source_format: u16,
+    source: *const u8,
+    source_len: usize,
+    source_left: usize,
+    palette: *const u32,
+    palette_len: usize,
+    output: *mut u8,
+    output_len: usize,
+    width: usize,
+) -> bool {
+    if source.is_null() || output.is_null() || (palette_len != 0 && palette.is_null()) {
+        return false;
+    }
+    // SAFETY: The caller contract guarantees all three regions for the
+    // supplied lengths and forbids source/output overlap.
+    let (source, palette, output) = unsafe {
+        (
+            slice::from_raw_parts(source, source_len),
+            if palette_len == 0 { &[] } else { slice::from_raw_parts(palette, palette_len) },
+            slice::from_raw_parts_mut(output, output_len),
+        )
+    };
+    convert_buffer_row(
+        destination_format,
+        source_format,
+        source,
+        source_left,
+        palette,
+        output,
+        width,
+    )
+}
+
+/// Copies each packed BGRA pixel's alpha channel into its red channel.
+///
+/// # Safety
+///
+/// `buffer` must be valid for `pitch * height` writable bytes. Each row must
+/// contain at least `width * 4` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_bgra_set_red_from_alpha(
+    buffer: *mut u8,
+    width: usize,
+    height: usize,
+    pitch: usize,
+) -> bool {
+    if buffer.is_null() || !packed_rows_are_valid(width, height, pitch, 4) {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee a
+            // complete BGRA pixel at every computed row/column offset.
+            unsafe {
+                let pixel = buffer.add(row * pitch + column * 4);
+                *pixel.add(2) = *pixel.add(3);
+            }
+        }
+    }
+    true
+}
+
+/// Sets every packed BGRA pixel's alpha channel to fully opaque.
+///
+/// # Safety
+///
+/// `buffer` must be valid for `pitch * height` writable bytes. Each row must
+/// contain at least `width * 4` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_bgra_set_opaque_alpha(
+    buffer: *mut u8,
+    width: usize,
+    height: usize,
+    pitch: usize,
+) -> bool {
+    if buffer.is_null() || !packed_rows_are_valid(width, height, pitch, 4) {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee a
+            // complete BGRA pixel at every computed row/column offset.
+            unsafe {
+                *buffer.add(row * pitch + column * 4 + 3) = 255;
+            }
+        }
+    }
+    true
+}
+
+/// Multiplies each packed BGRA alpha by the corresponding 8-bit mask value.
+///
+/// # Safety
+///
+/// `buffer` and `mask` must cover their respective `pitch * height` regions,
+/// with at least `width * 4` BGRA bytes and `width` mask bytes per row. The
+/// regions must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_bgra_multiply_alpha_mask(
+    buffer: *mut u8,
+    buffer_pitch: usize,
+    mask: *const u8,
+    mask_pitch: usize,
+    width: usize,
+    height: usize,
+) -> bool {
+    if buffer.is_null()
+        || mask.is_null()
+        || !packed_rows_are_valid(width, height, buffer_pitch, 4)
+        || !packed_rows_are_valid(width, height, mask_pitch, 1)
+    {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee both
+            // addressed bytes, and the two regions do not overlap.
+            unsafe {
+                let alpha = buffer.add(row * buffer_pitch + column * 4 + 3);
+                *alpha = (u16::from(*alpha) * u16::from(*mask.add(row * mask_pitch + column)) / 255)
+                    as u8;
+            }
+        }
+    }
+    true
+}
+
+/// Multiplies every packed BGRA alpha by one 8-bit factor.
+///
+/// # Safety
+///
+/// `buffer` must be valid for `pitch * height` writable bytes. Each row must
+/// contain at least `width * 4` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_bgra_multiply_alpha(
+    buffer: *mut u8,
+    width: usize,
+    height: usize,
+    pitch: usize,
+    alpha: u8,
+) -> bool {
+    if buffer.is_null() || !packed_rows_are_valid(width, height, pitch, 4) {
+        return false;
+    }
+    for row in 0..height {
+        for column in 0..width {
+            // SAFETY: The caller contract and validation above guarantee the
+            // addressed alpha byte at every computed row/column offset.
+            unsafe {
+                let destination = buffer.add(row * pitch + column * 4 + 3);
+                *destination = (u16::from(*destination) * u16::from(alpha) / 255) as u8;
+            }
+        }
+    }
+    true
+}
+
+/// Converts one Adobe CMYK sample to standard RGB.
+///
+/// # Safety
+///
+/// Each output pointer must be valid for one writable byte and the output
+/// locations must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_adobe_cmyk_to_rgb(
+    cyan: u8,
+    magenta: u8,
+    yellow: u8,
+    key: u8,
+    red: *mut u8,
+    green: *mut u8,
+    blue: *mut u8,
+) -> bool {
+    if red.is_null() || green.is_null() || blue.is_null() {
+        return false;
+    }
+    let rgb = adobe_cmyk_to_standard_rgb(cyan, magenta, yellow, key);
+    // SAFETY: The caller contract guarantees three valid, non-overlapping
+    // output locations.
+    unsafe {
+        *red = rgb[0];
+        *green = rgb[1];
+        *blue = rgb[2];
+    }
+    true
+}
+
+/// Converts a packed CMYK row to the packed BGR order expected by PDFium.
+///
+/// # Safety
+///
+/// `source` must be valid for `pixel_count * 4` bytes and `output` for
+/// `pixel_count * 3` writable bytes. The regions must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_adobe_cmyk_to_bgr_row(
+    source: *const u8,
+    output: *mut u8,
+    pixel_count: usize,
+) -> bool {
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees complete, non-overlapping
+        // packed source and output rows at every computed offset.
+        unsafe {
+            let source = source.add(pixel * 4);
+            let rgb =
+                adobe_cmyk_to_standard_rgb(*source, *source.add(1), *source.add(2), *source.add(3));
+            let output = output.add(pixel * 3);
+            *output = rgb[2];
+            *output.add(1) = rgb[1];
+            *output.add(2) = rgb[0];
+        }
+    }
+    true
+}
+
+// RUST_PORT_METRICS_BEGIN abi_thunk
+/// Applies one separable blend mode to equally sized channel arrays.
+///
+/// # Safety
+///
+/// For non-zero `len`, `backdrop`, `source`, and `output` must be valid for
+/// `len` bytes. The output region must be writable and must not overlap either
+/// input region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_blend_channels(
+    mode: u8,
+    backdrop: *const u8,
+    source: *const u8,
+    output: *mut u8,
+    len: usize,
+) -> bool {
+    let Ok(mode) = BlendMode::try_from(mode) else {
+        return false;
+    };
+    if len == 0 {
+        return true;
+    }
+
+    // SAFETY: The caller contract above requires three valid, non-overlapping
+    // regions with this exact length.
+    let (backdrop, source, output) = unsafe {
+        (
+            slice::from_raw_parts(backdrop, len),
+            slice::from_raw_parts(source, len),
+            slice::from_raw_parts_mut(output, len),
+        )
+    };
+    for ((&backdrop, &source), output) in backdrop.iter().zip(source).zip(output) {
+        *output = blend(mode, backdrop, source);
+    }
+    true
+}
+// RUST_PORT_METRICS_END abi_thunk
+
+/// Composites a packed BGRA source row into a packed BGRA destination row.
+///
+/// # Safety
+///
+/// `source` and `output` must each be valid for `pixel_count * 4` bytes.
+/// `clip` must be null or valid for `pixel_count` bytes. Source and output may
+/// alias exactly, but otherwise their regions must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_bgra_row(
+    mode: u8,
+    source: *const u8,
+    clip: *const u8,
+    output: *mut u8,
+    pixel_count: usize,
+) -> bool {
+    let Ok(mode) = BlendMode::try_from(mode) else {
+        return false;
+    };
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees complete packed pixels at
+        // each computed offset. Reading both values before writing supports
+        // exact in-place operation without creating aliased references.
+        unsafe {
+            let offset = pixel * 4;
+            let input = (source.add(offset) as *const [u8; 4]).read_unaligned();
+            let mut destination = (output.add(offset) as *const [u8; 4]).read_unaligned();
+            let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
+            composite_bgra_pixel(mode, input, clip, &mut destination);
+            (output.add(offset) as *mut [u8; 4]).write_unaligned(destination);
+        }
+    }
+    true
+}
+
+/// Composites a packed BGRA row into packed BGR or BGRx output.
+///
+/// # Safety
+///
+/// `source` must be valid for `pixel_count * 4` bytes and `output` for
+/// `pixel_count * output_components` bytes. `output_components` must be 3 or 4.
+/// `clip` must be null or valid for `pixel_count` bytes. The regions must not
+/// overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_bgra_to_bgr_row(
+    mode: u8,
+    source: *const u8,
+    clip: *const u8,
+    output: *mut u8,
+    output_components: usize,
+    rgb_byte_order: bool,
+    pixel_count: usize,
+) -> bool {
+    let Ok(mode) = BlendMode::try_from(mode) else {
+        return false;
+    };
+    if !matches!(output_components, 3 | 4) {
+        return false;
+    }
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees complete source and output
+        // pixels at each computed offset and non-overlapping regions.
+        unsafe {
+            let input = (source.add(pixel * 4) as *const [u8; 4]).read_unaligned();
+            let output =
+                slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
+            let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
+            composite_bgra_to_bgr_pixel(mode, input, clip, rgb_byte_order, output);
+        }
+    }
+    true
+}
+
+/// Composites packed BGRA pixels into an 8-bit gray or alpha-mask row.
+///
+/// # Safety
+///
+/// `source` must be valid for `pixel_count * 4` bytes and `output` for
+/// `pixel_count` bytes. `clip` must be null or valid for `pixel_count` bytes.
+/// The source and output regions must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_bgra_to_byte_row(
+    mode: u8,
+    source: *const u8,
+    clip: *const u8,
+    output: *mut u8,
+    is_mask: bool,
+    pixel_count: usize,
+) -> bool {
+    if !is_mask && mode > 15 {
+        return false;
+    }
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees complete non-overlapping
+        // source and output rows and an optional complete clip row.
+        unsafe {
+            let input = (source.add(pixel * 4) as *const [u8; 4]).read_unaligned();
+            let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
+            let mut destination = *output.add(pixel);
+            if !composite_bgra_to_byte_pixel(mode, input, clip, is_mask, &mut destination) {
+                return false;
+            }
+            *output.add(pixel) = destination;
+        }
+    }
+    true
+}
+
+/// Composites an opaque BGR/BGRx source row into a supported destination row.
+///
+/// Target values are 0=gray, 1=mask, 2=BGR/BGRx, and 3=BGRA.
+///
+/// # Safety
+///
+/// Source and output must be valid for `pixel_count` packed pixels using the
+/// supplied component counts. `clip` must be null or valid for `pixel_count`
+/// bytes. Source and output must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_opaque_row(
+    mode: u8,
+    source: *const u8,
+    source_components: usize,
+    clip: *const u8,
+    output: *mut u8,
+    output_components: usize,
+    target: u8,
+    rgb_byte_order: bool,
+    pixel_count: usize,
+) -> bool {
+    if !matches!(source_components, 3 | 4)
+        || !matches!((target, output_components), (0 | 1, 1) | (2, 3 | 4) | (3, 4))
+    {
+        return false;
+    }
+    if target == 2
+        && mode == BlendMode::Normal as u8
+        && clip.is_null()
+        && !rgb_byte_order
+        && source_components == output_components
+    {
+        // SAFETY: The caller contract guarantees complete, non-overlapping
+        // source/output rows. This preserves the C++ fast path, including the
+        // unused fourth byte in BGRx pixels.
+        unsafe {
+            std::ptr::copy_nonoverlapping(source, output, pixel_count * source_components);
+        }
+        return true;
+    }
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees complete, non-overlapping
+        // source/output rows and an optional complete clip row.
+        unsafe {
+            let source = source.add(pixel * source_components);
+            let input = [*source, *source.add(1), *source.add(2), 255];
+            let output =
+                slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
+            let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
+            if !composite_opaque_pixel(mode, input, clip, target, rgb_byte_order, output) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Composites an 8-bit or 1-bit mask row using a constant BGRA mask color.
+///
+/// Target values match `pdfium_rust_composite_opaque_row()`.
+///
+/// # Safety
+///
+/// `source` must cover every addressed byte, `output` must cover
+/// `pixel_count` packed destination pixels, and `clip` must be null or valid
+/// for `pixel_count` bytes. Source and output must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_mask_row(
+    mode: u8,
+    source: *const u8,
+    source_left: usize,
+    source_is_bit_mask: bool,
+    clip: *const u8,
+    mask_blue: u8,
+    mask_green: u8,
+    mask_red: u8,
+    mask_alpha: u8,
+    output: *mut u8,
+    output_components: usize,
+    target: u8,
+    rgb_byte_order: bool,
+    pixel_count: usize,
+) -> bool {
+    if !matches!((target, output_components), (0 | 1, 1) | (2, 3 | 4) | (3, 4)) {
+        return false;
+    }
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees that each addressed source,
+        // clip, and output byte is within its corresponding region.
+        unsafe {
+            let source_value = if source_is_bit_mask {
+                let bit = source_left + pixel;
+                if *source.add(bit / 8) & (1 << (7 - bit % 8)) == 0 {
+                    0
+                } else {
+                    255
+                }
+            } else {
+                *source.add(pixel)
+            };
+            let mut coverage = u32::from(mask_alpha) * u32::from(source_value);
+            if !clip.is_null() {
+                coverage *= u32::from(*clip.add(pixel));
+                coverage /= 255;
+            }
+            coverage /= 255;
+            let input = [mask_blue, mask_green, mask_red, 255];
+            let output =
+                slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
+            let effective_mode = if target <= 1 { BlendMode::Normal as u8 } else { mode };
+            if target == 3 && matches!(mode, 12..=15) {
+                let Ok(mode) = BlendMode::try_from(mode) else {
+                    return false;
+                };
+                let mut destination = if rgb_byte_order {
+                    [output[2], output[1], output[0], output[3]]
+                } else {
+                    [output[0], output[1], output[2], output[3]]
+                };
+                composite_mask_bgra_pixel(mode, input, coverage as u8, &mut destination);
+                if rgb_byte_order {
+                    output[..3].copy_from_slice(&[destination[2], destination[1], destination[0]]);
+                } else {
+                    output[..3].copy_from_slice(&destination[..3]);
+                }
+                output[3] = destination[3];
+                continue;
+            }
+            if !composite_opaque_pixel(
+                effective_mode,
+                input,
+                coverage as u8,
+                target,
+                rgb_byte_order,
+                output,
+            ) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Composites a 1-bit or 8-bit indexed row using optional gray/ARGB palettes.
+///
+/// # Safety
+///
+/// Source, palette, clip, and output pointers must cover the lengths supplied
+/// by the caller. Source and output must not overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_composite_palette_row(
+    mode: u8,
+    source: *const u8,
+    source_left: usize,
+    source_is_bit: bool,
+    gray_palette: *const u8,
+    gray_palette_len: usize,
+    argb_palette: *const u32,
+    argb_palette_len: usize,
+    clip: *const u8,
+    output: *mut u8,
+    output_components: usize,
+    target: u8,
+    rgb_byte_order: bool,
+    pixel_count: usize,
+) -> bool {
+    if !matches!((target, output_components), (0 | 1, 1) | (2, 3 | 4) | (3, 4)) {
+        return false;
+    }
+    for pixel in 0..pixel_count {
+        // SAFETY: The caller contract guarantees each addressed source,
+        // palette, clip, and output element.
+        unsafe {
+            let index = if source_is_bit {
+                let bit = source_left + pixel;
+                usize::from((*source.add(bit / 8) >> (7 - bit % 8)) & 1)
+            } else {
+                usize::from(*source.add(pixel))
+            };
+            let input = if target == 0 {
+                let value = if index < gray_palette_len {
+                    *gray_palette.add(index)
+                } else if source_is_bit {
+                    if index == 0 {
+                        0
+                    } else {
+                        255
+                    }
+                } else {
+                    index as u8
+                };
+                [value, value, value, 255]
+            } else if target == 1 {
+                [0, 0, 0, 255]
+            } else {
+                let argb = if index < argb_palette_len {
+                    *argb_palette.add(index)
+                } else {
+                    let value = if source_is_bit && index != 0 { 255 } else { index as u8 };
+                    u32::from(value) * 0x00010101
+                };
+                [argb as u8, (argb >> 8) as u8, (argb >> 16) as u8, 255]
+            };
+            let clip = if clip.is_null() { 255 } else { *clip.add(pixel) };
+            let output =
+                slice::from_raw_parts_mut(output.add(pixel * output_components), output_components);
+            let effective_mode = if target >= 2 { 0 } else { mode };
+            if !composite_opaque_pixel(effective_mode, input, clip, target, rgb_byte_order, output)
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blend_should_preserve_reference_edge_cases() {
+        let cases = [
+            (BlendMode::Multiply, 99, 99, 38),
+            (BlendMode::Screen, 99, 99, 160),
+            (BlendMode::ColorDodge, 99, 99, 161),
+            (BlendMode::ColorBurn, 99, 99, 0),
+            (BlendMode::SoftLight, 47, 199, 81),
+            (BlendMode::Exclusion, 99, 99, 122),
+        ];
+
+        for (mode, backdrop, source, expected) in cases {
+            assert_eq!(expected, blend(mode, backdrop, source));
+        }
+    }
+
+    #[test]
+    fn blend_should_cover_every_channel_value_without_overflow() {
+        for mode in 0..=BlendMode::Exclusion as u8 {
+            let mode = BlendMode::try_from(mode).expect("test mode is separable");
+            for backdrop in u8::MIN..=u8::MAX {
+                for source in u8::MIN..=u8::MAX {
+                    let _ = blend(mode, backdrop, source);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rgb_blend_should_preserve_non_separable_reference_case() {
+        assert_eq!([0, 123, 49], rgb_blend(BlendMode::Hue, [0, 255, 100, 255], [255, 100, 0, 255]));
+    }
+
+    #[test]
+    fn composite_bgra_pixel_should_preserve_alpha_boundaries() {
+        let mut transparent_destination = [255, 100, 0, 0];
+        composite_bgra_pixel(
+            BlendMode::Normal,
+            [100, 0, 255, 100],
+            255,
+            &mut transparent_destination,
+        );
+        assert_eq!([100, 0, 255, 100], transparent_destination);
+
+        let mut clipped_destination = [255, 100, 0, 200];
+        composite_bgra_pixel(BlendMode::Darken, [100, 0, 255, 200], 0, &mut clipped_destination);
+        assert_eq!([255, 100, 0, 200], clipped_destination);
+    }
+
+    #[test]
+    fn cmyk_should_preserve_reference_endpoints() {
+        assert_eq!([255, 255, 255], adobe_cmyk_to_standard_rgb(0, 0, 0, 0));
+        assert_eq!([0, 0, 0], adobe_cmyk_to_standard_rgb(255, 255, 255, 255));
+    }
+
+    #[test]
+    fn pitch_and_size_should_align_rows_to_four_bytes() {
+        assert_eq!(Some((4, 12)), calculate_pitch_and_size(3, 3, 0x008, 0));
+        assert_eq!(Some((12, 36)), calculate_pitch_and_size(3, 3, 0x018, 0));
+    }
+
+    #[test]
+    fn pitch_and_size_should_reject_overflow_and_short_pitch() {
+        assert_eq!(None, calculate_pitch_and_size(101, 200, 0x220, 400));
+        assert_eq!(None, calculate_pitch_and_size(1_073_747_000, 1, 0x220, 0));
+    }
+
+    #[test]
+    fn transfer_bitmap_row_should_respect_pixel_offsets() {
+        let source = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        let mut destination = [99; 12];
+        // SAFETY: The stack arrays are valid, distinct regions with the exact
+        // lengths supplied to the FFI function.
+        assert!(unsafe {
+            pdfium_rust_transfer_bitmap_row(
+                source.as_ptr(),
+                source.len(),
+                1,
+                destination.as_mut_ptr(),
+                destination.len(),
+                2,
+                2,
+                3,
+            )
+        });
+        assert_eq!([99, 99, 99, 99, 99, 99, 3, 4, 5, 6, 7, 8], destination);
+    }
+
+    #[test]
+    fn transfer_1bpp_row_should_preserve_surrounding_bits() {
+        let source = [0b1011_0110];
+        let mut destination = [0b0100_0001];
+        // SAFETY: The stack arrays cover the single-byte source/destination
+        // regions supplied to the FFI function.
+        assert!(unsafe {
+            pdfium_rust_transfer_1bpp_row(
+                source.as_ptr(),
+                source.len(),
+                2,
+                destination.as_mut_ptr(),
+                destination.len(),
+                1,
+                4,
+            )
+        });
+        assert_eq!([0b0110_1001], destination);
+    }
+
+    #[test]
+    fn composite_1bpp_mask_row_should_only_set_source_bits() {
+        let source = [0b1011_0110];
+        let mut destination = [0b0100_0001];
+        // SAFETY: The stack arrays cover the single-byte source/destination
+        // regions supplied to the FFI function.
+        assert!(unsafe {
+            pdfium_rust_composite_1bpp_mask_row(
+                source.as_ptr(),
+                source.len(),
+                2,
+                destination.as_mut_ptr(),
+                destination.len(),
+                1,
+                4,
+            )
+        });
+        assert_eq!([0b0110_1001], destination);
+
+        let clear_source = [0];
+        // SAFETY: The same valid destination region is reused with a distinct
+        // one-byte source.
+        assert!(unsafe {
+            pdfium_rust_composite_1bpp_mask_row(
+                clear_source.as_ptr(),
+                clear_source.len(),
+                0,
+                destination.as_mut_ptr(),
+                destination.len(),
+                0,
+                8,
+            )
+        });
+        assert_eq!([0b0110_1001], destination);
+    }
+
+    #[test]
+    fn composite_rect_should_preserve_bgra_alpha_semantics() {
+        let mut buffer = [10, 20, 30, 0, 100, 110, 120, 255];
+        assert!(composite_rect(
+            &mut buffer,
+            2,
+            1,
+            8,
+            0x220,
+            &[],
+            BitmapRect { left: 0, top: 0, right: 2, bottom: 1 },
+            0x8042_a7e1,
+        ));
+        assert_eq!([225, 167, 66, 128, 162, 138, 92, 255], buffer);
+    }
+
+    #[test]
+    fn composite_rect_should_preserve_1bpp_boundary_byte_masks() {
+        let mut buffer = [0x13, 0, 0, 0];
+        assert!(composite_rect(
+            &mut buffer,
+            9,
+            1,
+            4,
+            0x101,
+            &[],
+            BitmapRect { left: 1, top: 0, right: 6, bottom: 1 },
+            0xffff_ffff,
+        ));
+        assert_eq!([0xff, 0, 0, 0], buffer);
+    }
+
+    #[test]
+    fn clone_alpha_mask_should_leave_destination_padding_untouched() {
+        let source: Vec<u8> = (0..24).collect();
+        let mut destination = [0xaa; 8];
+        // SAFETY: The source and destination arrays are distinct and cover
+        // the exact lengths supplied to the FFI function.
+        assert!(unsafe {
+            pdfium_rust_clone_alpha_mask_row(
+                source.as_ptr(),
+                source.len(),
+                destination.as_mut_ptr(),
+                destination.len(),
+                2,
+            )
+        });
+        assert_eq!([3, 7, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa], destination);
+    }
+
+    #[test]
+    fn clip_bitmap_row_should_cover_shifted_bits_and_multibyte_offsets() {
+        let source_word = 0x1234_5678_u32.to_ne_bytes();
+        let mut shifted = [0xaa; 4];
+        // SAFETY: The source and destination arrays are distinct and cover
+        // the exact lengths supplied to the FFI function.
+        assert!(unsafe {
+            pdfium_rust_clip_bitmap_row(
+                source_word.as_ptr(),
+                source_word.len(),
+                1,
+                1,
+                shifted.as_mut_ptr(),
+                shifted.len(),
+                5,
+            )
+        });
+        assert_eq!(0x2468_acf0, u32::from_ne_bytes(shifted));
+
+        let source: Vec<u8> = (0..12).collect();
+        let mut destination = [0xaa; 8];
+        // SAFETY: These arrays are also valid, distinct row regions.
+        assert!(unsafe {
+            pdfium_rust_clip_bitmap_row(
+                source.as_ptr(),
+                source.len(),
+                1,
+                24,
+                destination.as_mut_ptr(),
+                destination.len(),
+                2,
+            )
+        });
+        assert_eq!([3, 4, 5, 6, 7, 8, 0xaa, 0xaa], destination);
+    }
+
+    #[test]
+    fn copy_bitmap_row_should_include_source_padding() {
+        let source = [1, 2, 3, 4];
+        let mut destination = [0xaa; 8];
+        // SAFETY: The arrays are distinct and cover their supplied lengths.
+        assert!(unsafe {
+            pdfium_rust_copy_bitmap_row(
+                source.as_ptr(),
+                source.len(),
+                destination.as_mut_ptr(),
+                destination.len(),
+            )
+        });
+        assert_eq!([1, 2, 3, 4, 0xaa, 0xaa, 0xaa, 0xaa], destination);
+    }
+
+    #[test]
+    fn stretch_weights_should_preserve_fixed_point_sums() {
+        let (weight_count, item_size, table_size) =
+            stretch_weight_layout(3, 0, 3, 7).expect("test layout should be valid");
+        let mut output = vec![0; table_size];
+        assert!(calculate_stretch_weights(
+            3,
+            0,
+            3,
+            7,
+            0,
+            7,
+            false,
+            false,
+            &mut output,
+            weight_count,
+            item_size,
+        ));
+        for pixel in 0..3 {
+            let item_offset = pixel * item_size;
+            let source_start = i32::from_ne_bytes(
+                output[item_offset..item_offset + 4]
+                    .try_into()
+                    .expect("test header should contain a start"),
+            );
+            let source_end = i32::from_ne_bytes(
+                output[item_offset + 4..item_offset + 8]
+                    .try_into()
+                    .expect("test header should contain an end"),
+            );
+            let mut sum = 0_u32;
+            for position in source_start..=source_end {
+                let index = usize::try_from(position - source_start)
+                    .expect("test weight index should be non-negative");
+                let offset = item_offset + 8 + index * 4;
+                sum = sum.wrapping_add(u32::from_ne_bytes(
+                    output[offset..offset + 4]
+                        .try_into()
+                        .expect("test output should contain every weight"),
+                ));
+            }
+            assert_eq!(65_536, sum);
+        }
+    }
+
+    #[test]
+    fn stretch_horizontal_row_should_cover_every_transform_method() {
+        let (weight_count, item_size, table_size) =
+            stretch_weight_layout(1, 0, 1, 1).expect("test layout should be valid");
+        let mut table = vec![0; table_size];
+        assert!(calculate_stretch_weights(
+            1,
+            0,
+            1,
+            1,
+            0,
+            1,
+            false,
+            false,
+            &mut table,
+            weight_count,
+            item_size,
+        ));
+
+        let mut output = [9; 4];
+        assert!(stretch_horizontal_row(
+            0,
+            0x108,
+            1,
+            &[0x80],
+            &[],
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!(255, output[0]);
+        assert!(stretch_horizontal_row(
+            1,
+            0x018,
+            3,
+            &[0x80],
+            &[],
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!(255, output[0]);
+        assert!(stretch_horizontal_row(
+            2,
+            0x108,
+            1,
+            &[42],
+            &[],
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!(42, output[0]);
+
+        let palette = [0x8040_2010];
+        assert!(stretch_horizontal_row(
+            3,
+            0x018,
+            3,
+            &[0],
+            &palette,
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!([0x10, 0x20, 0x40], output[..3]);
+        assert!(stretch_horizontal_row(
+            3,
+            0x020,
+            4,
+            &[0],
+            &palette,
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!([0x80, 0x40, 0x20], output[..3]);
+
+        output = [9; 4];
+        assert!(stretch_horizontal_row(
+            4,
+            0x020,
+            4,
+            &[1, 2, 3, 4],
+            &[],
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!([1, 2, 3, 9], output);
+        assert!(stretch_horizontal_row(
+            5,
+            0x220,
+            4,
+            &[10, 20, 30, 128],
+            &[],
+            &table,
+            item_size,
+            0,
+            0,
+            1,
+            &mut output,
+        ));
+        assert_eq!([5, 10, 15, 127], output);
+    }
+
+    #[test]
+    fn stretch_vertical_row_should_cover_scalar_color_and_alpha_methods() {
+        let (weight_count, item_size, table_size) =
+            stretch_weight_layout(1, 0, 1, 2).expect("test layout should be valid");
+        let mut table = vec![0; table_size];
+        assert!(calculate_stretch_weights(
+            1,
+            0,
+            1,
+            2,
+            0,
+            2,
+            false,
+            false,
+            &mut table,
+            weight_count,
+            item_size,
+        ));
+
+        for transform_method in 0..=2 {
+            let mut output = [9];
+            assert!(stretch_vertical_row(
+                transform_method,
+                1,
+                &[10, 30],
+                1,
+                0,
+                0,
+                1,
+                &table,
+                item_size,
+                0,
+                0,
+                &mut output,
+            ));
+            assert_eq!([20], output);
+        }
+
+        for transform_method in 3..=4 {
+            let mut output = [9; 3];
+            assert!(stretch_vertical_row(
+                transform_method,
+                3,
+                &[10, 20, 30, 30, 40, 50],
+                3,
+                0,
+                0,
+                1,
+                &table,
+                item_size,
+                0,
+                0,
+                &mut output,
+            ));
+            assert_eq!([20, 30, 40], output);
+        }
+
+        let mut output = [9; 4];
+        assert!(stretch_vertical_row(
+            5,
+            4,
+            &[10, 20, 30, 128, 20, 40, 60, 128],
+            4,
+            0,
+            0,
+            1,
+            &table,
+            item_size,
+            0,
+            0,
+            &mut output,
+        ));
+        assert_eq!([29, 59, 89, 128], output);
+
+        output = [9; 4];
+        assert!(stretch_vertical_row(
+            5,
+            4,
+            &[10, 20, 30, 0, 20, 40, 60, 0],
+            4,
+            0,
+            0,
+            1,
+            &table,
+            item_size,
+            0,
+            0,
+            &mut output,
+        ));
+        assert_eq!([9, 9, 9, 0], output);
+    }
+
+    #[test]
+    fn swap_xy_row_should_transpose_packed_and_multibyte_pixels() {
+        let mut color_destination = [0; 24];
+        assert!(swap_xy_row(
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9],
+            3,
+            2,
+            0,
+            3,
+            false,
+            false,
+            &mut color_destination,
+            8,
+        ));
+        assert!(swap_xy_row(
+            &[10, 11, 12, 13, 14, 15, 16, 17, 18],
+            3,
+            2,
+            1,
+            3,
+            false,
+            false,
+            &mut color_destination,
+            8,
+        ));
+        assert_eq!(&[1, 2, 3, 10, 11, 12], &color_destination[..6]);
+        assert_eq!(&[4, 5, 6, 13, 14, 15], &color_destination[8..14]);
+        assert_eq!(&[7, 8, 9, 16, 17, 18], &color_destination[16..22]);
+
+        let mut bit_destination = [0xff; 12];
+        assert!(swap_xy_row(&[0b1010_0000], 3, 2, 0, 0, false, false, &mut bit_destination, 4,));
+        assert!(swap_xy_row(&[0b0100_0000], 3, 2, 1, 0, false, false, &mut bit_destination, 4,));
+        assert_eq!(0xbf, bit_destination[0]);
+        assert_eq!(0x7f, bit_destination[4]);
+        assert_eq!(0xbf, bit_destination[8]);
+    }
+
+    #[test]
+    fn flip_bitmap_row_should_cover_every_retained_pixel_width() {
+        let mut one_bit = [0xff; 4];
+        assert!(flip_bitmap_row(&[0b1011_0000], 5, 1, true, &mut one_bit));
+        assert_eq!([0b0110_1000, 0, 0, 0], one_bit);
+
+        let mut eight_bit = [0; 3];
+        assert!(flip_bitmap_row(&[1, 2, 3], 3, 8, true, &mut eight_bit));
+        assert_eq!([3, 2, 1], eight_bit);
+
+        let mut bgr = [0; 6];
+        assert!(flip_bitmap_row(&[1, 2, 3, 4, 5, 6], 2, 24, true, &mut bgr));
+        assert_eq!([4, 5, 6, 1, 2, 3], bgr);
+
+        let mut bgra = [0; 8];
+        assert!(flip_bitmap_row(&[1, 2, 3, 4, 5, 6, 7, 8], 2, 32, true, &mut bgra));
+        assert_eq!([5, 6, 7, 8, 1, 2, 3, 4], bgra);
+
+        let mut copied = [0; 4];
+        assert!(flip_bitmap_row(&[1, 2, 3, 99], 3, 8, false, &mut copied));
+        assert_eq!([1, 2, 3, 99], copied);
+    }
+
+    #[test]
+    fn transform_bilinear_alpha_should_preserve_fixed_point_rounding() {
+        let mut destination = [9; 4];
+        assert!(transform_bilinear_alpha(
+            &[256, 0, 0, 256, -128, -128],
+            &[0, 64, 128, 255],
+            2,
+            2,
+            2,
+            &mut destination,
+            2,
+            2,
+            2,
+        ));
+        assert_eq!([0, 62, 126, 253], destination);
+    }
+
+    #[test]
+    fn transform_bilinear_indexed_should_resolve_interpolated_palette_entries() {
+        let palette: Vec<u32> = (0_u32..=255).map(|value| value * 0x0101_0101).collect();
+        let mut destination = [9; 16];
+        assert!(transform_bilinear_indexed(
+            &[256, 0, 0, 256, -128, -128],
+            &[0, 64, 128, 255],
+            2,
+            2,
+            2,
+            &palette,
+            &mut destination,
+            8,
+            2,
+            2,
+        ));
+        assert_eq!(&[0; 4], &destination[..4]);
+        assert_eq!(&[62; 4], &destination[4..8]);
+        assert_eq!(&[126; 4], &destination[8..12]);
+        assert_eq!(&[253; 4], &destination[12..]);
+    }
+
+    #[test]
+    fn transform_bilinear_color_should_preserve_channel_and_alpha_modes() {
+        let source = [0, 10, 20, 64, 74, 84, 128, 138, 148, 255, 245, 235];
+        let mut destination = [9; 16];
+        assert!(transform_bilinear_color(
+            &[256, 0, 0, 256, -128, -128],
+            &source,
+            6,
+            2,
+            2,
+            3,
+            0,
+            &mut destination,
+            8,
+            2,
+            2,
+        ));
+        assert_eq!(
+            [0, 8, 18, 255, 62, 72, 82, 255, 126, 136, 146, 255, 253, 243, 233, 255],
+            destination,
+        );
+
+        let alpha_source = [255, 128, 64, 32].repeat(4);
+        destination = [9; 16];
+        assert!(transform_bilinear_color(
+            &[256, 0, 0, 256, -128, -128],
+            &alpha_source,
+            8,
+            2,
+            2,
+            4,
+            1,
+            &mut destination,
+            8,
+            2,
+            2,
+        ));
+        for pixel in destination.chunks_exact(4) {
+            assert_eq!([253, 126, 62, 30], pixel);
+        }
+    }
+
+    #[test]
+    fn overlap_rect_should_apply_source_destination_and_clip_bounds() {
+        let clip = IntRect { left: 0, top: 30, right: 50, bottom: 90 };
+        assert_eq!(
+            Some([0, 30, 50, 60, 15, 20]),
+            overlap_rect(400, 300, -10, 20, 100, 80, 200, 200, 5, 10, Some(clip))
+        );
+    }
+
+    #[test]
+    fn default_palette_should_preserve_pdfium_argb_values() {
+        assert_eq!(Some(0xff00_0000), default_palette_argb(1, 0));
+        assert_eq!(Some(0xffff_ffff), default_palette_argb(1, 1));
+        assert_eq!(Some(0xffad_adad), default_palette_argb(8, 0xad));
+    }
+
+    #[test]
+    fn stretch_palette_should_preserve_signed_integer_interpolation() {
+        let mut palette = [0; 256];
+        assert!(build_1bpp_stretch_palette(0xffe0_1020, 0xff20_40e0, &mut palette));
+        assert_eq!(0xffe0_1020, palette[0]);
+        assert_eq!(0xffe0_1020, palette[1]);
+        assert_eq!(0xff80_2880, palette[128]);
+        assert_eq!(0xff20_40e0, palette[255]);
+    }
+
+    #[test]
+    fn buffer_conversion_should_map_custom_palette_to_bgr() {
+        let source = [0, 1, 2];
+        let mut palette = [0; 256];
+        palette[0] = 0xff11_2233;
+        palette[1] = 0xff44_5566;
+        palette[2] = 0xff77_8899;
+        let mut output = [0; 9];
+
+        assert!(convert_buffer_row(0x018, 0x108, &source, 0, &palette, &mut output, 3,));
+        assert_eq!([0x33, 0x22, 0x11, 0x66, 0x55, 0x44, 0x99, 0x88, 0x77], output);
+    }
+
+    #[test]
+    fn buffer_conversion_should_preserve_fourth_destination_byte() {
+        let source = [0x13, 0x27, 0x42];
+        let mut output = [0, 0, 0, 0xad];
+
+        assert!(convert_buffer_row(0x220, 0x018, &source, 0, &[], &mut output, 1,));
+        assert_eq!([0x13, 0x27, 0x42, 0xad], output);
+        assert!(!convert_buffer_row(0x220, 0x001, &[0xff], 0, &[], &mut output, 1,));
+    }
+}

@@ -8,11 +8,13 @@
 #include <iterator>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "core/fpdfapi/parser/cpdf_boolean.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 TEST(ArrayTest, GetBooleanAt) {
@@ -77,6 +79,65 @@ TEST(ArrayTest, Clear) {
   EXPECT_EQ(10u, arr->size());
   arr->Clear();
   EXPECT_EQ(0U, arr->size());
+}
+
+namespace {
+
+struct ArrayOwnershipSnapshot {
+  std::vector<int> values;
+  std::vector<int> locked_values;
+  bool first_and_third_are_same;
+
+  bool operator==(const ArrayOwnershipSnapshot&) const = default;
+};
+
+std::vector<ArrayOwnershipSnapshot> RunArrayOwnershipScenario(
+    bool use_rust_candidate) {
+  pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+      use_rust_candidate);
+  std::vector<ArrayOwnershipSnapshot> result;
+  const auto append = [&result](const CPDF_Array& array) {
+    ArrayOwnershipSnapshot snapshot;
+    for (size_t index = 0; index < array.size(); ++index) {
+      snapshot.values.push_back(array.GetIntegerAt(index));
+    }
+    {
+      CPDF_ArrayLocker locker(&array);
+      for (const RetainPtr<CPDF_Object>& object : locker) {
+        snapshot.locked_values.push_back(object->GetInteger());
+      }
+    }
+    snapshot.first_and_third_are_same =
+        array.size() >= 3 && array.GetObjectAt(0) == array.GetObjectAt(2);
+    result.push_back(std::move(snapshot));
+  };
+
+  auto array = pdfium::MakeRetain<CPDF_Array>();
+  RetainPtr<CPDF_Number> shared = pdfium::MakeRetain<CPDF_Number>(10);
+  array->Append(shared);
+  array->AppendNew<CPDF_Number>(30);
+  array->InsertAt(1, shared);
+  append(*array);
+
+  array->SetNewAt<CPDF_Number>(2, 40);
+  array->InsertNewAt<CPDF_Number>(1, 20);
+  array->RemoveAt(99);
+  append(*array);
+
+  RetainPtr<CPDF_Array> clone = ToArray(array->Clone());
+  append(*clone);
+  array->RemoveAt(0);
+  array->SetNewAt<CPDF_Number>(99, 50);
+  append(*array);
+  array->Clear();
+  append(*array);
+  return result;
+}
+
+}  // namespace
+
+TEST(ArrayTest, RustCandidateMatchesCppOwnershipScenario) {
+  EXPECT_EQ(RunArrayOwnershipScenario(false), RunArrayOwnershipScenario(true));
 }
 
 TEST(ArrayTest, SetAtBeyond) {

@@ -5,10 +5,12 @@
 #include <algorithm>
 #include <array>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "build/build_config.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/notreached.h"
 #include "core/fxge/fx_font.h"
 #include "public/cpp/fpdf_scopers.h"
@@ -250,6 +252,76 @@ TEST_F(FPDFTextEmbedderTest, Text) {
   EXPECT_EQ(0xbdbd, buffer[10]);
 }
 
+TEST_F(FPDFTextEmbedderTest, RustIndexAtPositionMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Case {
+    double x;
+    double y;
+    double x_tolerance;
+    double y_tolerance;
+  };
+  static constexpr Case kCases[] = {
+      {42.0, 50.0, 1.0, 1.0},
+      {0.0, 0.0, 1.0, 1.0},
+      {199.0, 199.0, 1.0, 1.0},
+      {-1.0, 50.0, 1.0, 1.0},
+      {42.0, 10000000.0, 1.0, 1.0},
+      {42.0, 50.0, 0.0, 0.0},
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    std::vector<int> results;
+    for (const auto& test_case : kCases) {
+      results.push_back(FPDFText_GetCharIndexAtPos(
+          text_page.get(), test_case.x, test_case.y, test_case.x_tolerance,
+          test_case.y_tolerance));
+    }
+    return results;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
+
+TEST_F(FPDFTextEmbedderTest, RustBoundedTextMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    int required;
+    int copied;
+    std::array<unsigned short, 64> buffer;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust, const std::array<double, 4>& rect) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    Snapshot snapshot = {};
+    snapshot.buffer.fill(0xbdbd);
+    snapshot.required = FPDFText_GetBoundedText(
+        text_page.get(), rect[0], rect[1], rect[2], rect[3], nullptr, 0);
+    snapshot.copied = FPDFText_GetBoundedText(
+        text_page.get(), rect[0], rect[1], rect[2], rect[3],
+        snapshot.buffer.data(), static_cast<int>(snapshot.buffer.size()));
+    return snapshot;
+  };
+
+  static constexpr std::array<double, 4> kCases[] = {
+      {41.0, 56.0, 82.0, 48.0},
+      {0.0, 1000.0, 1000.0, 0.0},
+      {0.0, 0.0, 1.0, -1.0},
+  };
+  for (const auto& rect : kCases) {
+    EXPECT_EQ(run(false, rect), run(true, rect));
+  }
+}
+
 TEST_F(FPDFTextEmbedderTest, TextVertical) {
   ASSERT_TRUE(OpenDocument("vertical_text.pdf"));
   ScopedPage page = LoadScopedPage(0);
@@ -302,6 +374,238 @@ TEST_F(FPDFTextEmbedderTest, TextVertical) {
 
   EXPECT_TRUE(FPDFText_GetLooseCharBox(textpage.get(), 16, &rect));
   CompareFS_RECTF_Three_Places({104, 170.308, 116, 159.292}, rect);
+}
+
+TEST_F(FPDFTextEmbedderTest, RustTextFlowOrientationMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("vertical_text.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct CharacterSnapshot {
+    uint32_t unicode;
+    double origin_x;
+    double origin_y;
+    double left;
+    double right;
+    double bottom;
+    double top;
+    bool operator==(const CharacterSnapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    const int count = FPDFText_CountChars(text_page.get());
+    std::vector<CharacterSnapshot> characters;
+    characters.reserve(count);
+    for (int index = 0; index < count; ++index) {
+      CharacterSnapshot character = {};
+      character.unicode = FPDFText_GetUnicode(text_page.get(), index);
+      EXPECT_TRUE(FPDFText_GetCharOrigin(
+          text_page.get(), index, &character.origin_x, &character.origin_y));
+      EXPECT_TRUE(FPDFText_GetCharBox(text_page.get(), index, &character.left,
+                                      &character.right, &character.bottom,
+                                      &character.top));
+      characters.push_back(character);
+    }
+    return characters;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
+
+TEST_F(FPDFTextEmbedderTest, RustTextObjectWritingModeMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("rotated_text.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct CharacterSnapshot {
+    uint32_t unicode;
+    double angle;
+    double origin_x;
+    double origin_y;
+    bool operator==(const CharacterSnapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    const int count = FPDFText_CountChars(text_page.get());
+    std::vector<CharacterSnapshot> characters;
+    characters.reserve(count);
+    for (int index = 0; index < count; ++index) {
+      CharacterSnapshot character = {};
+      character.unicode = FPDFText_GetUnicode(text_page.get(), index);
+      character.angle = FPDFText_GetCharAngle(text_page.get(), index);
+      EXPECT_TRUE(FPDFText_GetCharOrigin(
+          text_page.get(), index, &character.origin_x, &character.origin_y));
+      characters.push_back(character);
+    }
+    return characters;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
+
+TEST_F(FPDFTextEmbedderTest, RustTextObjectSeparatorMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bug_781804.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct CharacterSnapshot {
+    uint32_t unicode;
+    int generated;
+    int hyphen;
+    bool has_origin;
+    double origin_x;
+    double origin_y;
+    bool has_box;
+    double left;
+    double right;
+    double bottom;
+    double top;
+    bool operator==(const CharacterSnapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    const int count = FPDFText_CountChars(text_page.get());
+    std::vector<CharacterSnapshot> characters;
+    characters.reserve(count);
+    for (int index = 0; index < count; ++index) {
+      CharacterSnapshot character = {};
+      character.unicode = FPDFText_GetUnicode(text_page.get(), index);
+      character.generated = FPDFText_IsGenerated(text_page.get(), index);
+      character.hyphen = FPDFText_IsHyphen(text_page.get(), index);
+      character.has_origin = FPDFText_GetCharOrigin(
+          text_page.get(), index, &character.origin_x, &character.origin_y);
+      character.has_box = FPDFText_GetCharBox(
+          text_page.get(), index, &character.left, &character.right,
+          &character.bottom, &character.top);
+      characters.push_back(character);
+    }
+    return characters;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
+
+TEST_F(FPDFTextEmbedderTest, RustDuplicateTextObjectsMatchCppOracle) {
+  ASSERT_TRUE(OpenDocument("duplicate_text_objects.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct CharacterSnapshot {
+    uint32_t unicode;
+    double origin_x;
+    double origin_y;
+    double left;
+    double right;
+    double bottom;
+    double top;
+    bool operator==(const CharacterSnapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    const int count = FPDFText_CountChars(text_page.get());
+    std::vector<CharacterSnapshot> characters;
+    characters.reserve(count);
+    for (int index = 0; index < count; ++index) {
+      CharacterSnapshot character = {};
+      character.unicode = FPDFText_GetUnicode(text_page.get(), index);
+      EXPECT_TRUE(FPDFText_GetCharOrigin(
+          text_page.get(), index, &character.origin_x, &character.origin_y));
+      EXPECT_TRUE(FPDFText_GetCharBox(
+          text_page.get(), index, &character.left, &character.right,
+          &character.bottom, &character.top));
+      characters.push_back(character);
+    }
+    return characters;
+  };
+
+  const auto cpp = run(false);
+  ASSERT_EQ(9u, cpp.size());
+  EXPECT_EQ(cpp, run(true));
+}
+
+TEST_F(FPDFTextEmbedderTest, RustDuplicateTextCharactersMatchCppOracle) {
+  ASSERT_TRUE(OpenDocument("duplicate_text_characters.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    std::vector<std::array<double, 7>> characters;
+    const int count = FPDFText_CountChars(text_page.get());
+    characters.reserve(count);
+    for (int index = 0; index < count; ++index) {
+      std::array<double, 7> character = {
+          static_cast<double>(FPDFText_GetUnicode(text_page.get(), index))};
+      EXPECT_TRUE(FPDFText_GetCharOrigin(text_page.get(), index,
+                                        &character[1], &character[2]));
+      EXPECT_TRUE(FPDFText_GetCharBox(
+          text_page.get(), index, &character[3], &character[4],
+          &character[5], &character[6]));
+      characters.push_back(character);
+    }
+    return characters;
+  };
+
+  const auto cpp = run(false);
+  ASSERT_EQ(1u, cpp.size());
+  EXPECT_EQ(cpp, run(true));
+}
+
+TEST_F(FPDFTextEmbedderTest, RustTextObjectGroupingMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("out_of_order_text_objects.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct CharacterSnapshot {
+    uint32_t unicode;
+    int generated;
+    double origin_x;
+    double origin_y;
+    double left;
+    double right;
+    double bottom;
+    double top;
+    bool operator==(const CharacterSnapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    std::vector<CharacterSnapshot> characters;
+    const int count = FPDFText_CountChars(text_page.get());
+    characters.reserve(count);
+    for (int index = 0; index < count; ++index) {
+      CharacterSnapshot character = {};
+      character.unicode = FPDFText_GetUnicode(text_page.get(), index);
+      character.generated = FPDFText_IsGenerated(text_page.get(), index);
+      EXPECT_TRUE(FPDFText_GetCharOrigin(
+          text_page.get(), index, &character.origin_x, &character.origin_y));
+      EXPECT_TRUE(FPDFText_GetCharBox(
+          text_page.get(), index, &character.left, &character.right,
+          &character.bottom, &character.top));
+      characters.push_back(character);
+    }
+    return characters;
+  };
+
+  const auto oracle = run(false);
+  ASSERT_GE(oracle.size(), 3u);
+  EXPECT_EQ(static_cast<uint32_t>('A'), oracle.front().unicode);
+  EXPECT_EQ(static_cast<uint32_t>('C'), oracle.back().unicode);
+  EXPECT_NE(oracle.end(),
+            std::ranges::find(oracle, static_cast<uint32_t>('B'),
+                              &CharacterSnapshot::unicode));
+  EXPECT_EQ(oracle, run(true));
 }
 
 TEST_F(FPDFTextEmbedderTest, TextHebrewMirrored) {
@@ -443,6 +747,45 @@ TEST_F(FPDFTextEmbedderTest, TextSearch) {
         textpage.get(), world_substr.get(), FPDF_MATCHWHOLEWORD, 0));
     EXPECT_FALSE(FPDFText_FindNext(search.get()));
     // TODO(tsepez): investigate strange index/count values in this state.
+  }
+}
+
+TEST_F(FPDFTextEmbedderTest, RustSearchMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+  ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+  ASSERT_TRUE(text_page);
+
+  struct Case {
+    const wchar_t* term;
+    unsigned long flags;
+    int start;
+  };
+  static constexpr Case kCases[] = {
+      {L"world", 0, 2},
+      {L"WORLD", 0, 0},
+      {L"world", FPDF_MATCHCASE | FPDF_MATCHWHOLEWORD, 0},
+      {L" world", 0, 0},
+      {L"world ", FPDF_CONSECUTIVE, 0},
+  };
+  for (const auto& test_case : kCases) {
+    ScopedFPDFWideString term = GetFPDFWideString(test_case.term);
+    auto run = [&](bool use_rust) {
+      pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+          use_rust);
+      ScopedFPDFTextFind search(FPDFText_FindStart(
+          text_page.get(), term.get(), test_case.flags, test_case.start));
+      std::vector<std::array<int, 3>> snapshots;
+      for (bool forward : {true, true, true, false, false}) {
+        const bool matched = forward ? FPDFText_FindNext(search.get())
+                                     : FPDFText_FindPrev(search.get());
+        snapshots.push_back({matched, FPDFText_GetSchResultIndex(search.get()),
+                             FPDFText_GetSchCount(search.get())});
+      }
+      return snapshots;
+    };
+    EXPECT_EQ(run(false), run(true));
   }
 }
 
@@ -811,6 +1154,41 @@ TEST_F(FPDFTextEmbedderTest, WebLinksAcrossLines) {
   FPDFLink_CloseWebLinks(pagelink);
 }
 
+TEST_F(FPDFTextEmbedderTest, RustWebLinksMatchCppOracle) {
+  ASSERT_TRUE(OpenDocument("weblinks_across_lines.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+  ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+  ASSERT_TRUE(text_page);
+
+  struct Snapshot {
+    int start;
+    int count;
+    std::vector<unsigned short> url;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFPageLink links(FPDFLink_LoadWebLinks(text_page.get()));
+    std::vector<Snapshot> result;
+    const int link_count = FPDFLink_CountWebLinks(links.get());
+    for (int index = 0; index < link_count; ++index) {
+      Snapshot snapshot = {};
+      EXPECT_TRUE(FPDFLink_GetTextRange(links.get(), index, &snapshot.start,
+                                        &snapshot.count));
+      const int url_length = FPDFLink_GetURL(links.get(), index, nullptr, 0);
+      snapshot.url.resize(url_length);
+      EXPECT_EQ(url_length,
+                FPDFLink_GetURL(links.get(), index, snapshot.url.data(),
+                                snapshot.url.size()));
+      result.push_back(std::move(snapshot));
+    }
+    return result;
+  };
+  EXPECT_EQ(run(false), run(true));
+}
+
 TEST_F(FPDFTextEmbedderTest, WebLinksAcrossLinesBug) {
   ASSERT_TRUE(OpenDocument("bug_650.pdf"));
   ScopedPage page = LoadScopedPage(0);
@@ -942,6 +1320,47 @@ TEST_F(FPDFTextEmbedderTest, AnnotLinks) {
     ++link_count;
   }
   EXPECT_EQ(annot_subtype_link_count, link_count);
+}
+
+TEST_F(FPDFTextEmbedderTest, RustLinkEnumerationMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("annots.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    std::vector<int> positions;
+    std::vector<FPDF_LINK> links;
+    int terminal_position;
+    FPDF_LINK terminal_link;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto enumerate = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    Snapshot result = {};
+    int position = 0;
+    FPDF_LINK link = nullptr;
+    while (FPDFLink_Enumerate(page.get(), &position, &link)) {
+      result.positions.push_back(position);
+      result.links.push_back(link);
+    }
+    result.terminal_position = position;
+    result.terminal_link = link;
+    return result;
+  };
+  auto enumerate_once = [&](int position, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    FPDF_LINK link = nullptr;
+    bool found = FPDFLink_Enumerate(page.get(), &position, &link);
+    return std::tuple(found, position, link);
+  };
+
+  Snapshot cpp = enumerate(false);
+  EXPECT_EQ(4u, cpp.links.size());
+  EXPECT_EQ(cpp, enumerate(true));
+  EXPECT_EQ(enumerate_once(-1, false), enumerate_once(-1, true));
+  EXPECT_EQ(enumerate_once(100, false), enumerate_once(100, true));
 }
 
 TEST_F(FPDFTextEmbedderTest, GetFontSize) {
@@ -1288,6 +1707,34 @@ TEST_F(FPDFTextEmbedderTest, Bug1029) {
   }
 }
 
+TEST_F(FPDFTextEmbedderTest, RustCharacterNormalizationMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bug_1029.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    int count;
+    std::vector<std::array<uint32_t, 3>> characters;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    Snapshot snapshot = {FPDFText_CountChars(text_page.get()), {}};
+    snapshot.characters.reserve(snapshot.count);
+    for (int index = 0; index < snapshot.count; ++index) {
+      snapshot.characters.push_back(
+          {FPDFText_GetUnicode(text_page.get(), index),
+           static_cast<uint32_t>(FPDFText_IsHyphen(text_page.get(), index)),
+           static_cast<uint32_t>(FPDFText_IsGenerated(text_page.get(), index))});
+    }
+    return snapshot;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
+
 TEST_F(FPDFTextEmbedderTest, CountRects) {
   ASSERT_TRUE(OpenDocument("hello_world.pdf"));
   ScopedPage page = LoadScopedPage(0);
@@ -1357,6 +1804,38 @@ TEST_F(FPDFTextEmbedderTest, CountRects) {
   }
 }
 
+TEST_F(FPDFTextEmbedderTest, RustSelectionRectsMatchCppOracle) {
+  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    int count;
+    std::vector<std::array<double, 4>> rects;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust, int start, int count) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    Snapshot snapshot = {FPDFText_CountRects(text_page.get(), start, count),
+                         {}};
+    for (int index = 0; index < snapshot.count; ++index) {
+      std::array<double, 4> rect = {};
+      EXPECT_TRUE(FPDFText_GetRect(text_page.get(), index, &rect[0], &rect[1],
+                                  &rect[2], &rect[3]));
+      snapshot.rects.push_back(rect);
+    }
+    return snapshot;
+  };
+
+  static constexpr std::pair<int, int> kCases[] = {
+      {-1, 1}, {0, 0}, {0, 1}, {0, -1}, {15, 500}, {29, -1}, {30, 1}};
+  for (const auto& [start, count] : kCases) {
+    EXPECT_EQ(run(false, start, count), run(true, start, count));
+  }
+}
+
 TEST_F(FPDFTextEmbedderTest, GetText) {
   ASSERT_TRUE(OpenDocument("hello_world.pdf"));
   ScopedPage page = LoadScopedPage(0);
@@ -1395,6 +1874,34 @@ TEST_F(FPDFTextEmbedderTest, GetText) {
   ASSERT_EQ(2 * (kHelloWideText.size() + 1), size);
   ASSERT_EQ('x', buffer[0]);
   ASSERT_EQ('\0', buffer[1]);
+}
+
+TEST_F(FPDFTextEmbedderTest, RustPageTextRangesMatchCppOracle) {
+  ASSERT_TRUE(OpenDocument("bug_1139.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    int result;
+    std::array<unsigned short, 64> buffer;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust, int start, int count) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    Snapshot snapshot = {};
+    snapshot.buffer.fill(0xbdbd);
+    snapshot.result =
+        FPDFText_GetText(text_page.get(), start, count, snapshot.buffer.data());
+    return snapshot;
+  };
+
+  static constexpr std::pair<int, int> kCases[] = {
+      {-1, 5}, {0, 0}, {0, 1}, {0, 5}, {1, 30}, {29, 5}, {30, 1}};
+  for (const auto& [start, count] : kCases) {
+    EXPECT_EQ(run(false, start, count), run(true, start, count));
+  }
 }
 
 TEST_F(FPDFTextEmbedderTest, GetTextShouldNotGetInvisibleSpaces) {
@@ -2506,4 +3013,71 @@ TEST_F(FPDFTextEmbedderTest, ActualTextRtl) {
             FPDFText_GetText(text_page.get(), 0, std::size(buffer), buffer));
   EXPECT_THAT(pdfium::span(buffer).first<kExpectedTextSize>(),
               ElementsAreArray(kExpectedText));
+}
+
+TEST_F(FPDFTextEmbedderTest, RustMarkedContentMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("actual_text_rtl.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct CharacterSnapshot {
+    uint32_t unicode;
+    bool has_origin;
+    double origin_x;
+    double origin_y;
+    bool has_box;
+    double left;
+    double right;
+    double bottom;
+    double top;
+    bool operator==(const CharacterSnapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    const int count = FPDFText_CountChars(text_page.get());
+    std::vector<CharacterSnapshot> characters;
+    characters.reserve(count);
+    for (int index = 0; index < count; ++index) {
+      CharacterSnapshot character = {};
+      character.unicode = FPDFText_GetUnicode(text_page.get(), index);
+      character.has_origin = FPDFText_GetCharOrigin(
+          text_page.get(), index, &character.origin_x, &character.origin_y);
+      character.has_box = FPDFText_GetCharBox(
+          text_page.get(), index, &character.left, &character.right,
+          &character.bottom, &character.top);
+      characters.push_back(character);
+    }
+    return characters;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
+
+TEST_F(FPDFTextEmbedderTest, RustTextLineOrderingMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("actual_text_rtl.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    int count;
+    int copied;
+    std::array<unsigned short, 128> buffer;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    Snapshot snapshot = {};
+    snapshot.buffer.fill(0xbdbd);
+    snapshot.count = FPDFText_CountChars(text_page.get());
+    snapshot.copied = FPDFText_GetText(
+        text_page.get(), 0, static_cast<int>(snapshot.buffer.size()),
+        snapshot.buffer.data());
+    return snapshot;
+  };
+
+  EXPECT_EQ(run(false), run(true));
 }

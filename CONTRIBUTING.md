@@ -6,6 +6,13 @@ similar to Chromium. The PDFium
 [README](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/README.md)
 outlines specific build and test information for PDFium.
 
+## Project language
+
+English is the project language. Use English for source identifiers, comments,
+documentation, commit messages, issues, pull requests, and review discussions.
+Coordination may happen in another language, but repository and project-facing
+artifacts must be written in English.
+
 This document focuses on how the PDFium project operates and how we’d like it
 to operate in the future. This is a living document, please file bugs if you
 think there are changes/updates which could be put in place to make it easier

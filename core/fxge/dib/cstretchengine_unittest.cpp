@@ -4,6 +4,7 @@
 
 #include "core/fxge/dib/cstretchengine.h"
 
+#include <array>
 #include <utility>
 
 #include "core/fpdfapi/page/cpdf_dib.h"
@@ -11,6 +12,7 @@
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fxge/dib/fx_dib.h"
+#include "core/fxge/dib/rust/rust_blend_adapter.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -149,4 +151,77 @@ TEST(CStretchEngine, TooManyWeights) {
   ASSERT_FALSE(table.CalculateWeights(kTooBigDestLen, 0, kTooBigDestLen,
                                       kTooBigSrcLen, 0, kTooBigSrcLen,
                                       options));
+}
+
+TEST(CStretchEngine, RustWeightTableMatchesCppReferenceExactly) {
+  struct WeightCase {
+    int destination_length;
+    int destination_minimum;
+    int destination_maximum;
+    int source_length;
+    int source_minimum;
+    int source_maximum;
+  };
+  static constexpr std::array<WeightCase, 10> kCases = {
+      WeightCase{1, 0, 1, 1, 0, 1},
+      WeightCase{2, 0, 2, 7, 0, 7},
+      WeightCase{5, 0, 5, 2, 0, 2},
+      WeightCase{13, 2, 11, 19, 3, 17},
+      WeightCase{-13, 0, 13, 19, 0, 19},
+      WeightCase{-7, 1, 6, 23, 2, 21},
+      WeightCase{100, 0, 100, 0, 0, 0},
+      WeightCase{0, 0, 0, 100, 0, 100},
+      WeightCase{5, 4, 3, 7, 0, 7},
+      WeightCase{17, 0, 17, 3, 1, 2},
+  };
+  for (const bool no_smoothing : {false, true}) {
+    for (const bool bilinear : {false, true}) {
+      FXDIB_ResampleOptions options;
+      options.bNoSmoothing = no_smoothing;
+      options.bInterpolateBilinear = bilinear;
+      for (const auto& test_case : kCases) {
+        CStretchEngine::WeightTable reference;
+        bool reference_result;
+        {
+          fxge::ScopedRustDibImplementationForTesting implementation(false);
+          reference_result = reference.CalculateWeights(
+              test_case.destination_length, test_case.destination_minimum,
+              test_case.destination_maximum, test_case.source_length,
+              test_case.source_minimum, test_case.source_maximum, options);
+        }
+        CStretchEngine::WeightTable candidate;
+        const bool candidate_result = candidate.CalculateWeights(
+            test_case.destination_length, test_case.destination_minimum,
+            test_case.destination_maximum, test_case.source_length,
+            test_case.source_minimum, test_case.source_maximum, options);
+        ASSERT_EQ(reference_result, candidate_result)
+            << "destination_length=" << test_case.destination_length
+            << " source_length=" << test_case.source_length
+            << " no_smoothing=" << no_smoothing
+            << " bilinear=" << bilinear;
+        if (!reference_result || test_case.destination_length == 0) {
+          continue;
+        }
+        for (int pixel = test_case.destination_minimum;
+             pixel < test_case.destination_maximum; ++pixel) {
+          const auto* reference_weight = reference.GetPixelWeight(pixel);
+          const auto* candidate_weight = candidate.GetPixelWeight(pixel);
+          ASSERT_EQ(reference_weight->src_start_, candidate_weight->src_start_)
+              << "pixel=" << pixel;
+          ASSERT_EQ(reference_weight->src_end_, candidate_weight->src_end_)
+              << "pixel=" << pixel;
+          for (int position = reference_weight->src_start_;
+               position <= reference_weight->src_end_; ++position) {
+            EXPECT_EQ(reference_weight->GetWeightForPosition(position),
+                      candidate_weight->GetWeightForPosition(position))
+                << "pixel=" << pixel << " position=" << position
+                << " destination_length=" << test_case.destination_length
+                << " source_length=" << test_case.source_length
+                << " no_smoothing=" << no_smoothing
+                << " bilinear=" << bilinear;
+          }
+        }
+      }
+    }
+  }
 }

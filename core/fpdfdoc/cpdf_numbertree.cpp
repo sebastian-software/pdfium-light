@@ -11,8 +11,62 @@
 
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 
 namespace {
+
+bool DescribeNumberTreeNode(void*,
+                            uintptr_t node,
+                            bool* has_limits,
+                            int32_t* lower_limit,
+                            int32_t* upper_limit,
+                            bool* has_numbers,
+                            size_t* number_count,
+                            size_t* kid_count) {
+  const auto* dictionary =
+      reinterpret_cast<const CPDF_Dictionary*>(node);
+  RetainPtr<const CPDF_Array> limits = dictionary->GetArrayFor("Limits");
+  *has_limits = !!limits;
+  *lower_limit = limits ? limits->GetIntegerAt(0) : 0;
+  *upper_limit = limits ? limits->GetIntegerAt(1) : 0;
+  RetainPtr<const CPDF_Array> numbers = dictionary->GetArrayFor("Nums");
+  *has_numbers = !!numbers;
+  *number_count = numbers ? numbers->size() / 2 : 0;
+  RetainPtr<const CPDF_Array> kids = dictionary->GetArrayFor("Kids");
+  *kid_count = kids ? kids->size() : 0;
+  return true;
+}
+
+bool ReadNumberTreeNumber(void*,
+                          uintptr_t node,
+                          size_t index,
+                          int32_t* key,
+                          uintptr_t* value) {
+  const auto* dictionary =
+      reinterpret_cast<const CPDF_Dictionary*>(node);
+  RetainPtr<const CPDF_Array> numbers = dictionary->GetArrayFor("Nums");
+  if (!numbers || index >= numbers->size() / 2) {
+    return false;
+  }
+  *key = numbers->GetIntegerAt(index * 2);
+  *value = reinterpret_cast<uintptr_t>(
+      numbers->GetDirectObjectAt(index * 2 + 1).Get());
+  return true;
+}
+
+bool ReadNumberTreeKid(void*,
+                       uintptr_t node,
+                       size_t index,
+                       uintptr_t* kid) {
+  const auto* dictionary =
+      reinterpret_cast<const CPDF_Dictionary*>(node);
+  RetainPtr<const CPDF_Array> kids = dictionary->GetArrayFor("Kids");
+  if (!kids || index >= kids->size()) {
+    return false;
+  }
+  *kid = reinterpret_cast<uintptr_t>(kids->GetDictAt(index).Get());
+  return true;
+}
 
 RetainPtr<const CPDF_Object> FindNumberNode(const CPDF_Dictionary* node_dict,
                                             int num) {
@@ -111,11 +165,35 @@ CPDF_NumberTree::CPDF_NumberTree(RetainPtr<const CPDF_Dictionary> root)
 CPDF_NumberTree::~CPDF_NumberTree() = default;
 
 RetainPtr<const CPDF_Object> CPDF_NumberTree::LookupValue(int num) const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    std::optional<uintptr_t> result = pdfium::rust::RustNumberTreeLookup(
+        reinterpret_cast<uintptr_t>(root_.Get()), num, nullptr,
+        DescribeNumberTreeNode, ReadNumberTreeNumber, ReadNumberTreeKid);
+    if (result.has_value()) {
+      return pdfium::WrapRetain(
+          reinterpret_cast<const CPDF_Object*>(result.value()));
+    }
+  }
   return FindNumberNode(root_.Get(), num);
 }
 
 std::optional<CPDF_NumberTree::KeyValue> CPDF_NumberTree::GetLowerBound(
     int num) const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    std::optional<pdfium::rust::RustNumberTreeLowerBoundResult> result =
+        pdfium::rust::RustNumberTreeLowerBound(
+            reinterpret_cast<uintptr_t>(root_.Get()), num, nullptr,
+            DescribeNumberTreeNode, ReadNumberTreeNumber, ReadNumberTreeKid);
+    if (result.has_value()) {
+      if (!result->found) {
+        return std::nullopt;
+      }
+      return KeyValue(
+          result->key,
+          pdfium::WrapRetain(
+              reinterpret_cast<const CPDF_Object*>(result->value)));
+    }
+  }
   return FindLowerBound(root_.Get(), num);
 }
 

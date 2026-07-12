@@ -16,6 +16,7 @@
 #include "core/fpdfapi/parser/cpdf_linearized_header.h"
 #include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fpdfapi/parser/cpdf_syntax_parser.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/cfx_fileaccess_stream.h"
 #include "core/fxcrt/cfx_read_only_span_stream.h"
 #include "core/fxcrt/fx_extension.h"
@@ -143,6 +144,56 @@ class CPDF_TestParser final : public CPDF_Parser {
   TestObjectsHolder object_holder_;
 };
 
+struct ParserObjectSnapshot {
+  CPDF_Parser::Error error;
+  bool rebuilt;
+  uint32_t trailer_object_number;
+  std::map<uint32_t, CPDF_CrossRefTable::ObjectInfo> objects;
+};
+
+ParserObjectSnapshot CaptureParserObjectSnapshot(
+    pdfium::span<const uint8_t> input,
+    bool use_rust_candidate) {
+  pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+      use_rust_candidate);
+  CPDF_TestParser parser;
+  RetainPtr<CPDF_Dictionary> dummy_root =
+      pdfium::MakeRetain<CPDF_Dictionary>();
+  EXPECT_CALL(parser.object_holder(), ParseIndirectObject)
+      .WillRepeatedly(Return(dummy_root));
+  EXPECT_TRUE(parser.InitTestFromBuffer(input));
+  const CPDF_Parser::Error error = parser.StartParseInternal();
+  const CPDF_CrossRefTable* cross_ref_table =
+      parser.GetCrossRefTableForTesting();
+  return ParserObjectSnapshot{
+      .error = error,
+      .rebuilt = parser.xref_table_rebuilt(),
+      .trailer_object_number =
+          cross_ref_table ? cross_ref_table->trailer_object_number() : 0,
+      .objects = cross_ref_table
+                     ? cross_ref_table->objects_info()
+                     : std::map<uint32_t, CPDF_CrossRefTable::ObjectInfo>()};
+}
+
+void ExpectParserObjectSnapshotsEqual(const ParserObjectSnapshot& reference,
+                                      const ParserObjectSnapshot& candidate) {
+  EXPECT_EQ(reference.error, candidate.error);
+  EXPECT_EQ(reference.rebuilt, candidate.rebuilt);
+  EXPECT_EQ(reference.trailer_object_number, candidate.trailer_object_number);
+  EXPECT_EQ(reference.objects, candidate.objects);
+}
+
+struct ParserCorpusCase {
+  const char* name;
+  pdfium::span<const uint8_t> input;
+};
+
+const ParserCorpusCase kRustParserCorpus[] = {
+#define RUST_PARSER_CASE(name, input) {#name, pdfium::as_byte_span(input)},
+#include "testing/resources/rust_parser_corpus.inc"
+#undef RUST_PARSER_CASE
+};
+
 TEST(ParserTest, RebuildCrossRefCorrectly) {
   CPDF_TestParser parser;
   std::string test_file =
@@ -165,6 +216,19 @@ TEST(ParserTest, RebuildCrossRefCorrectly) {
       parser.GetCrossRefTableForTesting();
   ASSERT_TRUE(cross_ref_table);
   EXPECT_EQ(0u, cross_ref_table->trailer_object_number());
+}
+
+TEST(ParserTest, RustCandidateMatchesCppCrossRefObjectSnapshots) {
+  for (const ParserCorpusCase& corpus_case : kRustParserCorpus) {
+    SCOPED_TRACE(corpus_case.name);
+    const ParserObjectSnapshot reference =
+        CaptureParserObjectSnapshot(corpus_case.input,
+                                    /*use_rust_candidate=*/false);
+    const ParserObjectSnapshot candidate =
+        CaptureParserObjectSnapshot(corpus_case.input,
+                                    /*use_rust_candidate=*/true);
+    ExpectParserObjectSnapshotsEqual(reference, candidate);
+  }
 }
 
 TEST(ParserTest, RebuildCrossRefFailed) {

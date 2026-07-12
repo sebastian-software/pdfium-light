@@ -4,9 +4,13 @@
 
 #include "core/fpdfapi/parser/cpdf_indirect_object_holder.h"
 
+#include <tuple>
+#include <vector>
+
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_null.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/check.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -21,7 +25,58 @@ class MockIndirectObjectHolder final : public CPDF_IndirectObjectHolder {
   MOCK_METHOD(RetainPtr<CPDF_Object>, ParseIndirectObject, (uint32_t objnum));
 };
 
+struct ObjectIndexScenario {
+  uint32_t last_object_number;
+  bool rejected_lower_generation;
+  bool accepted_higher_generation;
+  bool deleted_object_is_absent;
+  std::vector<std::tuple<uint32_t, CPDF_Object::Type, uint32_t>> objects;
+
+  bool operator==(const ObjectIndexScenario&) const = default;
+};
+
+ObjectIndexScenario RunObjectIndexScenario(bool use_rust_candidate) {
+  pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+      use_rust_candidate);
+  CPDF_IndirectObjectHolder holder;
+  holder.SetLastObjNum(3);
+  auto added = pdfium::MakeRetain<CPDF_Null>();
+  const uint32_t added_number = holder.AddIndirectObject(added);
+  CHECK_EQ(4u, added_number);
+
+  auto generation_two = pdfium::MakeRetain<CPDF_Null>();
+  generation_two->SetGenNum(2);
+  CHECK(holder.ReplaceIndirectObjectIfHigherGeneration(
+      10, std::move(generation_two)));
+  auto generation_one = pdfium::MakeRetain<CPDF_Null>();
+  generation_one->SetGenNum(1);
+  const bool rejected_lower = !holder.ReplaceIndirectObjectIfHigherGeneration(
+      10, std::move(generation_one));
+  auto generation_three = pdfium::MakeRetain<CPDF_Null>();
+  generation_three->SetGenNum(3);
+  const bool accepted_higher = holder.ReplaceIndirectObjectIfHigherGeneration(
+      10, std::move(generation_three));
+
+  holder.DeleteIndirectObject(added_number);
+  ObjectIndexScenario result = {
+      .last_object_number = holder.GetLastObjNum(),
+      .rejected_lower_generation = rejected_lower,
+      .accepted_higher_generation = accepted_higher,
+      .deleted_object_is_absent = !holder.GetIndirectObject(added_number),
+  };
+  for (const auto& [object_number, object] : holder) {
+    CHECK(object);
+    result.objects.emplace_back(object_number, object->GetType(),
+                                object->GetGenNum());
+  }
+  return result;
+}
+
 }  // namespace
+
+TEST(IndirectObjectHolderTest, RustCandidateMatchesCppObjectIndexScenario) {
+  EXPECT_EQ(RunObjectIndexScenario(false), RunObjectIndexScenario(true));
+}
 
 TEST(IndirectObjectHolderTest, RecursiveParseOfSameObject) {
   MockIndirectObjectHolder mock_holder;

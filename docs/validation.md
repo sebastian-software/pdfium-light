@@ -74,6 +74,91 @@ For the Rust codec port, make sure the checkout was synced with
 builds `//core/fxcodec/rust:pdfium_rust_codecs` as part of the retained
 `fxcodec` target.
 
+Run the zero-tolerance renderer differential corpus explicitly with:
+
+```bash
+out/light/pdfium_embeddertests \
+  --gtest_filter='RustMigrationCorpus/RustRendererParityEmbedderTest.*'
+```
+
+The comparison includes bitmap dimensions, format, stride, and all allocated
+bytes. Platform expectation tolerances do not apply to this same-process gate.
+
+For Rust render-plan, AGG path, and glyph-planning changes, build and run the
+native Rust test targets before the renderer corpus:
+
+```bash
+ninja -C out/light \
+  pdfium_rust_render_unittests \
+  pdfium_rust_agg_unittests \
+  pdfium_rust_glyph_unittests
+out/light/pdfium_rust_render_unittests
+out/light/pdfium_rust_agg_unittests
+out/light/pdfium_rust_glyph_unittests
+```
+
+The renderer corpus additionally compares the exact render-command trace and
+the AGG path, draw-plan, stroke-matrix, dash-decision, dash-value, and phase
+traces plus every glyph bitmap cache-key word, checked bitmap-origin plan,
+device-origin rounding decision, aggregated glyph bounds, bitmap lookup action,
+FreeType glyph load plan, PDF text dispatch decision, and active text-pattern
+decision plus text-matrix availability and the executed pattern/path/normal
+text backend. AGG and FreeType remain the retained raster and font backends;
+these tests validate the Rust-owned planning and adapter boundaries around
+them. The harness opens independent documents for Oracle and Candidate so
+glyph/font cache state cannot hide or manufacture trace differences.
+
+For Rust parser changes, build the native parser tests, the C++ object-snapshot
+corpus, and the retained parser fuzzer source:
+
+```bash
+ninja -C out/light \
+  pdfium_rust_parser_unittests \
+  pdfium_unittests \
+  testing/fuzzers:pdf_parser_fuzzer_src \
+  testing/fuzzers:pdf_parser_fuzzer_corpus
+out/light/pdfium_rust_parser_unittests
+out/light/pdfium_unittests \
+  --gtest_filter='ParserTest.RustCandidateMatchesCppCrossRefObjectSnapshots:SimpleParserTest.*'
+out/light/pdf_parser_fuzzer_corpus
+```
+
+The versioned corpus in `testing/resources/rust_parser_corpus.inc` compares
+parse status, rebuild decisions, trailer object number, and every
+cross-reference object entry for normal, defaulted, unknown, and truncated
+streams. `pdf_parser_fuzzer` performs allocation-free token and consumed-offset
+differential checks before sending the same bounded input through the public
+in-memory document parser. The standalone corpus executable runs the same
+fuzzer entry point over every versioned input, including public Oracle/Candidate
+load errors, document metadata, and bounded page geometry. `pdfium_all` must
+continue to compile the fuzzer source.
+
+Run the bounded parser corpus under AddressSanitizer as the Phase 6 resource
+gate. `out/light-rust-asan/args.gn` uses the normal light arguments plus
+`is_asan = true`:
+
+```bash
+gn gen out/light-rust-asan
+ninja -C out/light-rust-asan testing/fuzzers:pdf_parser_fuzzer_corpus
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+  out/light-rust-asan/pdf_parser_fuzzer_corpus
+```
+
+For Rust DIB changes, build and run the native Rust target and the exhaustive
+C++/Rust blend and row parity cases:
+
+```bash
+ninja -C out/light pdfium_rust_dib_unittests
+out/light/pdfium_rust_dib_unittests
+out/light/pdfium_unittests \
+  --gtest_filter='RustBlendParityTest.*:ScanlineCompositorTest.CompositeRgbBitmapLineBgra*'
+```
+
+The BGRA row parity test covers every separable mode with clip enabled and
+disabled and with both byte-order settings. It selects C++ and Rust explicitly
+in the same process; the ordinary compositor tests execute the production Rust
+default.
+
 For the broader retained test/fuzzer set, run:
 
 ```bash

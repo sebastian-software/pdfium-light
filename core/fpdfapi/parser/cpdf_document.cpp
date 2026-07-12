@@ -24,6 +24,7 @@
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcodec/jbig2/jbig2_document_context.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/check_op.h"
@@ -112,6 +113,144 @@ std::optional<int> CountPages(
   return count;
 }
 
+bool DescribePageTreeNode(void*,
+                          uintptr_t handle,
+                          int32_t* count_hint,
+                          size_t* child_count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || !count_hint || !child_count) {
+    return false;
+  }
+  *count_hint = dictionary->GetIntegerFor("Count");
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  *child_count = kids ? kids->size() : 0;
+  return true;
+}
+
+bool DescribePageTreeChild(void*,
+                           uintptr_t handle,
+                           size_t child_index,
+                           uintptr_t* child_handle,
+                           uint8_t* node_type,
+                           bool* has_kids) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || !child_handle || !node_type || !has_kids) {
+    return false;
+  }
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids || child_index >= kids->size()) {
+    return false;
+  }
+  RetainPtr<CPDF_Dictionary> child = kids->GetMutableDictAt(child_index);
+  if (!child) {
+    *child_handle = 0;
+    *node_type = 0;
+    *has_kids = false;
+    return true;
+  }
+  *child_handle = reinterpret_cast<uintptr_t>(child.Get());
+  const ByteString type = child->GetNameFor("Type");
+  *node_type = type == "Pages" ? 1 : type == "Page" ? 2 : 0;
+  *has_kids = child->KeyExist("Kids");
+  return true;
+}
+
+bool NormalizePageTreeNode(void*, uintptr_t handle, uint8_t node_type) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || (node_type != 1 && node_type != 2)) {
+    return false;
+  }
+  dictionary->SetNewFor<CPDF_Name>("Type", node_type == 1 ? "Pages" : "Page");
+  return true;
+}
+
+bool SetPageTreeNodeCount(void*, uintptr_t handle, int32_t count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary) {
+    return false;
+  }
+  dictionary->SetNewFor<CPDF_Number>("Count", count);
+  return true;
+}
+
+bool DescribePageIndexNode(void*,
+                           uintptr_t handle,
+                           bool* has_kids,
+                           int32_t* count_hint,
+                           uint32_t* object_number,
+                           size_t* child_count) {
+  auto* dictionary = reinterpret_cast<const CPDF_Dictionary*>(handle);
+  if (!dictionary || !has_kids || !count_hint || !object_number ||
+      !child_count) {
+    return false;
+  }
+  *has_kids = dictionary->KeyExist("Kids");
+  *count_hint = dictionary->GetIntegerFor("Count");
+  *object_number = dictionary->GetObjNum();
+  RetainPtr<const CPDF_Array> kids = dictionary->GetArrayFor("Kids");
+  *child_count = kids ? kids->size() : 0;
+  return !*has_kids || !!kids;
+}
+
+bool DescribePageIndexChild(void*,
+                            uintptr_t handle,
+                            size_t child_index,
+                            uintptr_t* child_handle,
+                            uint32_t* reference_object_number) {
+  auto* dictionary = reinterpret_cast<const CPDF_Dictionary*>(handle);
+  if (!dictionary || !child_handle || !reference_object_number) {
+    return false;
+  }
+  RetainPtr<const CPDF_Array> kids = dictionary->GetArrayFor("Kids");
+  if (!kids || child_index >= kids->size()) {
+    return false;
+  }
+  RetainPtr<const CPDF_Reference> reference =
+      ToReference(kids->GetObjectAt(child_index));
+  *reference_object_number = reference ? reference->GetRefObjNum() : 0;
+  RetainPtr<const CPDF_Dictionary> child = kids->GetDictAt(child_index);
+  *child_handle = reinterpret_cast<uintptr_t>(child.Get());
+  return true;
+}
+
+bool DescribePageMutationNode(void*, uintptr_t handle, size_t* child_count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || !child_count) {
+    return false;
+  }
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids) {
+    return false;
+  }
+  *child_count = kids->size();
+  return true;
+}
+
+bool DescribePageMutationChild(void*,
+                               uintptr_t handle,
+                               size_t child_index,
+                               uintptr_t* child_handle,
+                               uint8_t* node_type,
+                               int32_t* page_count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || !child_handle || !node_type || !page_count) {
+    return false;
+  }
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids || child_index >= kids->size()) {
+    return false;
+  }
+  RetainPtr<CPDF_Dictionary> child = kids->GetMutableDictAt(child_index);
+  if (!child) {
+    return false;
+  }
+  *child_handle = reinterpret_cast<uintptr_t>(child.Get());
+  NodeType type = GetNodeType(child);
+  *node_type = type == NodeType::kBranch ? 1 : 2;
+  *page_count = child->GetIntegerFor("Count");
+  return true;
+}
+
 int FindPageIndex(const CPDF_Dictionary* pNode,
                   uint32_t* skip_count,
                   uint32_t objnum,
@@ -177,6 +316,22 @@ CPDF_Document::CPDF_Document(std::unique_ptr<RenderDataIface> pRenderData,
                              std::unique_ptr<PageDataIface> pPageData)
     : doc_render_(std::move(pRenderData)),
       doc_page_(std::move(pPageData)),
+      use_rust_page_index_(pdfium::rust::UseRustParserCandidate()),
+      rust_page_index_(
+          use_rust_page_index_
+              ? std::make_unique<pdfium::rust::RustDocumentPageIndex>()
+              : nullptr),
+      rust_page_traversal_(
+          use_rust_page_index_
+              ? std::make_unique<pdfium::rust::RustDocumentPageTraversal>(
+                    this,
+                    RetainTraversalHandle,
+                    ReleaseTraversalHandle,
+                    DescribeTraversalNode,
+                    DescribeTraversalChild,
+                    CacheTraversedPage,
+                    SelectTraversedPage)
+              : nullptr),
       stock_font_clearer_(doc_page_.get()) {
   doc_render_->SetDocument(this);
   doc_page_->SetDocument(this);
@@ -239,21 +394,131 @@ void CPDF_Document::LoadPages() {
   const CPDF_LinearizedHeader* linearized_header =
       parser_->GetLinearizedHeader();
   if (!linearized_header) {
-    page_list_.resize(RetrievePageCount());
+    ResizePageList(RetrievePageCount());
     return;
   }
 
   uint32_t objnum = linearized_header->GetFirstPageObjNum();
   if (!IsValidPageObject(GetOrParseIndirectObject(objnum).Get())) {
-    page_list_.resize(RetrievePageCount());
+    ResizePageList(RetrievePageCount());
     return;
   }
 
   uint32_t first_page_num = linearized_header->GetFirstPageNo();
   uint32_t page_count = linearized_header->GetPageCount();
   DCHECK(first_page_num < page_count);
-  page_list_.resize(page_count);
-  page_list_[first_page_num] = objnum;
+  ResizePageList(page_count);
+  SetPageObjNumAt(first_page_num, objnum);
+}
+
+// static
+bool CPDF_Document::RetainTraversalHandle(void* context, uintptr_t handle) {
+  auto* document = static_cast<CPDF_Document*>(context);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!document || !dictionary) {
+    return false;
+  }
+  document->rust_traversal_handles_.push_back(pdfium::WrapRetain(dictionary));
+  return true;
+}
+
+// static
+bool CPDF_Document::ReleaseTraversalHandle(void* context, uintptr_t handle) {
+  auto* document = static_cast<CPDF_Document*>(context);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!document || !dictionary) {
+    return false;
+  }
+  auto it = std::ranges::find_if(
+      document->rust_traversal_handles_,
+      [dictionary](const RetainPtr<CPDF_Dictionary>& retained) {
+        return retained.Get() == dictionary;
+      });
+  if (it == document->rust_traversal_handles_.end()) {
+    return false;
+  }
+  document->rust_traversal_handles_.erase(it);
+  return true;
+}
+
+// static
+bool CPDF_Document::DescribeTraversalNode(void*,
+                                          uintptr_t handle,
+                                          bool* has_kids_array,
+                                          uint8_t* node_type,
+                                          uint32_t* object_number,
+                                          size_t* child_count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || !has_kids_array || !node_type || !object_number ||
+      !child_count) {
+    return false;
+  }
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  *has_kids_array = !!kids;
+  *child_count = kids ? kids->size() : 0;
+  *object_number = dictionary->GetObjNum();
+  if (kids) {
+    *node_type = 1;
+  } else {
+    *node_type =
+        GetNodeType(pdfium::WrapRetain(dictionary)) == NodeType::kBranch ? 1
+                                                                         : 2;
+  }
+  return true;
+}
+
+// static
+bool CPDF_Document::DescribeTraversalChild(void* context,
+                                           uintptr_t handle,
+                                           size_t child_index,
+                                           uintptr_t* child_handle,
+                                           bool* has_kids,
+                                           uint32_t* object_number) {
+  auto* document = static_cast<CPDF_Document*>(context);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!document || !dictionary || !child_handle || !has_kids ||
+      !object_number) {
+    return false;
+  }
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids || child_index >= kids->size()) {
+    return false;
+  }
+  kids->ConvertToIndirectObjectAt(child_index, document);
+  RetainPtr<CPDF_Dictionary> child = kids->GetMutableDictAt(child_index);
+  if (!child) {
+    *child_handle = 0;
+    *has_kids = false;
+    *object_number = 0;
+    return true;
+  }
+  *child_handle = reinterpret_cast<uintptr_t>(child.Get());
+  *has_kids = child->KeyExist("Kids");
+  *object_number = child->GetObjNum();
+  return true;
+}
+
+// static
+bool CPDF_Document::CacheTraversedPage(void* context,
+                                       int32_t page_index,
+                                       uint32_t object_number) {
+  auto* document = static_cast<CPDF_Document*>(context);
+  if (!document || !document->IsPageIndexValid(page_index)) {
+    return false;
+  }
+  document->SetPageObjNumAt(page_index, object_number);
+  return true;
+}
+
+// static
+bool CPDF_Document::SelectTraversedPage(void* context, uintptr_t handle) {
+  auto* document = static_cast<CPDF_Document*>(context);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!document || !dictionary) {
+    return false;
+  }
+  document->rust_traversal_result_ = pdfium::WrapRetain(dictionary);
+  return true;
 }
 
 RetainPtr<CPDF_Dictionary> CPDF_Document::TraversePDFPages(int iPage,
@@ -273,7 +538,7 @@ RetainPtr<CPDF_Dictionary> CPDF_Document::TraversePDFPages(int iPage,
     if (GetNodeType(pPages) == NodeType::kBranch) {
       return nullptr;
     }
-    page_list_[iPage] = pPages->GetObjNum();
+    SetPageObjNumAt(iPage, pPages->GetObjNum());
     return pPages;
   }
   if (level >= kMaxPageLevel) {
@@ -299,7 +564,7 @@ RetainPtr<CPDF_Dictionary> CPDF_Document::TraversePDFPages(int iPage,
       continue;
     }
     if (!pKid->KeyExist("Kids")) {
-      page_list_[iPage - (*nPagesToGo) + 1] = pKid->GetObjNum();
+      SetPageObjNumAt(iPage - (*nPagesToGo) + 1, pKid->GetObjNum());
       (*nPagesToGo)--;
       tree_traversal_[level].child_index++;
       if (*nPagesToGo == 0) {
@@ -336,6 +601,11 @@ void CPDF_Document::ResetTraversal() {
   next_page_to_traverse_ = 0;
   reached_max_page_level_ = false;
   tree_traversal_.clear();
+  rust_traversal_result_.Reset();
+  if (rust_page_traversal_) {
+    CHECK(rust_page_traversal_->Clear());
+    CHECK(rust_traversal_handles_.empty());
+  }
 }
 
 void CPDF_Document::SetParser(std::unique_ptr<CPDF_Parser> pParser) {
@@ -361,15 +631,15 @@ RetainPtr<CPDF_Dictionary> CPDF_Document::GetMutablePagesDict() {
 }
 
 bool CPDF_Document::IsPageLoaded(int iPage) const {
-  return !!page_list_[iPage];
+  return !!GetPageObjNumAt(iPage);
 }
 
 RetainPtr<const CPDF_Dictionary> CPDF_Document::GetPageDictionary(int iPage) {
-  if (!fxcrt::IndexInBounds(page_list_, iPage)) {
+  if (!IsPageIndexValid(iPage)) {
     return nullptr;
   }
 
-  const uint32_t objnum = page_list_[iPage];
+  const uint32_t objnum = GetPageObjNumAt(iPage);
   if (objnum) {
     RetainPtr<CPDF_Dictionary> result =
         ToDictionary(GetOrParseIndirectObject(objnum));
@@ -381,6 +651,28 @@ RetainPtr<const CPDF_Dictionary> CPDF_Document::GetPageDictionary(int iPage) {
   RetainPtr<CPDF_Dictionary> pPages = GetMutablePagesDict();
   if (!pPages) {
     return nullptr;
+  }
+
+  if (use_rust_page_index_) {
+    rust_traversal_result_.Reset();
+    if (rust_traversal_handles_.empty() &&
+        !rust_page_traversal_->Reset(
+            reinterpret_cast<uintptr_t>(pPages.Get()))) {
+      return nullptr;
+    }
+    std::optional<bool> found = rust_page_traversal_->Traverse(iPage);
+    if (found.has_value()) {
+      CHECK_EQ(*found, !!rust_traversal_result_);
+      return std::move(rust_traversal_result_);
+    }
+
+    // A rejected internal boundary uses the unchanged traversal from the root.
+    ResetTraversal();
+    tree_traversal_.emplace_back(pPages);
+    int pages_to_go = iPage + 1;
+    RetainPtr<CPDF_Dictionary> page = TraversePDFPages(iPage, &pages_to_go, 0);
+    next_page_to_traverse_ = iPage + 1;
+    return page;
   }
 
   if (tree_traversal_.empty()) {
@@ -399,7 +691,7 @@ RetainPtr<CPDF_Dictionary> CPDF_Document::GetMutablePageDictionary(int iPage) {
 }
 
 void CPDF_Document::SetPageObjNum(int iPage, uint32_t objNum) {
-  page_list_[iPage] = objNum;
+  SetPageObjNumAt(iPage, objNum);
 }
 
 JBig2_DocumentContext* CPDF_Document::GetOrCreateCodecContext() {
@@ -424,12 +716,12 @@ bool CPDF_Document::IsModifiedAPStream(const CPDF_Stream* stream) const {
 int CPDF_Document::GetPageIndex(uint32_t objnum) {
   uint32_t skip_count = 0;
   bool bSkipped = false;
-  for (uint32_t i = 0; i < page_list_.size(); ++i) {
-    if (page_list_[i] == objnum) {
+  for (uint32_t i = 0; i < PageListSize(); ++i) {
+    if (GetPageObjNumAt(i) == objnum) {
       return i;
     }
 
-    if (!bSkipped && page_list_[i] == 0) {
+    if (!bSkipped && GetPageObjNumAt(i) == 0) {
       skip_count = i;
       bSkipped = true;
     }
@@ -439,23 +731,91 @@ int CPDF_Document::GetPageIndex(uint32_t objnum) {
     return -1;
   }
 
-  int start_index = 0;
-  int found_index = FindPageIndex(pPages, &skip_count, objnum, &start_index, 0);
+  int found_index = -1;
+  if (use_rust_page_index_) {
+    std::optional<int> result = pdfium::rust::RustDocumentFindPageIndex(
+        reinterpret_cast<uintptr_t>(pPages.Get()), objnum, skip_count, nullptr,
+        DescribePageIndexNode, DescribePageIndexChild);
+    if (result.has_value()) {
+      found_index = *result;
+    } else {
+      int start_index = 0;
+      found_index = FindPageIndex(pPages, &skip_count, objnum, &start_index, 0);
+    }
+  } else {
+    int start_index = 0;
+    found_index = FindPageIndex(pPages, &skip_count, objnum, &start_index, 0);
+  }
 
   // Corrupt page tree may yield out-of-range results.
-  if (!fxcrt::IndexInBounds(page_list_, found_index)) {
+  if (!IsPageIndexValid(found_index)) {
     return -1;
   }
 
   // Only update |page_list_| when |objnum| points to a /Page object.
   if (IsValidPageObject(GetOrParseIndirectObject(objnum).Get())) {
-    page_list_[found_index] = objnum;
+    SetPageObjNumAt(found_index, objnum);
   }
   return found_index;
 }
 
 int CPDF_Document::GetPageCount() const {
-  return fxcrt::CollectionSize<int>(page_list_);
+  return pdfium::checked_cast<int>(PageListSize());
+}
+
+size_t CPDF_Document::PageListSize() const {
+  return use_rust_page_index_ ? rust_page_index_->size() : page_list_.size();
+}
+
+bool CPDF_Document::IsPageIndexValid(int page_index) const {
+  return page_index >= 0 && static_cast<size_t>(page_index) < PageListSize();
+}
+
+uint32_t CPDF_Document::GetPageObjNumAt(size_t page_index) const {
+  if (!use_rust_page_index_) {
+    return page_list_[page_index];
+  }
+  std::optional<uint32_t> result = rust_page_index_->Get(page_index);
+  CHECK(result.has_value());
+  return *result;
+}
+
+void CPDF_Document::SetPageObjNumAt(size_t page_index, uint32_t object_number) {
+  if (use_rust_page_index_) {
+    CHECK(rust_page_index_->Set(page_index, object_number));
+  } else {
+    page_list_[page_index] = object_number;
+  }
+}
+
+void CPDF_Document::ResizePageList(size_t size) {
+  if (use_rust_page_index_) {
+    CHECK(rust_page_index_->Resize(size));
+  } else {
+    page_list_.resize(size);
+  }
+}
+
+void CPDF_Document::InsertPageObjNumAt(size_t page_index,
+                                       uint32_t object_number) {
+  if (use_rust_page_index_) {
+    CHECK(rust_page_index_->Insert(page_index, object_number));
+  } else {
+    page_list_.insert(page_list_.begin() + page_index, object_number);
+  }
+}
+
+void CPDF_Document::RemovePageObjNumAt(size_t page_index) {
+  if (use_rust_page_index_) {
+    CHECK(rust_page_index_->Remove(page_index));
+  } else {
+    page_list_.erase(page_list_.begin() + page_index);
+  }
+}
+
+bool CPDF_Document::PageListContains(uint32_t object_number) const {
+  return use_rust_page_index_ ? rust_page_index_->Contains(object_number)
+                              : pdfium::Contains(page_list_, object_number);
 }
 
 int CPDF_Document::RetrievePageCount() {
@@ -466,6 +826,16 @@ int CPDF_Document::RetrievePageCount() {
 
   if (!pPages->KeyExist("Kids")) {
     return 1;
+  }
+
+  if (use_rust_page_index_) {
+    std::optional<int> result = pdfium::rust::RustDocumentCountPages(
+        reinterpret_cast<uintptr_t>(pPages.Get()), nullptr,
+        DescribePageTreeNode, DescribePageTreeChild, NormalizePageTreeNode,
+        SetPageTreeNodeCount);
+    if (result.has_value()) {
+      return *result;
+    }
   }
 
   std::set<RetainPtr<CPDF_Dictionary>> visited_pages = {pPages};
@@ -570,6 +940,49 @@ bool CPDF_Document::InsertDeletePDFPage(
   return true;
 }
 
+bool CPDF_Document::ApplyPageMutationPath(RetainPtr<CPDF_Dictionary> pages_dict,
+                                          pdfium::span<const size_t> path,
+                                          RetainPtr<CPDF_Dictionary> page_dict,
+                                          bool is_insert) {
+  if (path.empty()) {
+    return false;
+  }
+  std::vector<RetainPtr<CPDF_Dictionary>> ancestors = {pages_dict};
+  for (size_t child_index : path.first(path.size() - 1)) {
+    RetainPtr<CPDF_Array> kids = pages_dict->GetMutableArrayFor("Kids");
+    if (!kids || child_index >= kids->size()) {
+      return false;
+    }
+    pages_dict = kids->GetMutableDictAt(child_index);
+    if (!pages_dict) {
+      return false;
+    }
+    ancestors.push_back(pages_dict);
+  }
+  RetainPtr<CPDF_Array> kids = pages_dict->GetMutableArrayFor("Kids");
+  const size_t leaf_index = path.back();
+  if (!kids || leaf_index >= kids->size()) {
+    return false;
+  }
+  if (is_insert) {
+    if (!page_dict) {
+      return false;
+    }
+    kids->InsertNewAt<CPDF_Reference>(leaf_index, this, page_dict->GetObjNum());
+    page_dict->SetNewFor<CPDF_Reference>("Parent", this,
+                                         pages_dict->GetObjNum());
+  } else {
+    kids->RemoveAt(leaf_index);
+  }
+  const int delta = is_insert ? 1 : -1;
+  for (const auto& ancestor : ancestors) {
+    ancestor->SetNewFor<CPDF_Number>("Count",
+                                     ancestor->GetIntegerFor("Count") + delta);
+  }
+  ResetTraversal();
+  return true;
+}
+
 bool CPDF_Document::InsertNewPage(int iPage,
                                   RetainPtr<CPDF_Dictionary> pPageDict) {
   RetainPtr<CPDF_Dictionary> pRoot = GetMutableRoot();
@@ -595,13 +1008,31 @@ bool CPDF_Document::InsertNewPage(int iPage,
     pPageDict->SetNewFor<CPDF_Reference>("Parent", this, pPages->GetObjNum());
     ResetTraversal();
   } else {
-    std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
-    if (!InsertDeletePDFPage(std::move(pPages), iPage, pPageDict, true,
-                             &stack)) {
-      return false;
+    if (use_rust_page_index_) {
+      std::optional<std::vector<size_t>> path =
+          pdfium::rust::RustDocumentPageMutationPath(
+              reinterpret_cast<uintptr_t>(pPages.Get()), iPage, nullptr,
+              DescribePageMutationNode, DescribePageMutationChild);
+      if (path.has_value()) {
+        if (!ApplyPageMutationPath(std::move(pPages), *path, pPageDict, true)) {
+          return false;
+        }
+      } else {
+        std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
+        if (!InsertDeletePDFPage(std::move(pPages), iPage, pPageDict, true,
+                                 &stack)) {
+          return false;
+        }
+      }
+    } else {
+      std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
+      if (!InsertDeletePDFPage(std::move(pPages), iPage, pPageDict, true,
+                               &stack)) {
+        return false;
+      }
     }
   }
-  page_list_.insert(page_list_.begin() + iPage, pPageDict->GetObjNum());
+  InsertPageObjNumAt(iPage, pPageDict->GetObjNum());
   return true;
 }
 
@@ -644,26 +1075,45 @@ uint32_t CPDF_Document::DeletePage(int iPage) {
     return 0;
   }
 
-  std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
-  if (!InsertDeletePDFPage(std::move(pPages), iPage, nullptr, false, &stack)) {
-    return 0;
+  if (use_rust_page_index_) {
+    std::optional<std::vector<size_t>> path =
+        pdfium::rust::RustDocumentPageMutationPath(
+            reinterpret_cast<uintptr_t>(pPages.Get()), iPage, nullptr,
+            DescribePageMutationNode, DescribePageMutationChild);
+    if (path.has_value()) {
+      if (!ApplyPageMutationPath(std::move(pPages), *path, nullptr, false)) {
+        return 0;
+      }
+    } else {
+      std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
+      if (!InsertDeletePDFPage(std::move(pPages), iPage, nullptr, false,
+                               &stack)) {
+        return 0;
+      }
+    }
+  } else {
+    std::set<RetainPtr<CPDF_Dictionary>> stack = {pPages};
+    if (!InsertDeletePDFPage(std::move(pPages), iPage, nullptr, false,
+                             &stack)) {
+      return 0;
+    }
   }
 
-  page_list_.erase(page_list_.begin() + iPage);
+  RemovePageObjNumAt(iPage);
   return page_dict->GetObjNum();
 }
 
 void CPDF_Document::SetPageToNullObject(uint32_t page_obj_num) {
-  if (!page_obj_num || page_list_.empty()) {
+  if (!page_obj_num || PageListSize() == 0) {
     return;
   }
 
   // Load all pages so `page_list_` has all the object numbers.
-  for (size_t i = 0; i < page_list_.size(); ++i) {
+  for (size_t i = 0; i < PageListSize(); ++i) {
     GetPageDictionary(i);
   }
 
-  if (pdfium::Contains(page_list_, page_obj_num)) {
+  if (PageListContains(page_obj_num)) {
     return;
   }
 
@@ -691,14 +1141,10 @@ bool CPDF_Document::MovePages(pdfium::span<const int> page_indices,
   }
   const size_t num_pages = num_pages_signed;
 
-  // Check the number of pages is in range.
-  if (page_indices.empty() || page_indices.size() > num_pages) {
-    return false;
-  }
-
-  // Check that destination page index is in range.
-  if (dest_page_index < 0 ||
-      static_cast<size_t>(dest_page_index) > num_pages - page_indices.size()) {
+  std::optional<std::vector<int>> deletion_order =
+      pdfium::rust::RustDocumentMovePageDeletionOrder(page_indices, num_pages,
+                                                      dest_page_index);
+  if (!deletion_order) {
     return false;
   }
 
@@ -709,39 +1155,25 @@ bool CPDF_Document::MovePages(pdfium::span<const int> page_indices,
     return false;
   }
 
-  // Check for duplicate and out-of-range page indices
-  std::set<int> unique_page_indices;
   // Store the pages that need to be moved. They'll be deleted then reinserted.
   std::vector<RetainPtr<CPDF_Dictionary>> pages_to_move;
   pages_to_move.reserve(page_indices.size());
-  // Store the page indices that will be deleted (and moved).
-  std::vector<int> page_indices_to_delete;
-  page_indices_to_delete.reserve(page_indices.size());
   for (const int page_index : page_indices) {
-    bool inserted = unique_page_indices.insert(page_index).second;
-    if (!inserted) {
-      // Duplicate page index found
-      return false;
-    }
     RetainPtr<CPDF_Dictionary> page = GetMutablePageDictionary(page_index);
     if (!page) {
       // Page not found, index might be out of range.
       return false;
     }
     pages_to_move.push_back(std::move(page));
-    page_indices_to_delete.push_back(page_index);
   }
 
-  // Sort the page indices to be deleted in descending order.
-  std::sort(page_indices_to_delete.begin(), page_indices_to_delete.end(),
-            std::greater<int>());
   // Delete the pages in descending order.
   if (extension) {
-    for (int page_index : page_indices_to_delete) {
+    for (int page_index : *deletion_order) {
       extension->DeletePage(page_index);
     }
   } else {
-    for (int page_index : page_indices_to_delete) {
+    for (int page_index : *deletion_order) {
       DeletePage(page_index);
     }
   }
@@ -763,7 +1195,7 @@ bool CPDF_Document::MovePages(pdfium::span<const int> page_indices,
 }
 
 void CPDF_Document::ResizePageListForTesting(size_t size) {
-  page_list_.resize(size);
+  ResizePageList(size);
 }
 
 CPDF_Document::StockFontClearer::StockFontClearer(

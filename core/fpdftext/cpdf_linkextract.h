@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -18,6 +19,10 @@
 #include "core/fxcrt/widestring.h"
 
 class CPDF_TextPage;
+
+namespace pdfium::rust {
+class RustTextLinkExtract;
+}
 
 class CPDF_LinkExtract {
  public:
@@ -30,7 +35,7 @@ class CPDF_LinkExtract {
   ~CPDF_LinkExtract();
 
   void ExtractLinks();
-  size_t CountLinks() const { return link_array_.size(); }
+  size_t CountLinks() const;
   WideString GetURL(size_t index) const;
   std::vector<CFX_FloatRect> GetRects(size_t index) const;
   std::optional<Range> GetTextRange(size_t index) const;
@@ -42,8 +47,11 @@ class CPDF_LinkExtract {
 
   std::optional<Link> CheckWebLink(const WideString& str);
   bool CheckMailLink(WideString* str);
+  static bool IsAlphanumeric(void* context, uint32_t character);
 
   UnownedPtr<const CPDF_TextPage> const text_page_;
+  const bool use_rust_;
+  std::unique_ptr<pdfium::rust::RustTextLinkExtract> rust_links_;
   std::vector<Link> link_array_;
 };
 

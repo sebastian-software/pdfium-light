@@ -10,6 +10,8 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <array>
+#include <optional>
 #include <utility>
 
 #include "build/build_config.h"
@@ -23,6 +25,7 @@
 #include "core/fxcrt/zip.h"
 #include "core/fxge/agg/cfx_agg_cliprgn.h"
 #include "core/fxge/agg/cfx_agg_imagerenderer.h"
+#include "core/fxge/agg/rust/rust_agg_adapter.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_path.h"
 #include "core/fxge/cfx_renderdevice.h"
@@ -302,101 +305,234 @@ void RasterizeStroke(agg::rasterizer_scanline_aa* rasterizer,
                      const CFX_GraphStateData* pGraphState,
                      float scale,
                      bool bTextMode) {
-  agg::line_cap_e cap;
-  switch (pGraphState->line_cap()) {
-    case CFX_GraphStateData::LineCap::kRound:
-      cap = agg::round_cap;
-      break;
-    case CFX_GraphStateData::LineCap::kSquare:
-      cap = agg::square_cap;
-      break;
-    default:
-      cap = agg::butt_cap;
-      break;
-  }
-  agg::line_join_e join;
-  switch (pGraphState->line_join()) {
-    case CFX_GraphStateData::LineJoin::kRound:
-      join = agg::round_join;
-      break;
-    case CFX_GraphStateData::LineJoin::kBevel:
-      join = agg::bevel_join;
-      break;
-    default:
-      join = agg::miter_join_revert;
-      break;
-  }
-  float width = pGraphState->line_width() * scale;
-  float unit = 1.0f;
-  if (pObject2Device) {
-    unit =
-        1.0f / ((pObject2Device->GetXUnit() + pObject2Device->GetYUnit()) / 2);
-  }
-  width = std::max(width, unit);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineCap::kButt) == 0);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineCap::kRound) == 1);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineCap::kSquare) ==
+                2);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineJoin::kMiter) ==
+                0);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineJoin::kRound) ==
+                1);
+  static_assert(static_cast<uint8_t>(CFX_GraphStateData::LineJoin::kBevel) ==
+                2);
+  const auto plan_stroke_cpp = [&]() {
+    fxge::AggLineCap cap = fxge::AggLineCap::kButt;
+    if (pGraphState->line_cap() == CFX_GraphStateData::LineCap::kRound) {
+      cap = fxge::AggLineCap::kRound;
+    } else if (pGraphState->line_cap() ==
+               CFX_GraphStateData::LineCap::kSquare) {
+      cap = fxge::AggLineCap::kSquare;
+    }
+    fxge::AggLineJoin join = fxge::AggLineJoin::kMiter;
+    if (pGraphState->line_join() == CFX_GraphStateData::LineJoin::kRound) {
+      join = fxge::AggLineJoin::kRound;
+    } else if (pGraphState->line_join() ==
+               CFX_GraphStateData::LineJoin::kBevel) {
+      join = fxge::AggLineJoin::kBevel;
+    }
+    float width = pGraphState->line_width() * scale;
+    float unit = 1.0f;
+    if (pObject2Device) {
+      unit = 1.0f /
+             ((pObject2Device->GetXUnit() + pObject2Device->GetYUnit()) / 2);
+    }
+    return fxge::AggStrokePlan{
+        .line_cap = cap,
+        .line_join = join,
+        .width = std::max(width, unit),
+        .miter_limit = pGraphState->miter_limit(),
+    };
+  };
+  const auto rust_stroke_plan =
+      fxge::UseRustAggCandidate()
+          ? fxge::RustPlanAggStroke(
+                static_cast<uint8_t>(pGraphState->line_cap()),
+                static_cast<uint8_t>(pGraphState->line_join()),
+                pGraphState->line_width(), scale, !!pObject2Device,
+                pObject2Device ? pObject2Device->GetXUnit() : 0.0f,
+                pObject2Device ? pObject2Device->GetYUnit() : 0.0f,
+                pGraphState->miter_limit())
+          : std::nullopt;
+  const fxge::AggStrokePlan stroke_plan =
+      rust_stroke_plan.has_value() ? *rust_stroke_plan : plan_stroke_cpp();
+  fxge::RecordAggStrokePlanForTesting(stroke_plan);
+  const agg::line_cap_e cap =
+      stroke_plan.line_cap == fxge::AggLineCap::kRound    ? agg::round_cap
+      : stroke_plan.line_cap == fxge::AggLineCap::kSquare ? agg::square_cap
+                                                          : agg::butt_cap;
+  const agg::line_join_e join =
+      stroke_plan.line_join == fxge::AggLineJoin::kRound ? agg::round_join
+      : stroke_plan.line_join == fxge::AggLineJoin::kBevel
+          ? agg::bevel_join
+          : agg::miter_join_revert;
   const std::vector<float>& dash_array = pGraphState->dash_array();
 
-  // If the dash pattern cycle is too small (< 0.1 device pixels), render as
-  // a solid line instead. This prevents performance issues in AGG while
-  // maintaining visual fidelity (such small dashes are invisible anyway).
-  bool should_apply_dash_pattern = !dash_array.empty();
-  if (should_apply_dash_pattern) {
+  auto should_apply_dash_pattern_cpp = [&dash_array, scale]() {
+    if (dash_array.empty()) {
+      return false;
+    }
     float dash_cycle_len = 0.0f;
-    for (float val : dash_array) {
-      // Reject non-finite values (NaN, Infinity) per PDF spec
-      if (!std::isfinite(val)) {
-        should_apply_dash_pattern = false;
-        break;
+    for (float value : dash_array) {
+      if (!std::isfinite(value)) {
+        return false;
       }
-      // Clamp negatives per PDF spec (non-negative expected)
-      dash_cycle_len += std::max(0.0f, val);
+      dash_cycle_len += std::max(0.0f, value);
     }
-
-    // Minimum dash cycle length in device pixels.
-    // Based on empirical testing:
-    // - At 96 DPI: 0.1px ≈ 0.001 inches (imperceptible to human eye)
-    // - At 300 DPI: 0.1px ≈ 0.0003 inches (still imperceptible)
     constexpr float kMinDashCycleThreshold = 0.1f;
-
-    // If the dash cycle length is less than this value, the gaps would
-    // be nearly invisible, but rendering them would cause significant
-    // performance overhead.
-    if (dash_cycle_len * scale < kMinDashCycleThreshold) {
-      should_apply_dash_pattern = false;
-    }
-  }
+    return !(dash_cycle_len * scale < kMinDashCycleThreshold);
+  };
+  const auto rust_should_apply =
+      fxge::UseRustAggCandidate()
+          ? fxge::RustShouldApplyAggDashPattern(dash_array, scale)
+          : std::nullopt;
+  const bool should_apply_dash_pattern = rust_should_apply.has_value()
+                                             ? *rust_should_apply
+                                             : should_apply_dash_pattern_cpp();
+  fxge::RecordAggDashDecisionForTesting(should_apply_dash_pattern);
 
   if (should_apply_dash_pattern) {
     using DashConverter = agg::conv_dash<agg::path_storage>;
     DashConverter dash(*path_data);
-    for (float dash_len : dash_array) {
-      if (dash_len <= 0.000001f) {
-        dash_len = 0.1f;
+    bool used_rust_dash_pattern = false;
+    if (fxge::UseRustAggCandidate()) {
+      const auto dash_start = fxge::RustEmitAggDashPattern(
+          dash_array, pGraphState->dash_phase(), scale, &dash,
+          [](void* context, float value) {
+            static_cast<DashConverter*>(context)->add_dash(value);
+            fxge::RecordAggDashValueForTesting(value);
+          });
+      if (dash_start.has_value()) {
+        dash.dash_start(*dash_start);
+        fxge::RecordAggDashStartForTesting(*dash_start);
+        used_rust_dash_pattern = true;
       }
-      dash.add_dash(fabs(dash_len * scale));
     }
-    dash.dash_start(pGraphState->dash_phase() * scale);
+    if (!used_rust_dash_pattern) {
+      for (float dash_len : dash_array) {
+        if (dash_len <= 0.000001f) {
+          dash_len = 0.1f;
+        }
+        const float normalized_dash = fabs(dash_len * scale);
+        dash.add_dash(normalized_dash);
+        fxge::RecordAggDashValueForTesting(normalized_dash);
+      }
+      const float dash_start = pGraphState->dash_phase() * scale;
+      dash.dash_start(dash_start);
+      fxge::RecordAggDashStartForTesting(dash_start);
+    }
     using DashStroke = agg::conv_stroke<DashConverter>;
     DashStroke stroke(dash);
     stroke.line_join(join);
     stroke.line_cap(cap);
-    stroke.miter_limit(pGraphState->miter_limit());
-    stroke.width(width);
+    stroke.miter_limit(stroke_plan.miter_limit);
+    stroke.width(stroke_plan.width);
     rasterizer->add_path_transformed(stroke, pObject2Device);
     return;
   }
   agg::conv_stroke<agg::path_storage> stroke(*path_data);
   stroke.line_join(join);
   stroke.line_cap(cap);
-  stroke.miter_limit(pGraphState->miter_limit());
-  stroke.width(width);
+  stroke.miter_limit(stroke_plan.miter_limit);
+  stroke.width(stroke_plan.width);
   rasterizer->add_path_transformed(stroke, pObject2Device);
 }
 
-agg::filling_rule_e GetAlternateOrWindingFillType(
-    const CFX_FillRenderOptions& fill_options) {
-  return fill_options.fill_type == CFX_FillRenderOptions::FillType::kWinding
-             ? agg::fill_non_zero
-             : agg::fill_even_odd;
+fxge::AggPathDrawPlan PlanAggPathDrawCpp(
+    const CFX_FillRenderOptions& fill_options,
+    uint32_t fill_color,
+    bool has_graph_state,
+    uint32_t stroke_color) {
+  return fxge::AggPathDrawPlan{
+      .draw_fill =
+          fill_options.fill_type != CFX_FillRenderOptions::FillType::kNoFill &&
+          fill_color,
+      .stroke_mode = !has_graph_state || !FXARGB_A(stroke_color)
+                         ? fxge::AggStrokeMode::kNone
+                     : fill_options.zero_area ? fxge::AggStrokeMode::kZeroArea
+                                              : fxge::AggStrokeMode::kNormal,
+      .fill_rule =
+          fill_options.fill_type == CFX_FillRenderOptions::FillType::kWinding
+              ? fxge::AggFillRule::kNonZero
+              : fxge::AggFillRule::kEvenOdd,
+  };
+}
+
+fxge::AggPathDrawPlan PlanAggPathDraw(const CFX_FillRenderOptions& fill_options,
+                                      uint32_t fill_color,
+                                      bool has_graph_state,
+                                      uint32_t stroke_color) {
+  static_assert(
+      static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kNoFill) == 0);
+  static_assert(
+      static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kEvenOdd) == 1);
+  static_assert(
+      static_cast<uint8_t>(CFX_FillRenderOptions::FillType::kWinding) == 2);
+  const auto rust_plan =
+      fxge::UseRustAggCandidate()
+          ? fxge::RustPlanAggPathDraw(
+                static_cast<uint8_t>(fill_options.fill_type), fill_color,
+                has_graph_state, stroke_color, fill_options.zero_area)
+          : std::nullopt;
+  const fxge::AggPathDrawPlan plan =
+      rust_plan.has_value() ? *rust_plan
+                            : PlanAggPathDrawCpp(fill_options, fill_color,
+                                                 has_graph_state, stroke_color);
+  fxge::RecordAggPathDrawPlanForTesting(plan);
+  return plan;
+}
+
+agg::filling_rule_e ToAggFillRule(fxge::AggFillRule fill_rule) {
+  return fill_rule == fxge::AggFillRule::kNonZero ? agg::fill_non_zero
+                                                  : agg::fill_even_odd;
+}
+
+std::array<float, 6> MatrixToArray(const CFX_Matrix& matrix) {
+  return {matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f};
+}
+
+CFX_Matrix MatrixFromArray(const std::array<float, 6>& matrix) {
+  return CFX_Matrix(matrix[0], matrix[1], matrix[2], matrix[3], matrix[4],
+                    matrix[5]);
+}
+
+fxge::AggStrokeMatrixPlan PlanAggStrokeMatricesCpp(
+    const CFX_Matrix* object_to_device) {
+  CFX_Matrix path_matrix;
+  CFX_Matrix stroke_matrix;
+  if (object_to_device) {
+    path_matrix.a =
+        std::max(fabs(object_to_device->a), fabs(object_to_device->b));
+    path_matrix.d = path_matrix.a;
+    stroke_matrix = CFX_Matrix(object_to_device->a / path_matrix.a,
+                               object_to_device->b / path_matrix.a,
+                               object_to_device->c / path_matrix.d,
+                               object_to_device->d / path_matrix.d, 0, 0);
+    path_matrix = *object_to_device * stroke_matrix.GetInverse();
+  }
+  return fxge::AggStrokeMatrixPlan{
+      .path_matrix = MatrixToArray(path_matrix),
+      .stroke_matrix = MatrixToArray(stroke_matrix),
+      .scale = path_matrix.a,
+  };
+}
+
+fxge::AggStrokeMatrixPlan PlanAggStrokeMatrices(
+    const CFX_Matrix* object_to_device) {
+  const auto rust_plan =
+      fxge::UseRustAggCandidate()
+          ? fxge::RustPlanAggStrokeMatrices(
+                !!object_to_device, object_to_device ? object_to_device->a : 0,
+                object_to_device ? object_to_device->b : 0,
+                object_to_device ? object_to_device->c : 0,
+                object_to_device ? object_to_device->d : 0,
+                object_to_device ? object_to_device->e : 0,
+                object_to_device ? object_to_device->f : 0)
+          : std::nullopt;
+  const fxge::AggStrokeMatrixPlan plan =
+      rust_plan.has_value() ? *rust_plan
+                            : PlanAggStrokeMatricesCpp(object_to_device);
+  fxge::RecordAggStrokeMatrixPlanForTesting(plan);
+  return plan;
 }
 
 RetainPtr<CFX_DIBitmap> GetClipMaskFromRegion(const CFX_AggClipRgn* r) {
@@ -933,8 +1069,8 @@ class RendererScanLineAaOffset {
   unsigned top_;
 };
 
-agg::path_storage BuildAggPath(const CFX_Path& path,
-                               const CFX_Matrix* pObject2Device) {
+agg::path_storage BuildAggPathCpp(const CFX_Path& path,
+                                  const CFX_Matrix* pObject2Device) {
   agg::path_storage agg_path;
   pdfium::span<const CFX_Path::Point> points = path.GetPoints();
   for (size_t i = 0; i < points.size(); ++i) {
@@ -947,6 +1083,8 @@ agg::path_storage BuildAggPath(const CFX_Path& path,
     CFX_Path::Point::Type point_type = points[i].type_;
     if (point_type == CFX_Path::Point::Type::kMove) {
       agg_path.move_to(pos.x, pos.y);
+      const std::array<float, 2> coordinates = {pos.x, pos.y};
+      fxge::RecordAggPathCommandForTesting(0, coordinates);
     } else if (point_type == CFX_Path::Point::Type::kLine) {
       if (i > 0 && points[i - 1].IsTypeAndOpen(CFX_Path::Point::Type::kMove) &&
           (i + 1 == points.size() ||
@@ -955,6 +1093,8 @@ agg::path_storage BuildAggPath(const CFX_Path& path,
         pos.x += 1;
       }
       agg_path.line_to(pos.x, pos.y);
+      const std::array<float, 2> coordinates = {pos.x, pos.y};
+      fxge::RecordAggPathCommandForTesting(1, coordinates);
     } else if (point_type == CFX_Path::Point::Type::kBezier) {
       if (i > 0 && i + 2 < points.size()) {
         CFX_PointF pos0 = points[i - 1].point_;
@@ -970,15 +1110,115 @@ agg::path_storage BuildAggPath(const CFX_Path& path,
         pos3 = HardClip(pos3);
         agg::curve4 curve(pos0.x, pos0.y, pos.x, pos.y, pos2.x, pos2.y, pos3.x,
                           pos3.y);
+        const std::array<float, 8> coordinates = {
+            pos0.x, pos0.y, pos.x, pos.y, pos2.x, pos2.y, pos3.x, pos3.y};
+        fxge::RecordAggPathCommandForTesting(2, coordinates);
         i += 2;
         agg_path.add_path(curve);
       }
     }
     if (points[i].close_figure_) {
       agg_path.end_poly();
+      fxge::RecordAggPathCommandForTesting(3, {});
     }
   }
   return agg_path;
+}
+
+struct AggPathEmissionContext {
+  pdfium::span<const CFX_Path::Point> points;
+  agg::path_storage path;
+  bool valid = true;
+};
+
+void ReadAggPathPoint(void* raw_context,
+                      size_t index,
+                      fxge::AggPathPoint* output) {
+  auto* context = static_cast<AggPathEmissionContext*>(raw_context);
+  if (!output || index >= context->points.size()) {
+    context->valid = false;
+    return;
+  }
+  const CFX_Path::Point& point = context->points[index];
+  *output = fxge::AggPathPoint{
+      .x = point.point_.x,
+      .y = point.point_.y,
+      .point_type = static_cast<uint8_t>(point.type_),
+      .close_figure = static_cast<uint8_t>(point.close_figure_),
+      .reserved = {0, 0},
+  };
+}
+
+void EmitAggPathCommand(void* raw_context,
+                        uint8_t command,
+                        const float* coordinates,
+                        size_t coordinate_count) {
+  auto* context = static_cast<AggPathEmissionContext*>(raw_context);
+  if (!context->valid || (coordinate_count != 0 && !coordinates)) {
+    context->valid = false;
+    return;
+  }
+  auto values = UNSAFE_BUFFERS(pdfium::span(coordinates, coordinate_count));
+  switch (command) {
+    case 0:
+      if (values.size() == 2) {
+        context->path.move_to(values[0], values[1]);
+        fxge::RecordAggPathCommandForTesting(command, values);
+        return;
+      }
+      break;
+    case 1:
+      if (values.size() == 2) {
+        context->path.line_to(values[0], values[1]);
+        fxge::RecordAggPathCommandForTesting(command, values);
+        return;
+      }
+      break;
+    case 2:
+      if (values.size() == 8) {
+        agg::curve4 curve(values[0], values[1], values[2], values[3], values[4],
+                          values[5], values[6], values[7]);
+        context->path.add_path(curve);
+        fxge::RecordAggPathCommandForTesting(command, values);
+        return;
+      }
+      break;
+    case 3:
+      if (values.empty()) {
+        context->path.end_poly();
+        fxge::RecordAggPathCommandForTesting(command, values);
+        return;
+      }
+      break;
+    default:
+      break;
+  }
+  context->valid = false;
+}
+
+agg::path_storage BuildAggPath(const CFX_Path& path,
+                               const CFX_Matrix* pObject2Device) {
+  static_assert(static_cast<uint8_t>(CFX_Path::Point::Type::kLine) == 0);
+  static_assert(static_cast<uint8_t>(CFX_Path::Point::Type::kBezier) == 1);
+  static_assert(static_cast<uint8_t>(CFX_Path::Point::Type::kMove) == 2);
+  if (fxge::UseRustAggCandidate()) {
+    AggPathEmissionContext context{
+        .points = path.GetPoints(),
+    };
+    const bool emitted =
+        fxge::RustEmitAggPath(context.points.size(), !!pObject2Device,
+                              pObject2Device ? pObject2Device->a : 0.0f,
+                              pObject2Device ? pObject2Device->b : 0.0f,
+                              pObject2Device ? pObject2Device->c : 0.0f,
+                              pObject2Device ? pObject2Device->d : 0.0f,
+                              pObject2Device ? pObject2Device->e : 0.0f,
+                              pObject2Device ? pObject2Device->f : 0.0f,
+                              &context, ReadAggPathPoint, EmitAggPathCommand);
+    if (emitted && context.valid) {
+      return std::move(context.path);
+    }
+  }
+  return BuildAggPathCpp(path, pObject2Device);
 }
 
 }  // namespace
@@ -1134,7 +1374,9 @@ bool CFX_AggDeviceDriver::SetClip_PathFill(
   rasterizer.clip_box(0.0f, 0.0f, static_cast<float>(GetPixelWidth()),
                       static_cast<float>(GetPixelHeight()));
   rasterizer.add_path(path_data);
-  rasterizer.filling_rule(GetAlternateOrWindingFillType(fill_options));
+  const fxge::AggPathDrawPlan draw_plan =
+      PlanAggPathDraw(fill_options, 1, false, 0);
+  rasterizer.filling_rule(ToAggFillRule(draw_plan.fill_rule));
   SetClipMask(rasterizer);
   return true;
 }
@@ -1199,23 +1441,23 @@ bool CFX_AggDeviceDriver::DrawPath(const CFX_Path& path,
   }
 
   fill_options_ = fill_options;
-  if (fill_options.fill_type != CFX_FillRenderOptions::FillType::kNoFill &&
-      fill_color) {
+  const fxge::AggPathDrawPlan draw_plan =
+      PlanAggPathDraw(fill_options, fill_color, !!pGraphState, stroke_color);
+  if (draw_plan.draw_fill) {
     agg::path_storage path_data = BuildAggPath(path, pObject2Device);
     agg::rasterizer_scanline_aa rasterizer;
     rasterizer.clip_box(0.0f, 0.0f, static_cast<float>(GetPixelWidth()),
                         static_cast<float>(GetPixelHeight()));
     rasterizer.add_path(path_data);
-    rasterizer.filling_rule(GetAlternateOrWindingFillType(fill_options));
+    rasterizer.filling_rule(ToAggFillRule(draw_plan.fill_rule));
     RenderRasterizer(rasterizer, fill_color, fill_options.full_cover,
                      /*bGroupKnockout=*/false);
   }
-  int stroke_alpha = FXARGB_A(stroke_color);
-  if (!pGraphState || !stroke_alpha) {
+  if (draw_plan.stroke_mode == fxge::AggStrokeMode::kNone) {
     return true;
   }
 
-  if (fill_options.zero_area) {
+  if (draw_plan.stroke_mode == fxge::AggStrokeMode::kZeroArea) {
     agg::path_storage path_data = BuildAggPath(path, pObject2Device);
     agg::rasterizer_scanline_aa rasterizer;
     rasterizer.clip_box(0.0f, 0.0f, static_cast<float>(GetPixelWidth()),
@@ -1226,24 +1468,17 @@ bool CFX_AggDeviceDriver::DrawPath(const CFX_Path& path,
                      group_knockout_);
     return true;
   }
-  CFX_Matrix matrix1;
-  CFX_Matrix matrix2;
-  if (pObject2Device) {
-    matrix1.a = std::max(fabs(pObject2Device->a), fabs(pObject2Device->b));
-    matrix1.d = matrix1.a;
-    matrix2 = CFX_Matrix(
-        pObject2Device->a / matrix1.a, pObject2Device->b / matrix1.a,
-        pObject2Device->c / matrix1.d, pObject2Device->d / matrix1.d, 0, 0);
-
-    matrix1 = *pObject2Device * matrix2.GetInverse();
-  }
+  const fxge::AggStrokeMatrixPlan matrix_plan =
+      PlanAggStrokeMatrices(pObject2Device);
+  const CFX_Matrix matrix1 = MatrixFromArray(matrix_plan.path_matrix);
+  const CFX_Matrix matrix2 = MatrixFromArray(matrix_plan.stroke_matrix);
 
   agg::path_storage path_data = BuildAggPath(path, &matrix1);
   agg::rasterizer_scanline_aa rasterizer;
   rasterizer.clip_box(0.0f, 0.0f, static_cast<float>(GetPixelWidth()),
                       static_cast<float>(GetPixelHeight()));
-  RasterizeStroke(&rasterizer, &path_data, &matrix2, pGraphState, matrix1.a,
-                  fill_options.stroke_text_mode);
+  RasterizeStroke(&rasterizer, &path_data, &matrix2, pGraphState,
+                  matrix_plan.scale, fill_options.stroke_text_mode);
   RenderRasterizer(rasterizer, stroke_color, fill_options.full_cover,
                    group_knockout_);
   return true;

@@ -19,6 +19,7 @@
 #include "core/fxge/cfx_glyphbitmap.h"
 #include "core/fxge/cfx_path.h"
 #include "core/fxge/cfx_substfont.h"
+#include "core/fxge/freetype/rust/rust_glyph_adapter.h"
 #include "core/fxge/fx_font.h"
 
 #if BUILDFLAG(IS_APPLE)
@@ -28,6 +29,75 @@
 namespace {
 
 constexpr uint32_t kInvalidGlyphIndex = static_cast<uint32_t>(-1);
+
+fxge::GlyphBitmapLookupAction PlanGlyphBitmapLookupCppReference(
+    bool glyph_is_valid,
+    bool native_text,
+    bool native_cache_hit) {
+  if (!glyph_is_valid) {
+    return fxge::GlyphBitmapLookupAction::kReject;
+  }
+  if (!native_text) {
+    return fxge::GlyphBitmapLookupAction::kLookupRequestedKey;
+  }
+  return native_cache_hit
+             ? fxge::GlyphBitmapLookupAction::kReturnNativeCached
+             : fxge::GlyphBitmapLookupAction::kLookupNonNativeAndDisableNative;
+}
+
+fxge::GlyphBitmapLookupAction SelectGlyphBitmapLookupAction(
+    bool glyph_is_valid,
+    bool native_text,
+    bool native_cache_hit) {
+  if (fxge::UseRustGlyphCandidate()) {
+    const auto action = fxge::RustPlanGlyphBitmapLookup(
+        glyph_is_valid, native_text, native_cache_hit);
+    if (action.has_value()) {
+      fxge::RecordGlyphBitmapLookupForTesting(glyph_is_valid, native_text,
+                                              native_cache_hit, *action);
+      return *action;
+    }
+  }
+  const auto action = PlanGlyphBitmapLookupCppReference(
+      glyph_is_valid, native_text, native_cache_hit);
+  fxge::RecordGlyphBitmapLookupForTesting(glyph_is_valid, native_text,
+                                          native_cache_hit, action);
+  return action;
+}
+
+std::tuple<uint32_t, int, int, int, bool> MakeGlyphPathMapKey(
+    uint32_t glyph_index,
+    int dest_width,
+    const CFX_SubstFont* substitution,
+    bool font_is_vertical) {
+  const int weight = substitution ? substitution->GetWeight() : 0;
+  const int angle = substitution ? substitution->GetItalicAngle() : 0;
+  const bool vertical = substitution && font_is_vertical;
+  if (fxge::UseRustGlyphCandidate()) {
+    const auto plan = fxge::RustPlanGlyphPathCacheKey(
+        glyph_index, dest_width, !!substitution, weight, angle,
+        font_is_vertical);
+    if (plan.has_value()) {
+      return std::make_tuple(plan->glyph_index, plan->destination_width,
+                             plan->weight, plan->italic_angle, plan->vertical);
+    }
+  }
+  return std::make_tuple(glyph_index, dest_width, weight, angle, vertical);
+}
+
+std::tuple<uint32_t, int, int> MakeGlyphWidthMapKey(uint32_t glyph_index,
+                                                     int dest_width,
+                                                     int weight) {
+  if (fxge::UseRustGlyphCandidate()) {
+    const auto plan =
+        fxge::RustPlanGlyphWidthCacheKey(glyph_index, dest_width, weight);
+    if (plan.has_value()) {
+      return std::make_tuple(plan->glyph_index, plan->destination_width,
+                             plan->weight);
+    }
+  }
+  return std::make_tuple(glyph_index, dest_width, weight);
+}
 
 class UniqueKeyGen {
  public:
@@ -69,6 +139,34 @@ UniqueKeyGen::UniqueKeyGen(const CFX_Font* font,
   int nMatrixC = static_cast<int>(matrix.c * 10000);
   int nMatrixD = static_cast<int>(matrix.d * 10000);
 
+#if !BUILDFLAG(IS_APPLE)
+  CHECK(!bNative);
+#endif
+
+  const CFX_SubstFont* substitution = font->GetSubstFont();
+  if (fxge::UseRustGlyphCandidate()) {
+    const auto key_len = fxge::RustFillGlyphCacheKey(
+        fxge::GlyphCacheKeyInputs{
+            .matrix_a = nMatrixA,
+            .matrix_b = nMatrixB,
+            .matrix_c = nMatrixC,
+            .matrix_d = nMatrixD,
+            .destination_width = dest_width,
+            .anti_alias = fxcrt::to_underlying(anti_alias),
+            .has_substitution = !!substitution,
+            .weight = substitution ? substitution->GetWeight() : 0,
+            .italic_angle = substitution ? substitution->GetItalicAngle() : 0,
+            .vertical = font->IsVertical(),
+            .native_text = bNative,
+        },
+        key_);
+    if (key_len.has_value()) {
+      key_len_ = *key_len;
+      fxge::RecordGlyphCacheKeyForTesting(pdfium::span(key_).first(key_len_));
+      return;
+    }
+  }
+
 #if BUILDFLAG(IS_APPLE)
   if (bNative) {
     if (font->GetSubstFont()) {
@@ -80,11 +178,11 @@ UniqueKeyGen::UniqueKeyGen(const CFX_Font* font,
       Initialize({nMatrixA, nMatrixB, nMatrixC, nMatrixD, dest_width,
                   fxcrt::to_underlying(anti_alias), 3});
     }
+    fxge::RecordGlyphCacheKeyForTesting(pdfium::span(key_).first(key_len_));
     return;
   }
 #endif
 
-  CHECK(!bNative);
   if (font->GetSubstFont()) {
     Initialize({nMatrixA, nMatrixB, nMatrixC, nMatrixD, dest_width,
                 fxcrt::to_underlying(anti_alias),
@@ -94,6 +192,7 @@ UniqueKeyGen::UniqueKeyGen(const CFX_Font* font,
     Initialize({nMatrixA, nMatrixB, nMatrixC, nMatrixD, dest_width,
                 fxcrt::to_underlying(anti_alias)});
   }
+  fxge::RecordGlyphCacheKeyForTesting(pdfium::span(key_).first(key_len_));
 }
 
 }  // namespace
@@ -125,12 +224,8 @@ const CFX_Path* CFX_GlyphCache::LoadGlyphPath(const CFX_Font* font,
     return nullptr;
   }
 
-  const auto* pSubstFont = font->GetSubstFont();
-  int weight = pSubstFont ? pSubstFont->GetWeight() : 0;
-  int angle = pSubstFont ? pSubstFont->GetItalicAngle() : 0;
-  bool vertical = pSubstFont && font->IsVertical();
-  const PathMapKey key =
-      std::make_tuple(glyph_index, dest_width, weight, angle, vertical);
+  const PathMapKey key = MakeGlyphPathMapKey(
+      glyph_index, dest_width, font->GetSubstFont(), font->IsVertical());
   auto it = path_map_.find(key);
   if (it != path_map_.end()) {
     return it->second.get();
@@ -148,7 +243,11 @@ const CFX_GlyphBitmap* CFX_GlyphCache::LoadGlyphBitmap(
     int dest_width,
     FontAntiAliasingMode anti_alias,
     CFX_TextRenderOptions* text_options) {
-  if (glyph_index == kInvalidGlyphIndex) {
+  const bool glyph_is_valid = glyph_index != kInvalidGlyphIndex;
+  if (!glyph_is_valid) {
+    SelectGlyphBitmapLookupAction(/*glyph_is_valid=*/false,
+                                  /*native_text=*/false,
+                                  /*native_cache_hit=*/false);
     return nullptr;
   }
 
@@ -160,40 +259,50 @@ const CFX_GlyphBitmap* CFX_GlyphCache::LoadGlyphBitmap(
   UniqueKeyGen keygen(font, matrix, dest_width, anti_alias, bNative);
   auto FaceGlyphsKey = ByteString(ByteStringView(keygen.span()));
 
+  const CFX_GlyphBitmap* native_cached = nullptr;
 #if BUILDFLAG(IS_APPLE)
-  bool bDoLookUp = !text_options->native_text;
-#else   // BUILDFLAG(IS_APPLE)
-  const bool bDoLookUp = true;
-#endif  // BUILDFLAG(IS_APPLE)
-  if (bDoLookUp) {
-    return LookUpGlyphBitmap(font, matrix, FaceGlyphsKey, glyph_index,
-                             is_cid_font, dest_width, anti_alias);
-  }
-
-#if BUILDFLAG(IS_APPLE)
-
-  auto it = size_map_.find(FaceGlyphsKey);
-  if (it != size_map_.end()) {
-    SizeToGlyphMap& size_glyph_cache = it->second;
-    auto size_glyph_it = size_glyph_cache.find(glyph_index);
-    if (size_glyph_it != size_glyph_cache.end()) {
-      return size_glyph_it->second.get();
+  if (bNative) {
+    auto it = size_map_.find(FaceGlyphsKey);
+    if (it != size_map_.end()) {
+      SizeToGlyphMap& size_glyph_cache = it->second;
+      auto size_glyph_it = size_glyph_cache.find(glyph_index);
+      if (size_glyph_it != size_glyph_cache.end()) {
+        native_cached = size_glyph_it->second.get();
+      }
     }
   }
-  UniqueKeyGen keygen2(font, matrix, dest_width, anti_alias,
-                       /*bNative=*/false);
-  auto FaceGlyphsKey2 = ByteString(ByteStringView(keygen2.span()));
-  text_options->native_text = false;
-  return LookUpGlyphBitmap(font, matrix, FaceGlyphsKey2, glyph_index,
-                           is_cid_font, dest_width, anti_alias);
 #endif  // BUILDFLAG(IS_APPLE)
+
+  const auto action = SelectGlyphBitmapLookupAction(glyph_is_valid, bNative,
+                                                    native_cached != nullptr);
+  switch (action) {
+    case fxge::GlyphBitmapLookupAction::kReject:
+      return nullptr;
+    case fxge::GlyphBitmapLookupAction::kLookupRequestedKey:
+      return LookUpGlyphBitmap(font, matrix, FaceGlyphsKey, glyph_index,
+                               is_cid_font, dest_width, anti_alias);
+    case fxge::GlyphBitmapLookupAction::kReturnNativeCached:
+      return native_cached;
+    case fxge::GlyphBitmapLookupAction::kLookupNonNativeAndDisableNative:
+#if BUILDFLAG(IS_APPLE)
+      UniqueKeyGen non_native_keygen(font, matrix, dest_width, anti_alias,
+                                     /*bNative=*/false);
+      auto non_native_key =
+          ByteString(ByteStringView(non_native_keygen.span()));
+      text_options->native_text = false;
+      return LookUpGlyphBitmap(font, matrix, non_native_key, glyph_index,
+                               is_cid_font, dest_width, anti_alias);
+#else
+      return nullptr;
+#endif
+  }
 }
 
 int CFX_GlyphCache::GetGlyphWidth(const CFX_Font* font,
                                   uint32_t glyph_index,
                                   int dest_width,
                                   int weight) {
-  const WidthMapKey key = std::make_tuple(glyph_index, dest_width, weight);
+  const WidthMapKey key = MakeGlyphWidthMapKey(glyph_index, dest_width, weight);
   auto it = width_map_.find(key);
   if (it != width_map_.end()) {
     return it->second;

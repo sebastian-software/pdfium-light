@@ -1,0 +1,160 @@
+// Copyright 2026 Sebastian Werner
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#ifndef CORE_FXGE_FREETYPE_RUST_RUST_GLYPH_ADAPTER_H_
+#define CORE_FXGE_FREETYPE_RUST_RUST_GLYPH_ADAPTER_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include <optional>
+#include <vector>
+
+#include "core/fxcrt/span.h"
+
+namespace fxge {
+
+struct GlyphCacheKeyInputs {
+  int32_t matrix_a;
+  int32_t matrix_b;
+  int32_t matrix_c;
+  int32_t matrix_d;
+  int32_t destination_width;
+  int32_t anti_alias;
+  bool has_substitution;
+  int32_t weight;
+  int32_t italic_angle;
+  bool vertical;
+  bool native_text;
+};
+
+struct GlyphOriginPlan {
+  bool valid;
+  int32_t x;
+  int32_t y;
+};
+
+struct GlyphBoundsPlan {
+  int32_t left;
+  int32_t top;
+  int32_t right;
+  int32_t bottom;
+};
+
+struct GlyphPathCacheKeyPlan {
+  uint32_t glyph_index;
+  int32_t destination_width;
+  int32_t weight;
+  int32_t italic_angle;
+  bool vertical;
+};
+
+struct GlyphWidthCacheKeyPlan {
+  uint32_t glyph_index;
+  int32_t destination_width;
+  int32_t weight;
+};
+
+struct FreeTypeGlyphLoadPlan {
+  bool no_hinting;
+  bool pedantic;
+  bool retry_without_hinting;
+};
+
+enum class GlyphBitmapLookupAction : uint8_t {
+  kReject = 0,
+  kLookupRequestedKey = 1,
+  kReturnNativeCached = 2,
+  kLookupNonNativeAndDisableNative = 3,
+};
+
+using ReadGlyphBoundsCallback = bool (*)(void* context,
+                                         size_t index,
+                                         uint8_t* output_valid,
+                                         int32_t* output_left,
+                                         int32_t* output_top,
+                                         int32_t* output_width,
+                                         int32_t* output_height);
+
+std::optional<size_t> RustFillGlyphCacheKey(const GlyphCacheKeyInputs& inputs,
+                                            pdfium::span<uint32_t> output);
+std::optional<GlyphOriginPlan> RustPlanGlyphOrigin(int32_t origin_x,
+                                                   int32_t origin_y,
+                                                   int32_t glyph_left,
+                                                   int32_t glyph_top,
+                                                   int32_t offset_x,
+                                                   int32_t offset_y);
+std::optional<GlyphOriginPlan> RustPlanGlyphDeviceOrigin(
+    float device_x,
+    float device_y,
+    bool anti_alias_is_lcd);
+std::optional<GlyphBoundsPlan> RustPlanGlyphBounds(
+    size_t glyph_count,
+    bool anti_alias_is_lcd,
+    void* context,
+    ReadGlyphBoundsCallback read_bounds);
+std::optional<GlyphBitmapLookupAction> RustPlanGlyphBitmapLookup(
+    bool glyph_is_valid,
+    bool native_text,
+    bool native_cache_hit);
+std::optional<GlyphPathCacheKeyPlan> RustPlanGlyphPathCacheKey(
+    uint32_t glyph_index,
+    int32_t destination_width,
+    bool has_substitution,
+    int32_t weight,
+    int32_t italic_angle,
+    bool font_is_vertical);
+std::optional<GlyphWidthCacheKeyPlan> RustPlanGlyphWidthCacheKey(
+    uint32_t glyph_index,
+    int32_t destination_width,
+    int32_t weight);
+std::optional<FreeTypeGlyphLoadPlan> RustPlanFreeTypeGlyphLoad(
+    bool is_render,
+    bool is_tt_ot,
+    bool is_tricky);
+
+bool UseRustGlyphCandidate();
+bool SetUseRustGlyphCandidateForTesting(bool use_candidate);
+
+class ScopedGlyphTraceForTesting final {
+ public:
+  explicit ScopedGlyphTraceForTesting(std::vector<uint8_t>* trace);
+  ScopedGlyphTraceForTesting(const ScopedGlyphTraceForTesting&) = delete;
+  ScopedGlyphTraceForTesting& operator=(const ScopedGlyphTraceForTesting&) =
+      delete;
+  ~ScopedGlyphTraceForTesting();
+
+ private:
+  std::vector<uint8_t>* previous_;
+};
+
+void RecordGlyphCacheKeyForTesting(pdfium::span<const uint32_t> key);
+void RecordGlyphOriginForTesting(bool valid, int32_t x, int32_t y);
+void RecordGlyphDeviceOriginForTesting(float device_x,
+                                       float device_y,
+                                       bool anti_alias_is_lcd,
+                                       int32_t x,
+                                       int32_t y);
+void RecordGlyphBoundsForTesting(int32_t left,
+                                 int32_t top,
+                                 int32_t right,
+                                 int32_t bottom);
+void RecordGlyphBitmapLookupForTesting(bool glyph_is_valid,
+                                       bool native_text,
+                                       bool native_cache_hit,
+                                       GlyphBitmapLookupAction action);
+void RecordFreeTypeGlyphLoadPlanForTesting(bool is_render,
+                                           const FreeTypeGlyphLoadPlan& plan);
+bool GlyphTraceHasOriginPlansForTesting(pdfium::span<const uint8_t> trace);
+bool GlyphTraceHasDeviceOriginPlansForTesting(
+    pdfium::span<const uint8_t> trace);
+bool GlyphTraceHasBoundsPlansForTesting(pdfium::span<const uint8_t> trace);
+bool GlyphTraceHasBitmapLookupPlansForTesting(
+    pdfium::span<const uint8_t> trace);
+bool GlyphTraceHasFreeTypeLoadPlansForTesting(
+    pdfium::span<const uint8_t> trace);
+
+}  // namespace fxge
+
+#endif  // CORE_FXGE_FREETYPE_RUST_RUST_GLYPH_ADAPTER_H_

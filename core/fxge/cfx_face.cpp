@@ -26,6 +26,7 @@
 #include "core/fxge/cfx_fontmgr.h"
 #include "core/fxge/cfx_gemodule.h"
 #include "core/fxge/cfx_glyphbitmap.h"
+#include "core/fxge/freetype/rust/rust_glyph_adapter.h"
 #include "core/fxge/cfx_glyphcache.h"
 #include "core/fxge/cfx_path.h"
 #include "core/fxge/cfx_substfont.h"
@@ -277,6 +278,44 @@ class ScopedFaceTransform {
   UnownedPtr<FT_FaceRec> const rec_;
 };
 
+fxge::FreeTypeGlyphLoadPlan PlanFreeTypeGlyphLoadCppReference(
+    bool is_render,
+    bool is_tt_ot,
+    bool is_tricky) {
+  const bool no_hinting = is_render ? !is_tt_ot : !is_tt_ot || !is_tricky;
+  return {.no_hinting = no_hinting,
+          .pedantic = is_render,
+          .retry_without_hinting = is_render && !no_hinting};
+}
+
+fxge::FreeTypeGlyphLoadPlan SelectFreeTypeGlyphLoadPlan(bool is_render,
+                                                        bool is_tt_ot,
+                                                        bool is_tricky) {
+  if (fxge::UseRustGlyphCandidate()) {
+    const auto plan =
+        fxge::RustPlanFreeTypeGlyphLoad(is_render, is_tt_ot, is_tricky);
+    if (plan.has_value()) {
+      fxge::RecordFreeTypeGlyphLoadPlanForTesting(is_render, *plan);
+      return *plan;
+    }
+  }
+  const auto plan =
+      PlanFreeTypeGlyphLoadCppReference(is_render, is_tt_ot, is_tricky);
+  fxge::RecordFreeTypeGlyphLoadPlanForTesting(is_render, plan);
+  return plan;
+}
+
+int FreeTypeLoadFlags(const fxge::FreeTypeGlyphLoadPlan& plan) {
+  int flags = FT_LOAD_NO_BITMAP;
+  if (plan.pedantic) {
+    flags |= FT_LOAD_PEDANTIC;
+  }
+  if (plan.no_hinting) {
+    flags |= FT_LOAD_NO_HINTING;
+  }
+  return flags;
+}
+
 }  // namespace
 
 
@@ -477,20 +516,18 @@ std::unique_ptr<CFX_GlyphBitmap> CFX_Face::RenderGlyph(
   }
 
   ScopedFaceTransform scoped_transform(GetRec(), &ft_matrix);
-  int load_flags = FT_LOAD_NO_BITMAP | FT_LOAD_PEDANTIC;
-  if (!IsTtOt()) {
-    load_flags |= FT_LOAD_NO_HINTING;
-  }
+  const auto load_plan =
+      SelectFreeTypeGlyphLoadPlan(/*is_render=*/true, IsTtOt(), IsTricky());
+  int load_flags = FreeTypeLoadFlags(load_plan);
   FT_FaceRec* rec = GetRec();
   int error = FT_Load_Glyph(rec, glyph_index, load_flags);
   if (error) {
     // if an error is returned, try to reload glyphs without hinting.
-    if (load_flags & FT_LOAD_NO_HINTING) {
+    if (!load_plan.retry_without_hinting) {
       return nullptr;
     }
 
-    load_flags |= FT_LOAD_NO_HINTING;
-    load_flags &= ~FT_LOAD_PEDANTIC;
+    load_flags = FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING;
     error = FT_Load_Glyph(rec, glyph_index, load_flags);
     if (error) {
       return nullptr;
@@ -569,10 +606,9 @@ std::unique_ptr<CFX_Path> CFX_Face::LoadGlyphPath(
     }
   }
   ScopedFaceTransform scoped_transform(GetRec(), &ft_matrix);
-  int load_flags = FT_LOAD_NO_BITMAP;
-  if (!IsTtOt() || !IsTricky()) {
-    load_flags |= FT_LOAD_NO_HINTING;
-  }
+  const auto load_plan =
+      SelectFreeTypeGlyphLoadPlan(/*is_render=*/false, IsTtOt(), IsTricky());
+  const int load_flags = FreeTypeLoadFlags(load_plan);
   if (FT_Load_Glyph(rec, glyph_index, load_flags)) {
     return nullptr;
   }
