@@ -124,6 +124,7 @@ ACTIVE_SURFACES = (
     "public text web/mail extraction, URL trimming, ranges, and multiline joining",
     "text character-to-visible-index segment ownership and bidirectional mapping",
     "public text character containment and nearest-position hit testing",
+    "public text selection-rectangle grouping, union, and result ownership",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
