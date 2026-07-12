@@ -113,6 +113,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `2c63f57dc` Phase 6 xref-merge-policy slice | 16,534 | 9,723 | 241 | 3,805 | 6,570 | 277,878 | 5.95% | 4.80% | Prior surfaces plus Rust-owned overlay conflict policy and object-stream flag preservation; C++ retains the single map storage and object lifetimes |
 | `b425794a2` Phase 6 xref-admission slice | 16,604 | 9,793 | 241 | 3,829 | 6,570 | 277,991 | 5.97% | 4.83% | Prior surfaces plus Rust-owned normal-generation precedence and compressed-object stream guards; C++ retains the single map storage and object lifetimes |
 | `00020e5e2` Phase 6 xref-storage slice | 16,767 | 9,956 | 241 | 3,898 | 6,570 | 278,243 | 6.03% | 4.91% | Rust `BTreeMap` is the production source of truth for cross-reference entries, mutation, sizing, and overlay; C++ retains the oracle map, a lazy derived view, trailers, and PDF object lifetimes |
+| `ae4185d3d` Phase 6 indirect-object-index slice | 17,133 | 10,322 | 241 | 4,099 | 6,570 | 279,067 | 6.14% | 5.07% | Rust owns indirect-object numbers, recursive parse placeholders, handle indexing, replacement, deletion, last-number state, and ordered iteration; C++ retains object values through a non-object-number-keyed `RetainPtr` registry and lazy view |
 
 ## Toolchain
 
@@ -879,6 +880,27 @@ Twenty focused native parser tests remain after that cleanup. The four normal,
 defaulted, unknown, and truncated object snapshots match the retained C++ map,
 both simple-parser tests pass, the parser fuzzer source builds, `pdfium_all`
 builds, and all 1,057 unit tests pass in the full GN configuration.
+
+The seventeenth Phase 6 slice replaces the production indirect-object number
+map with a Rust-owned index. Rust now owns last-object-number state, wrapping
+number allocation, recursive-parse placeholders, object-handle lookup,
+generation-aware replacement, deletion, and ascending iteration. Each holder
+fixes its Oracle/Candidate choice at construction, matching the cross-reference
+storage activation shape.
+
+C++ retains `CPDF_Object` values in a native `RetainPtr` registry keyed only by
+opaque pointer handles, including reference counts when one object appears in
+multiple Rust slots. It does not keep a second object-number index. The public
+C++ iterator map is cleared on every mutation and lazily rebuilt from a Rust
+snapshot, so it is a derived compatibility view rather than mutation input.
+
+One focused Rust state test covers recursive reservation, parse completion and
+cancellation, generation precedence, replacement, deletion, absent handles,
+last-number updates, and unsigned wraparound. A same-process C++/Rust scenario
+compares numbering, lower/higher generation replacement, deletion, last-number
+state, and ordered iteration. All six indirect-object holder tests, four parser
+object snapshots, both simple-parser tests, all 1,058 unit tests, the retained
+parser fuzzer build, and `pdfium_all` pass in the full GN configuration.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

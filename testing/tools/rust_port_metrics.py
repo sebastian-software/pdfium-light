@@ -100,9 +100,10 @@ ACTIVE_SURFACES = (
     "complete simple PDF token scanning",
     "cross-reference stream mutation orchestration",
     "cross-reference table storage, mutation, sizing, and overlay",
+    "indirect-object numbering, recursive parse state, indexing, and iteration",
 )
 CANDIDATE_SURFACES = (
-    "PDF object graph ownership",
+    "PDF object values and native RetainPtr lifetimes",
 )
 
 
