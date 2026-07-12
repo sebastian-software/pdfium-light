@@ -171,6 +171,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `8f97a67d8` Phase 7 document-number-tree slice | 24,924 | 18,113 | 241 | 7,054 | 6,570 | 294,097 | 8.47% | 8.41% | Rust owns exact and greatest-key-at-most traversal, limits pruning, forward/reverse ordering, and cycle guarding; C++ retains dictionaries, arrays, object lifetimes, borrowed callbacks, and the separately selected oracle traversals |
 | `b15eef798` Phase 7 public-destination-page slice | 24,983 | 18,172 | 241 | 7,085 | 6,570 | 294,209 | 8.49% | 8.44% | Rust owns numeric/dictionary/invalid destination-target routing and callback admission; C++ retains destination objects, document page indexing, borrowed lookup, and the separately selected oracle branches |
 | `44894c359` Phase 7 document-name-tree-index slice | 25,202 | 18,391 | 241 | 7,153 | 6,570 | 294,599 | 8.55% | 8.52% | Rust owns name-tree pair counting, depth-first index traversal, cumulative leaf offsets, the depth bound, and count-cycle guarding; C++ retains dictionaries, arrays, decoded names, values, borrowed callbacks, and the separately selected oracle traversals |
+| `7df1198ab` Phase 7 public-link-hit-test slice | 25,308 | 18,497 | 241 | 7,188 | 6,570 | 294,805 | 8.58% | 8.57% | Rust owns reverse z-order scanning, rectangle normalization, inclusive containment, topmost selection, and miss/error state; C++ retains the per-page link cache, dictionaries, rectangle extraction, selected handles, and the separately selected oracle loop |
 
 ## Toolchain
 
@@ -1903,6 +1904,21 @@ differential compares total count, all five values/names, and two misses in the
 three-level fixture. All seven NameTree unit cases and all twelve public
 Attachment cases, including mutation and save/reload, pass. Evidence also
 includes all 53 parser-native tests, all 1,072 unit tests, and `pdfium_all`.
+
+The forty-sixth Phase 7 slice moves public link hit testing into Rust. Rust
+owns reverse z-order scanning, rectangle normalization, inclusive point
+containment, topmost-link selection, and distinct miss/callback-failure state.
+C++ retains the page link cache, annotation dictionaries and lifetimes,
+supplies borrowed rectangles synchronously, materializes the selected link,
+and preserves the complete original loop as the separately selected oracle.
+
+Each query remains O(n) in link count and O(1) in auxiliary storage. One
+parser-native test covers overlapping links, inverted rectangles, inclusive
+edges, null entries, misses, NaN, and callback failure. A same-process public
+differential compares exact link handles and z-order for two hits and two
+misses. The existing destination and Link-to-Annotation regressions also pass.
+All three focused public cases, all 54 parser-native tests, all 1,072 unit
+tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

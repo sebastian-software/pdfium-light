@@ -156,6 +156,7 @@ ACTIVE_SURFACES = (
     "document number-tree exact and lower-bound traversal",
     "public destination numeric and dictionary page resolution",
     "document name-tree count and index traversal",
+    "public link rectangle hit testing and topmost selection",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
