@@ -208,6 +208,18 @@ FPDFBookmark_GetDest(FPDF_DOCUMENT document, FPDF_BOOKMARK bookmark) {
   CPDF_Bookmark cBookmark(
       pdfium::WrapRetain(CPDFDictionaryFromFPDFBookmark(bookmark)));
   CPDF_Dest dest = cBookmark.GetDest(doc);
+  if (pdfium::rust::UseRustParserCandidate()) {
+    CPDF_Action action = cBookmark.GetAction();
+    switch (pdfium::rust::RustPublicDestinationSource(
+        !!dest.GetArray(), action.HasDict())) {
+      case 1:
+        return FPDFDestFromCPDFArray(dest.GetArray());
+      case 2:
+        return FPDFDestFromCPDFArray(action.GetDest(doc).GetArray());
+      default:
+        return nullptr;
+    }
+  }
   if (dest.GetArray()) {
     return FPDFDestFromCPDFArray(dest.GetArray());
   }

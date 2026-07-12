@@ -566,6 +566,16 @@ fn public_bookmark_color_is_valid(red: f32, green: f32, blue: f32) -> bool {
     !([red, green, blue].iter().any(|component| *component > 1.0 || *component < 0.0))
 }
 
+fn public_destination_source(has_direct: bool, has_action: bool) -> u8 {
+    if has_direct {
+        1
+    } else if has_action {
+        2
+    } else {
+        0
+    }
+}
+
 fn public_destination_zoom_mode(mode: &[u8]) -> u8 {
     match mode {
         b"XYZ" => 1,
@@ -3782,6 +3792,12 @@ pub extern "C" fn pdfium_rust_public_bookmark_color_is_valid(
     public_bookmark_color_is_valid(red, green, blue)
 }
 
+/// Selects direct, action-backed, or missing public destination state.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_public_destination_source(has_direct: bool, has_action: bool) -> u8 {
+    public_destination_source(has_direct, has_action)
+}
+
 /// Maps a PDF destination mode name to the public zoom-mode constant.
 ///
 /// # Safety
@@ -6002,6 +6018,14 @@ mod tests {
     fn public_bookmark_color_should_reject_out_of_range_components() {
         assert!(!public_bookmark_color_is_valid(-f32::EPSILON, 0.5, 1.0));
         assert!(!public_bookmark_color_is_valid(0.0, 0.5, 1.0 + f32::EPSILON));
+    }
+
+    #[test]
+    fn public_destination_source_should_prefer_direct_then_action() {
+        assert_eq!(1, public_destination_source(true, false));
+        assert_eq!(1, public_destination_source(true, true));
+        assert_eq!(2, public_destination_source(false, true));
+        assert_eq!(0, public_destination_source(false, false));
     }
 
     #[test]

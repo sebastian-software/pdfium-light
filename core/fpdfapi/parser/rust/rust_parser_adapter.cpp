@@ -313,6 +313,8 @@ extern "C" uint8_t pdfium_rust_public_action_capabilities(uint8_t public_type);
 extern "C" bool pdfium_rust_public_bookmark_color_is_valid(float red,
                                                             float green,
                                                             float blue);
+extern "C" uint8_t pdfium_rust_public_destination_source(bool has_direct,
+                                                          bool has_action);
 extern "C" uint8_t pdfium_rust_public_destination_zoom_mode(const uint8_t* mode,
                                                             size_t mode_len);
 extern "C" size_t pdfium_rust_public_destination_num_params(uint8_t zoom_mode,
@@ -1197,6 +1199,10 @@ bool RustPublicActionAllowsUri(uint8_t public_type) {
 
 bool RustPublicBookmarkColorIsValid(float red, float green, float blue) {
   return pdfium_rust_public_bookmark_color_is_valid(red, green, blue);
+}
+
+uint8_t RustPublicDestinationSource(bool has_direct, bool has_action) {
+  return pdfium_rust_public_destination_source(has_direct, has_action);
 }
 
 uint8_t RustPublicDestinationZoomMode(pdfium::span<const uint8_t> mode) {
