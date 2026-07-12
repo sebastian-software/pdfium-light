@@ -794,6 +794,40 @@ TEST_F(FPDFDocEmbedderTest, FindBookmarksWithColor) {
   EXPECT_FLOAT_EQ(blue, 0.3);
 }
 
+TEST_F(FPDFDocEmbedderTest, RustBookmarkColorMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bookmarks_color.pdf"));
+
+  struct ColorResult {
+    bool found;
+    float red;
+    float green;
+    float blue;
+    bool operator==(const ColorResult&) const = default;
+  };
+  auto read_color = [](FPDF_BOOKMARK bookmark, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ColorResult result = {false, 100.0f, 101.0f, 102.0f};
+    result.found = FPDFBookmark_GetColor(
+        bookmark, &result.red, &result.green, &result.blue);
+    return result;
+  };
+
+  static constexpr std::array<const wchar_t*, 6> kTitles = {
+      L"No Color Array",
+      L"Color Is Not An Array",
+      L"Color Array Has The Wrong Number Of Elements",
+      L"Color Array Has Entries Greater Than 1",
+      L"Color Array Has Entries Less Than 0",
+      L"Valid Color Array"};
+  for (const wchar_t* title : kTitles) {
+    ScopedFPDFWideString encoded_title = GetFPDFWideString(title);
+    FPDF_BOOKMARK bookmark = FPDFBookmark_Find(document(), encoded_title.get());
+    ASSERT_TRUE(bookmark);
+    EXPECT_EQ(read_color(bookmark, false), read_color(bookmark, true));
+  }
+}
+
 // Check circular bookmarks will not cause infinite loop.
 TEST_F(FPDFDocEmbedderTest, FindBookmarksBug420) {
   // Open a file with circular bookmarks.
