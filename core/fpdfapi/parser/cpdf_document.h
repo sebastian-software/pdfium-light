@@ -27,7 +27,8 @@ class JBig2_DocumentContext;
 
 namespace pdfium::rust {
 class RustDocumentPageIndex;
-}
+class RustDocumentPageTraversal;
+}  // namespace pdfium::rust
 
 class CPDF_Document : public Observable,
                       public CPDF_Parser::ParsedObjectsHolder {
@@ -227,6 +228,24 @@ class CPDF_Document : public Observable,
   void InsertPageObjNumAt(size_t page_index, uint32_t object_number);
   void RemovePageObjNumAt(size_t page_index);
   bool PageListContains(uint32_t object_number) const;
+  static bool RetainTraversalHandle(void* context, uintptr_t handle);
+  static bool ReleaseTraversalHandle(void* context, uintptr_t handle);
+  static bool DescribeTraversalNode(void* context,
+                                    uintptr_t handle,
+                                    bool* has_kids_array,
+                                    uint8_t* node_type,
+                                    uint32_t* object_number,
+                                    size_t* child_count);
+  static bool DescribeTraversalChild(void* context,
+                                     uintptr_t handle,
+                                     size_t child_index,
+                                     uintptr_t* child_handle,
+                                     bool* has_kids,
+                                     uint32_t* object_number);
+  static bool CacheTraversedPage(void* context,
+                                 int32_t page_index,
+                                 uint32_t object_number);
+  static bool SelectTraversedPage(void* context, uintptr_t handle);
   void ResetTraversal();
   CPDF_Parser::Error HandleLoadResult(CPDF_Parser::Error error);
 
@@ -256,6 +275,9 @@ class CPDF_Document : public Observable,
   const bool use_rust_page_index_;
   std::unique_ptr<pdfium::rust::RustDocumentPageIndex> rust_page_index_;
   std::vector<uint32_t> page_list_;  // Page number to page's dict objnum.
+  std::vector<RetainPtr<CPDF_Dictionary>> rust_traversal_handles_;
+  RetainPtr<CPDF_Dictionary> rust_traversal_result_;
+  std::unique_ptr<pdfium::rust::RustDocumentPageTraversal> rust_page_traversal_;
 
   // Must be second to last.
   StockFontClearer stock_font_clearer_;

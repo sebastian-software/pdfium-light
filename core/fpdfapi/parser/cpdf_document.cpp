@@ -321,6 +321,17 @@ CPDF_Document::CPDF_Document(std::unique_ptr<RenderDataIface> pRenderData,
           use_rust_page_index_
               ? std::make_unique<pdfium::rust::RustDocumentPageIndex>()
               : nullptr),
+      rust_page_traversal_(
+          use_rust_page_index_
+              ? std::make_unique<pdfium::rust::RustDocumentPageTraversal>(
+                    this,
+                    RetainTraversalHandle,
+                    ReleaseTraversalHandle,
+                    DescribeTraversalNode,
+                    DescribeTraversalChild,
+                    CacheTraversedPage,
+                    SelectTraversedPage)
+              : nullptr),
       stock_font_clearer_(doc_page_.get()) {
   doc_render_->SetDocument(this);
   doc_page_->SetDocument(this);
@@ -398,6 +409,116 @@ void CPDF_Document::LoadPages() {
   DCHECK(first_page_num < page_count);
   ResizePageList(page_count);
   SetPageObjNumAt(first_page_num, objnum);
+}
+
+// static
+bool CPDF_Document::RetainTraversalHandle(void* context, uintptr_t handle) {
+  auto* document = static_cast<CPDF_Document*>(context);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!document || !dictionary) {
+    return false;
+  }
+  document->rust_traversal_handles_.push_back(pdfium::WrapRetain(dictionary));
+  return true;
+}
+
+// static
+bool CPDF_Document::ReleaseTraversalHandle(void* context, uintptr_t handle) {
+  auto* document = static_cast<CPDF_Document*>(context);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!document || !dictionary) {
+    return false;
+  }
+  auto it = std::ranges::find_if(
+      document->rust_traversal_handles_,
+      [dictionary](const RetainPtr<CPDF_Dictionary>& retained) {
+        return retained.Get() == dictionary;
+      });
+  if (it == document->rust_traversal_handles_.end()) {
+    return false;
+  }
+  document->rust_traversal_handles_.erase(it);
+  return true;
+}
+
+// static
+bool CPDF_Document::DescribeTraversalNode(void*,
+                                          uintptr_t handle,
+                                          bool* has_kids_array,
+                                          uint8_t* node_type,
+                                          uint32_t* object_number,
+                                          size_t* child_count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!dictionary || !has_kids_array || !node_type || !object_number ||
+      !child_count) {
+    return false;
+  }
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  *has_kids_array = !!kids;
+  *child_count = kids ? kids->size() : 0;
+  *object_number = dictionary->GetObjNum();
+  if (kids) {
+    *node_type = 1;
+  } else {
+    *node_type =
+        GetNodeType(pdfium::WrapRetain(dictionary)) == NodeType::kBranch ? 1
+                                                                         : 2;
+  }
+  return true;
+}
+
+// static
+bool CPDF_Document::DescribeTraversalChild(void* context,
+                                           uintptr_t handle,
+                                           size_t child_index,
+                                           uintptr_t* child_handle,
+                                           bool* has_kids,
+                                           uint32_t* object_number) {
+  auto* document = static_cast<CPDF_Document*>(context);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!document || !dictionary || !child_handle || !has_kids ||
+      !object_number) {
+    return false;
+  }
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids || child_index >= kids->size()) {
+    return false;
+  }
+  kids->ConvertToIndirectObjectAt(child_index, document);
+  RetainPtr<CPDF_Dictionary> child = kids->GetMutableDictAt(child_index);
+  if (!child) {
+    *child_handle = 0;
+    *has_kids = false;
+    *object_number = 0;
+    return true;
+  }
+  *child_handle = reinterpret_cast<uintptr_t>(child.Get());
+  *has_kids = child->KeyExist("Kids");
+  *object_number = child->GetObjNum();
+  return true;
+}
+
+// static
+bool CPDF_Document::CacheTraversedPage(void* context,
+                                       int32_t page_index,
+                                       uint32_t object_number) {
+  auto* document = static_cast<CPDF_Document*>(context);
+  if (!document || !document->IsPageIndexValid(page_index)) {
+    return false;
+  }
+  document->SetPageObjNumAt(page_index, object_number);
+  return true;
+}
+
+// static
+bool CPDF_Document::SelectTraversedPage(void* context, uintptr_t handle) {
+  auto* document = static_cast<CPDF_Document*>(context);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(handle);
+  if (!document || !dictionary) {
+    return false;
+  }
+  document->rust_traversal_result_ = pdfium::WrapRetain(dictionary);
+  return true;
 }
 
 RetainPtr<CPDF_Dictionary> CPDF_Document::TraversePDFPages(int iPage,
@@ -480,6 +601,11 @@ void CPDF_Document::ResetTraversal() {
   next_page_to_traverse_ = 0;
   reached_max_page_level_ = false;
   tree_traversal_.clear();
+  rust_traversal_result_.Reset();
+  if (rust_page_traversal_) {
+    CHECK(rust_page_traversal_->Clear());
+    CHECK(rust_traversal_handles_.empty());
+  }
 }
 
 void CPDF_Document::SetParser(std::unique_ptr<CPDF_Parser> pParser) {
@@ -525,6 +651,28 @@ RetainPtr<const CPDF_Dictionary> CPDF_Document::GetPageDictionary(int iPage) {
   RetainPtr<CPDF_Dictionary> pPages = GetMutablePagesDict();
   if (!pPages) {
     return nullptr;
+  }
+
+  if (use_rust_page_index_) {
+    rust_traversal_result_.Reset();
+    if (rust_traversal_handles_.empty() &&
+        !rust_page_traversal_->Reset(
+            reinterpret_cast<uintptr_t>(pPages.Get()))) {
+      return nullptr;
+    }
+    std::optional<bool> found = rust_page_traversal_->Traverse(iPage);
+    if (found.has_value()) {
+      CHECK_EQ(*found, !!rust_traversal_result_);
+      return std::move(rust_traversal_result_);
+    }
+
+    // A rejected internal boundary uses the unchanged traversal from the root.
+    ResetTraversal();
+    tree_traversal_.emplace_back(pPages);
+    int pages_to_go = iPage + 1;
+    RetainPtr<CPDF_Dictionary> page = TraversePDFPages(iPage, &pages_to_go, 0);
+    next_page_to_traverse_ = iPage + 1;
+    return page;
   }
 
   if (tree_traversal_.empty()) {

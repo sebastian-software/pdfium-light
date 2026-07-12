@@ -180,6 +180,18 @@ pub struct DocumentPageIndexState {
     object_numbers: Vec<u32>,
 }
 
+struct DocumentPageTraversalEntry {
+    handle: usize,
+    child_index: usize,
+}
+
+#[derive(Default)]
+pub struct DocumentPageTraversalState {
+    stack: Vec<DocumentPageTraversalEntry>,
+    reached_max_level: bool,
+    next_page: i32,
+}
+
 type PdfDictionarySnapshotCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, usize) -> bool;
 
@@ -217,6 +229,30 @@ type DocumentPageMutationChildCallback = unsafe extern "C" fn(
     *mut u8,
     *mut i32,
 ) -> bool;
+type DocumentPageTraversalRetainCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize) -> bool;
+type DocumentPageTraversalReleaseCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize) -> bool;
+type DocumentPageTraversalDescribeCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    *mut bool,
+    *mut u8,
+    *mut u32,
+    *mut usize,
+) -> bool;
+type DocumentPageTraversalChildCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    usize,
+    *mut usize,
+    *mut bool,
+    *mut u32,
+) -> bool;
+type DocumentPageTraversalCacheCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, i32, u32) -> bool;
+type DocumentPageTraversalSelectCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize) -> bool;
 
 impl Default for PdfNumberState {
     fn default() -> Self {
@@ -1936,6 +1972,261 @@ pub unsafe extern "C" fn pdfium_rust_document_page_index_contains(
     object_number: u32,
 ) -> bool {
     unsafe { state.as_ref() }.is_some_and(|state| state.object_numbers.contains(&object_number))
+}
+
+struct DocumentPageTraversalCallbacks {
+    context: *mut core::ffi::c_void,
+    describe: DocumentPageTraversalDescribeCallback,
+    child: DocumentPageTraversalChildCallback,
+    cache: DocumentPageTraversalCacheCallback,
+    retain: DocumentPageTraversalRetainCallback,
+    release: DocumentPageTraversalReleaseCallback,
+}
+
+impl DocumentPageTraversalState {
+    fn clear(
+        &mut self,
+        context: *mut core::ffi::c_void,
+        release: DocumentPageTraversalReleaseCallback,
+    ) -> bool {
+        let mut success = true;
+        while let Some(entry) = self.stack.pop() {
+            success &= unsafe { release(context, entry.handle) };
+        }
+        self.reached_max_level = false;
+        self.next_page = 0;
+        success
+    }
+
+    fn pop_level(&mut self, callbacks: &DocumentPageTraversalCallbacks) -> Result<(), ()> {
+        let entry = self.stack.pop().ok_or(())?;
+        if !unsafe { (callbacks.release)(callbacks.context, entry.handle) } {
+            return Err(());
+        }
+        Ok(())
+    }
+
+    fn traverse_level(
+        &mut self,
+        page_index: i32,
+        pages_to_go: &mut i32,
+        level: usize,
+        callbacks: &DocumentPageTraversalCallbacks,
+    ) -> Result<usize, ()> {
+        const LEVEL_MAX: usize = 1024;
+        if *pages_to_go < 0 || self.reached_max_level {
+            return Ok(0);
+        }
+        let handle = self.stack.get(level).ok_or(())?.handle;
+        let mut has_kids_array = false;
+        let mut node_type = 0;
+        let mut object_number = 0;
+        let mut child_count = 0;
+        if !unsafe {
+            (callbacks.describe)(
+                callbacks.context,
+                handle,
+                &mut has_kids_array,
+                &mut node_type,
+                &mut object_number,
+                &mut child_count,
+            )
+        } {
+            return Err(());
+        }
+        if !has_kids_array {
+            self.pop_level(callbacks)?;
+            if *pages_to_go != 1 || node_type == 1 {
+                return Ok(0);
+            }
+            if node_type != 2
+                || !unsafe { (callbacks.cache)(callbacks.context, page_index, object_number) }
+            {
+                return Err(());
+            }
+            return Ok(handle);
+        }
+        if level >= LEVEL_MAX {
+            self.pop_level(callbacks)?;
+            self.reached_max_level = true;
+            return Ok(0);
+        }
+
+        let mut page = 0;
+        loop {
+            let child_index = self.stack.get(level).ok_or(())?.child_index;
+            if child_index >= child_count || *pages_to_go == 0 {
+                break;
+            }
+            let mut child_handle = 0;
+            let mut child_has_kids = false;
+            let mut child_object_number = 0;
+            if !unsafe {
+                (callbacks.child)(
+                    callbacks.context,
+                    handle,
+                    child_index,
+                    &mut child_handle,
+                    &mut child_has_kids,
+                    &mut child_object_number,
+                )
+            } {
+                return Err(());
+            }
+            if child_handle == 0 {
+                *pages_to_go = (*pages_to_go).checked_sub(1).ok_or(())?;
+                self.stack[level].child_index += 1;
+                continue;
+            }
+            if child_handle == handle {
+                self.stack[level].child_index += 1;
+                continue;
+            }
+            if !child_has_kids {
+                let cache_index =
+                    page_index.checked_sub(*pages_to_go).and_then(|v| v.checked_add(1)).ok_or(())?;
+                if !unsafe {
+                    (callbacks.cache)(callbacks.context, cache_index, child_object_number)
+                } {
+                    return Err(());
+                }
+                *pages_to_go = (*pages_to_go).checked_sub(1).ok_or(())?;
+                self.stack[level].child_index += 1;
+                if *pages_to_go == 0 {
+                    page = child_handle;
+                    break;
+                }
+                continue;
+            }
+
+            if self.stack.len() == level + 1 {
+                if !unsafe { (callbacks.retain)(callbacks.context, child_handle) } {
+                    return Err(());
+                }
+                self.stack
+                    .push(DocumentPageTraversalEntry { handle: child_handle, child_index: 0 });
+            }
+            let child_page = self.traverse_level(page_index, pages_to_go, level + 1, callbacks)?;
+            if self.stack.len() == level + 1 {
+                self.stack[level].child_index += 1;
+            }
+            if self.stack.len() != level + 1 || *pages_to_go == 0 || self.reached_max_level {
+                page = child_page;
+                break;
+            }
+        }
+        if self.stack.get(level).is_some_and(|entry| entry.child_index == child_count) {
+            self.pop_level(callbacks)?;
+        }
+        Ok(page)
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_document_page_traversal_new() -> *mut DocumentPageTraversalState {
+    Box::into_raw(Box::new(DocumentPageTraversalState::default()))
+}
+
+/// # Safety
+/// `state` must be null or returned by the matching constructor and cleared.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_traversal_free(
+    state: *mut DocumentPageTraversalState,
+) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state` and callbacks must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_traversal_clear(
+    state: *mut DocumentPageTraversalState,
+    context: *mut core::ffi::c_void,
+    release: Option<DocumentPageTraversalReleaseCallback>,
+) -> bool {
+    let (Some(state), Some(release)) = (unsafe { state.as_mut() }, release) else {
+        return false;
+    };
+    state.clear(context, release)
+}
+
+/// # Safety
+/// `state` and callbacks must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_traversal_reset(
+    state: *mut DocumentPageTraversalState,
+    root_handle: usize,
+    context: *mut core::ffi::c_void,
+    retain: Option<DocumentPageTraversalRetainCallback>,
+    release: Option<DocumentPageTraversalReleaseCallback>,
+) -> bool {
+    let (Some(state), Some(retain), Some(release)) = (unsafe { state.as_mut() }, retain, release)
+    else {
+        return false;
+    };
+    if !state.clear(context, release)
+        || root_handle == 0
+        || !unsafe { retain(context, root_handle) }
+    {
+        return false;
+    }
+    state.stack.push(DocumentPageTraversalEntry { handle: root_handle, child_index: 0 });
+    true
+}
+
+/// # Safety
+/// `state`, callbacks, and `found` must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_traversal_run(
+    state: *mut DocumentPageTraversalState,
+    page_index: i32,
+    context: *mut core::ffi::c_void,
+    describe: Option<DocumentPageTraversalDescribeCallback>,
+    child: Option<DocumentPageTraversalChildCallback>,
+    cache: Option<DocumentPageTraversalCacheCallback>,
+    select: Option<DocumentPageTraversalSelectCallback>,
+    retain: Option<DocumentPageTraversalRetainCallback>,
+    release: Option<DocumentPageTraversalReleaseCallback>,
+    found: *mut bool,
+) -> bool {
+    let (
+        Some(state),
+        Some(describe),
+        Some(child),
+        Some(cache),
+        Some(select),
+        Some(retain),
+        Some(release),
+        Some(found),
+    ) = (unsafe { state.as_mut() }, describe, child, cache, select, retain, release, unsafe {
+        found.as_mut()
+    })
+    else {
+        return false;
+    };
+    let callbacks =
+        DocumentPageTraversalCallbacks { context, describe, child, cache, retain, release };
+    let Some(mut pages_to_go) =
+        page_index.checked_sub(state.next_page).and_then(|v| v.checked_add(1))
+    else {
+        return false;
+    };
+    let page = if state.stack.is_empty() {
+        0
+    } else {
+        match state.traverse_level(page_index, &mut pages_to_go, 0, &callbacks) {
+            Ok(page) => page,
+            Err(()) => return false,
+        }
+    };
+    let Some(next_page) = page_index.checked_add(1) else {
+        return false;
+    };
+    state.next_page = next_page;
+    *found = page != 0;
+    page == 0 || unsafe { select(context, page) }
 }
 
 /// Plans public page movement without touching document state.

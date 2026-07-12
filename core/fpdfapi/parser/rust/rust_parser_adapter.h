@@ -234,6 +234,59 @@ class RustDocumentPageIndex final {
   void* state_;
 };
 
+using RustDocumentPageTraversalRetainCallback = bool (*)(void* context,
+                                                         uintptr_t handle);
+using RustDocumentPageTraversalReleaseCallback = bool (*)(void* context,
+                                                          uintptr_t handle);
+using RustDocumentPageTraversalDescribeCallback =
+    bool (*)(void* context,
+             uintptr_t handle,
+             bool* has_kids_array,
+             uint8_t* node_type,
+             uint32_t* object_number,
+             size_t* child_count);
+using RustDocumentPageTraversalChildCallback =
+    bool (*)(void* context,
+             uintptr_t handle,
+             size_t child_index,
+             uintptr_t* child_handle,
+             bool* has_kids,
+             uint32_t* object_number);
+using RustDocumentPageTraversalCacheCallback = bool (*)(void* context,
+                                                        int32_t page_index,
+                                                        uint32_t object_number);
+using RustDocumentPageTraversalSelectCallback = bool (*)(void* context,
+                                                         uintptr_t handle);
+
+class RustDocumentPageTraversal final {
+ public:
+  RustDocumentPageTraversal(void* context,
+                            RustDocumentPageTraversalRetainCallback retain,
+                            RustDocumentPageTraversalReleaseCallback release,
+                            RustDocumentPageTraversalDescribeCallback describe,
+                            RustDocumentPageTraversalChildCallback child,
+                            RustDocumentPageTraversalCacheCallback cache,
+                            RustDocumentPageTraversalSelectCallback select);
+  RustDocumentPageTraversal(const RustDocumentPageTraversal&) = delete;
+  RustDocumentPageTraversal& operator=(const RustDocumentPageTraversal&) =
+      delete;
+  ~RustDocumentPageTraversal();
+
+  bool Reset(uintptr_t root_handle);
+  bool Clear();
+  std::optional<bool> Traverse(int page_index);
+
+ private:
+  void* state_;
+  void* context_;
+  RustDocumentPageTraversalRetainCallback retain_;
+  RustDocumentPageTraversalReleaseCallback release_;
+  RustDocumentPageTraversalDescribeCallback describe_;
+  RustDocumentPageTraversalChildCallback child_;
+  RustDocumentPageTraversalCacheCallback cache_;
+  RustDocumentPageTraversalSelectCallback select_;
+};
+
 std::optional<std::vector<int>> RustDocumentMovePageDeletionOrder(
     pdfium::span<const int> page_indices,
     size_t num_pages,

@@ -193,6 +193,29 @@ extern "C" bool pdfium_rust_document_page_index_remove(void* state,
 extern "C" bool pdfium_rust_document_page_index_contains(
     const void* state,
     uint32_t object_number);
+extern "C" void* pdfium_rust_document_page_traversal_new();
+extern "C" void pdfium_rust_document_page_traversal_free(void* state);
+extern "C" bool pdfium_rust_document_page_traversal_clear(
+    void* state,
+    void* context,
+    pdfium::rust::RustDocumentPageTraversalReleaseCallback release);
+extern "C" bool pdfium_rust_document_page_traversal_reset(
+    void* state,
+    uintptr_t root_handle,
+    void* context,
+    pdfium::rust::RustDocumentPageTraversalRetainCallback retain,
+    pdfium::rust::RustDocumentPageTraversalReleaseCallback release);
+extern "C" bool pdfium_rust_document_page_traversal_run(
+    void* state,
+    int32_t page_index,
+    void* context,
+    pdfium::rust::RustDocumentPageTraversalDescribeCallback describe,
+    pdfium::rust::RustDocumentPageTraversalChildCallback child,
+    pdfium::rust::RustDocumentPageTraversalCacheCallback cache,
+    pdfium::rust::RustDocumentPageTraversalSelectCallback select,
+    pdfium::rust::RustDocumentPageTraversalRetainCallback retain,
+    pdfium::rust::RustDocumentPageTraversalReleaseCallback release,
+    bool* found);
 extern "C" bool pdfium_rust_document_move_page_plan(const int32_t* page_indices,
                                                     size_t len,
                                                     size_t num_pages,
@@ -747,6 +770,49 @@ bool RustDocumentPageIndex::Remove(size_t index) {
 
 bool RustDocumentPageIndex::Contains(uint32_t object_number) const {
   return pdfium_rust_document_page_index_contains(state_, object_number);
+}
+
+RustDocumentPageTraversal::RustDocumentPageTraversal(
+    void* context,
+    RustDocumentPageTraversalRetainCallback retain,
+    RustDocumentPageTraversalReleaseCallback release,
+    RustDocumentPageTraversalDescribeCallback describe,
+    RustDocumentPageTraversalChildCallback child,
+    RustDocumentPageTraversalCacheCallback cache,
+    RustDocumentPageTraversalSelectCallback select)
+    : state_(pdfium_rust_document_page_traversal_new()),
+      context_(context),
+      retain_(retain),
+      release_(release),
+      describe_(describe),
+      child_(child),
+      cache_(cache),
+      select_(select) {
+  CHECK(state_);
+}
+
+RustDocumentPageTraversal::~RustDocumentPageTraversal() {
+  CHECK(Clear());
+  pdfium_rust_document_page_traversal_free(state_);
+}
+
+bool RustDocumentPageTraversal::Reset(uintptr_t root_handle) {
+  return pdfium_rust_document_page_traversal_reset(state_, root_handle,
+                                                   context_, retain_, release_);
+}
+
+bool RustDocumentPageTraversal::Clear() {
+  return pdfium_rust_document_page_traversal_clear(state_, context_, release_);
+}
+
+std::optional<bool> RustDocumentPageTraversal::Traverse(int page_index) {
+  bool found = false;
+  if (!pdfium_rust_document_page_traversal_run(
+          state_, page_index, context_, describe_, child_, cache_, select_,
+          retain_, release_, &found)) {
+    return std::nullopt;
+  }
+  return found;
 }
 
 std::optional<std::vector<int>> RustDocumentMovePageDeletionOrder(
