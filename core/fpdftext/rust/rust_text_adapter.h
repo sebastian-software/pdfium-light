@@ -154,6 +154,19 @@ std::optional<bool> RustTextShouldGenerateSpace(float position_x,
                                                 float last_width,
                                                 float threshold);
 
+using RustTextCharacterPredicateCallback = bool (*)(void* context,
+                                                     uint32_t character,
+                                                     uint8_t predicate);
+
+std::optional<bool> RustTextIsHyphenJoin(
+    WideStringView current_text,
+    uint32_t current_character,
+    bool has_previous_character,
+    uint8_t previous_char_type,
+    uint32_t previous_unicode,
+    void* context,
+    RustTextCharacterPredicateCallback character_predicate);
+
 class RustTextSelectionRects final {
  public:
   RustTextSelectionRects(size_t character_count,

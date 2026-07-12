@@ -1482,6 +1482,29 @@ bool CPDF_TextPage::IsHyphen(wchar_t current_char) const {
     current_text = text_buf_.AsStringView();
   }
 
+  if (use_rust_) {
+    const CharInfo* previous = GetPrevCharInfo();
+    auto character_predicate = [](void*, uint32_t character,
+                                  uint8_t predicate) {
+      switch (predicate) {
+        case 0:
+          return FXSYS_iswalpha(static_cast<wchar_t>(character));
+        case 1:
+          return FXSYS_iswalnum(static_cast<wchar_t>(character));
+        default:
+          return false;
+      }
+    };
+    const auto is_hyphen = pdfium::rust::RustTextIsHyphenJoin(
+        current_text, static_cast<uint32_t>(current_char), previous != nullptr,
+        previous ? static_cast<uint8_t>(previous->char_type()) : 0,
+        previous ? static_cast<uint32_t>(previous->unicode()) : 0, nullptr,
+        character_predicate);
+    if (is_hyphen.has_value()) {
+      return *is_hyphen;
+    }
+  }
+
   if (current_text.IsEmpty()) {
     return false;
   }

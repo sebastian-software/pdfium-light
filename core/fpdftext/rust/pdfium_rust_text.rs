@@ -26,6 +26,7 @@ type TextSelectionRectCallback = unsafe extern "C" fn(
 ) -> bool;
 type TextPredicateCharacterCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool, *mut u32, *mut f32) -> bool;
+type TextCharacterPredicateCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32, u8) -> bool;
 type TextOrientationObjectCallback = unsafe extern "C" fn(
     *mut core::ffi::c_void,
     usize,
@@ -1168,6 +1169,37 @@ fn should_generate_space(
     position_difference > this_width + last_width
 }
 
+fn is_hyphen_code(character: u32) -> bool {
+    matches!(character, 0x2d | 0xad)
+}
+
+fn is_hyphen_join(
+    current_text: &[u32],
+    current_character: u32,
+    previous_character: Option<(u8, u32)>,
+    mut character_predicate: impl FnMut(u32, u8) -> bool,
+) -> Option<bool> {
+    let Some(mut index) = current_text.len().checked_sub(1) else {
+        return Some(false);
+    };
+    while index > 0 && current_text[index] == b' ' as u32 {
+        index -= 1;
+    }
+    if !is_hyphen_code(current_text[index]) {
+        return Some(false);
+    }
+    if index > 0
+        && character_predicate(current_text[index - 1], 0)
+        && character_predicate(current_character, 1)
+    {
+        return Some(true);
+    }
+    Some(
+        previous_character
+            .is_some_and(|(char_type, unicode)| char_type == 4 && is_hyphen_code(unicode)),
+    )
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -1368,6 +1400,51 @@ pub unsafe extern "C" fn pdfium_rust_text_should_generate_space(
         return false;
     };
     *output = should_generate_space(position_x, last_position, this_width, last_width, threshold);
+    true
+}
+
+/// Decides whether a line-ending hyphen joins the following character.
+///
+/// # Safety
+/// The text pointer must be readable for its length. The callback, context,
+/// and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_is_hyphen_join(
+    current_text: *const u32,
+    current_text_len: usize,
+    current_character: u32,
+    has_previous_character: bool,
+    previous_char_type: u8,
+    previous_unicode: u32,
+    context: *mut core::ffi::c_void,
+    character_predicate: Option<TextCharacterPredicateCallback>,
+    output: *mut bool,
+) -> bool {
+    let (Some(character_predicate), Some(output)) =
+        (character_predicate, unsafe { output.as_mut() })
+    else {
+        return false;
+    };
+    let current_text = if current_text_len == 0 {
+        &[]
+    } else {
+        if current_text.is_null() {
+            return false;
+        }
+        // SAFETY: The caller guarantees that the pointer is readable for the
+        // supplied length for this synchronous call.
+        unsafe { core::slice::from_raw_parts(current_text, current_text_len) }
+    };
+    let result = is_hyphen_join(
+        current_text,
+        current_character,
+        has_previous_character.then_some((previous_char_type, previous_unicode)),
+        |character, predicate| unsafe { character_predicate(context, character, predicate) },
+    );
+    let Some(result) = result else {
+        return false;
+    };
+    *output = result;
     true
 }
 
@@ -2205,6 +2282,21 @@ mod tests {
         assert_eq!(Some(150.0), normalize_threshold(600.0, 400, 700, 800));
         assert!(!should_generate_space(10.0, 0.0, 5.0, 10.0, 1.0));
         assert!(should_generate_space(22.0, 0.0, 5.0, 10.0, 1.0));
+    }
+
+    #[test]
+    fn hyphen_join_should_skip_spaces_and_preserve_piece_fallback() {
+        let predicate = |character: u32, _predicate: u8| {
+            char::from_u32(character).is_some_and(char::is_alphanumeric)
+        };
+        assert_eq!(
+            Some(true),
+            is_hyphen_join(&[b'A' as u32, b'-' as u32, b' ' as u32], b'B' as u32, None, predicate,)
+        );
+        assert_eq!(
+            Some(true),
+            is_hyphen_join(&[b'-' as u32], b'!' as u32, Some((4, 0xad)), |_, _| false)
+        );
     }
 
     #[test]

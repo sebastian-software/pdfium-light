@@ -51,6 +51,16 @@ extern "C" bool pdfium_rust_text_should_generate_space(float position_x,
                                                          float last_width,
                                                          float threshold,
                                                          bool* output);
+extern "C" bool pdfium_rust_text_is_hyphen_join(
+    const uint32_t* current_text,
+    size_t current_text_len,
+    uint32_t current_character,
+    bool has_previous_character,
+    uint8_t previous_char_type,
+    uint32_t previous_unicode,
+    void* context,
+    pdfium::rust::RustTextCharacterPredicateCallback character_predicate,
+    bool* output);
 extern "C" bool pdfium_rust_text_index_at_position(
     size_t character_count,
     float point_x,
@@ -276,6 +286,25 @@ std::optional<bool> RustTextShouldGenerateSpace(float position_x,
   if (!pdfium_rust_text_should_generate_space(
           position_x, last_position, this_width, last_width, threshold,
           &output)) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+std::optional<bool> RustTextIsHyphenJoin(
+    WideStringView current_text,
+    uint32_t current_character,
+    bool has_previous_character,
+    uint8_t previous_char_type,
+    uint32_t previous_unicode,
+    void* context,
+    RustTextCharacterPredicateCallback character_predicate) {
+  const std::vector<uint32_t> code_points = ToCodePoints(current_text);
+  bool output = false;
+  if (!pdfium_rust_text_is_hyphen_join(
+          code_points.data(), code_points.size(), current_character,
+          has_previous_character, previous_char_type, previous_unicode, context,
+          character_predicate, &output)) {
     return std::nullopt;
   }
   return output;
