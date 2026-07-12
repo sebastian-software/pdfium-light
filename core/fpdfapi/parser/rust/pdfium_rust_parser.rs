@@ -73,7 +73,7 @@ fn read_cross_ref_entry(input: &[u8], field_widths: [u32; 3]) -> Option<[u32; 3]
 }
 
 fn is_pdf_whitespace(byte: u8) -> bool {
-    matches!(byte, 0 | b'\t' | b'\n' | 0x0c | b'\r' | b' ')
+    matches!(byte, 0 | b'\t' | b'\n' | 0x0c | b'\r' | b' ' | 0x80 | 0xff)
 }
 
 fn skip_pdf_spaces_and_comments(input: &[u8], mut position: usize) -> (usize, Option<u8>) {
@@ -560,6 +560,7 @@ mod tests {
     #[test]
     fn skip_spaces_and_comments_should_match_pdfium_whitespace_and_comment_rules() {
         assert_eq!((4, Some(b'a')), skip_pdf_spaces_and_comments(b" \t\0a", 0));
+        assert_eq!((3, Some(b'a')), skip_pdf_spaces_and_comments(&[0x80, 0xff, b'a'], 0));
         assert_eq!((8, Some(b'b')), skip_pdf_spaces_and_comments(b"%skip\r\nb", 0));
         assert_eq!((13, Some(b'c')), skip_pdf_spaces_and_comments(b" \n%one\n%two\nc", 0));
         assert_eq!((4, None), skip_pdf_spaces_and_comments(b" \t\0\n", 0));
