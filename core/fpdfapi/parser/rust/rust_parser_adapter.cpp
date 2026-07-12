@@ -150,6 +150,17 @@ extern "C" bool pdfium_rust_pdf_dictionary_snapshot(
     const void* state,
     void* context,
     pdfium::rust::RustPdfDictionarySnapshotCallback callback);
+extern "C" void* pdfium_rust_pdf_string_new(const uint8_t* data,
+                                            size_t len,
+                                            bool output_is_hex);
+extern "C" void pdfium_rust_pdf_string_destroy(void* state);
+extern "C" bool pdfium_rust_pdf_string_is_hex(const void* state, bool* output);
+extern "C" bool pdfium_rust_pdf_string_equals(const void* state,
+                                              const uint8_t* data,
+                                              size_t len);
+extern "C" bool pdfium_rust_pdf_string_set(void* state,
+                                           const uint8_t* data,
+                                           size_t len);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -566,6 +577,32 @@ bool RustPdfDictionary::Snapshot(
     RustPdfDictionarySnapshotCallback callback) const {
   return callback &&
          pdfium_rust_pdf_dictionary_snapshot(state_, context, callback);
+}
+
+RustPdfString::RustPdfString(pdfium::span<const uint8_t> value,
+                             bool output_is_hex)
+    : state_(pdfium_rust_pdf_string_new(value.data(),
+                                        value.size(),
+                                        output_is_hex)) {
+  CHECK(state_);
+}
+
+RustPdfString::~RustPdfString() {
+  pdfium_rust_pdf_string_destroy(state_);
+}
+
+bool RustPdfString::IsHex() const {
+  bool result = false;
+  CHECK(pdfium_rust_pdf_string_is_hex(state_, &result));
+  return result;
+}
+
+bool RustPdfString::Equals(pdfium::span<const uint8_t> value) const {
+  return pdfium_rust_pdf_string_equals(state_, value.data(), value.size());
+}
+
+bool RustPdfString::Set(pdfium::span<const uint8_t> value) {
+  return pdfium_rust_pdf_string_set(state_, value.data(), value.size());
 }
 
 std::optional<uint32_t> RustReadBigEndianVarInt(

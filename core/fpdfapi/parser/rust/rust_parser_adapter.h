@@ -183,6 +183,21 @@ class RustPdfDictionary final {
   void* state_;
 };
 
+class RustPdfString final {
+ public:
+  RustPdfString(pdfium::span<const uint8_t> value, bool output_is_hex);
+  RustPdfString(const RustPdfString&) = delete;
+  RustPdfString& operator=(const RustPdfString&) = delete;
+  ~RustPdfString();
+
+  bool IsHex() const;
+  bool Equals(pdfium::span<const uint8_t> value) const;
+  bool Set(pdfium::span<const uint8_t> value);
+
+ private:
+  void* state_;
+};
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);

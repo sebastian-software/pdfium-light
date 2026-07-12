@@ -166,6 +166,11 @@ pub struct PdfDictionaryState {
     objects: BTreeMap<Vec<u8>, usize>,
 }
 
+pub struct PdfStringState {
+    bytes: Vec<u8>,
+    output_is_hex: bool,
+}
+
 type PdfDictionarySnapshotCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, usize) -> bool;
 
@@ -1607,6 +1612,83 @@ pub unsafe extern "C" fn pdfium_rust_pdf_dictionary_snapshot(
     true
 }
 
+/// # Safety
+/// Nonempty input must identify readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_string_new(
+    data: *const u8,
+    len: usize,
+    output_is_hex: bool,
+) -> *mut PdfStringState {
+    if len != 0 && data.is_null() {
+        return core::ptr::null_mut();
+    }
+    let data = if len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { data };
+    let bytes = unsafe { core::slice::from_raw_parts(data, len) }.to_vec();
+    Box::into_raw(Box::new(PdfStringState { bytes, output_is_hex }))
+}
+
+/// # Safety
+/// `state` must be null or uniquely owned from `pdfium_rust_pdf_string_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_string_destroy(state: *mut PdfStringState) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state` and `output` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_string_is_hex(
+    state: *const PdfStringState,
+    output: *mut bool,
+) -> bool {
+    let (Some(state), Some(output)) = ((unsafe { state.as_ref() }), (unsafe { output.as_mut() }))
+    else {
+        return false;
+    };
+    *output = state.output_is_hex;
+    true
+}
+
+/// # Safety
+/// Nonempty input must identify readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_string_equals(
+    state: *const PdfStringState,
+    data: *const u8,
+    len: usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    if len != 0 && data.is_null() {
+        return false;
+    }
+    let data = if len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { data };
+    state.bytes == unsafe { core::slice::from_raw_parts(data, len) }
+}
+
+/// # Safety
+/// Nonempty input must identify readable bytes and `state` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_string_set(
+    state: *mut PdfStringState,
+    data: *const u8,
+    len: usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    if len != 0 && data.is_null() {
+        return false;
+    }
+    let data = if len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { data };
+    state.bytes = unsafe { core::slice::from_raw_parts(data, len) }.to_vec();
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -2256,6 +2338,16 @@ mod tests {
         assert!(!unsafe {
             pdfium_rust_pdf_dictionary_remove(&mut state, b"missing".as_ptr(), 7, &mut old_handle)
         });
+    }
+
+    #[test]
+    fn pdf_string_state_should_preserve_binary_bytes_and_hex_mode() {
+        let mut state = PdfStringState { bytes: b"a\0b".to_vec(), output_is_hex: true };
+        assert!(unsafe { pdfium_rust_pdf_string_equals(&state, b"a\0b".as_ptr(), 3) });
+        assert!(!unsafe { pdfium_rust_pdf_string_equals(&state, b"a".as_ptr(), 1) });
+        assert!(unsafe { pdfium_rust_pdf_string_set(&mut state, b"next".as_ptr(), 4) });
+        assert_eq!(b"next", state.bytes.as_slice());
+        assert!(state.output_is_hex);
     }
 
     #[test]

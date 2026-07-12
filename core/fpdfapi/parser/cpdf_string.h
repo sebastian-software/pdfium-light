@@ -7,12 +7,18 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_STRING_H_
 #define CORE_FPDFAPI_PARSER_CPDF_STRING_H_
 
+#include <memory>
+
 #include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fxcrt/bytestring_pool.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/span.h"
 #include "core/fxcrt/weak_ptr.h"
+
+namespace pdfium::rust {
+class RustPdfString;
+}
 
 class CPDF_String final : public CPDF_Object {
  public:
@@ -31,7 +37,7 @@ class CPDF_String final : public CPDF_Object {
   bool WriteTo(IFX_ArchiveStream* archive,
                const CPDF_Encryptor* encryptor) const override;
 
-  bool IsHex() const { return output_is_hex_; }
+  bool IsHex() const;
   ByteString EncodeString() const;
 
  private:
@@ -45,6 +51,7 @@ class CPDF_String final : public CPDF_Object {
 
   ByteString data_;
   bool output_is_hex_ = false;
+  std::unique_ptr<pdfium::rust::RustPdfString> rust_value_;
 };
 
 inline CPDF_String* ToString(CPDF_Object* obj) {
