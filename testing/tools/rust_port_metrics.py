@@ -145,6 +145,7 @@ ACTIVE_SURFACES = (
     "public redaction validation, atomic removal planning, and status selection",
     "indexed page-object validation, content-stream inheritance, and dirty-stream planning",
     "public page-object matrix routing, dirty-state, and rotated-bounds geometry",
+    "page-object removal lookup and dirty-stream planning",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
