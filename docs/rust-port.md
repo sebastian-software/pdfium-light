@@ -1606,8 +1606,9 @@ original helper remains the separately selected oracle.
 
 The candidate remains O(1) in time and auxiliary storage. Twenty-four native
 Rust text tests cover ordinary advancement, invalid characters, missing text
-objects, and the size fallback. All seven search-extension tests, all 74 public
-text tests, all 1,069 unit tests, and `pdfium_all` pass.
+objects, and the size fallback. The exact separator differential is sensitive
+to a one-unit candidate-origin perturbation. All seven search-extension tests,
+all 74 public text tests, all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
