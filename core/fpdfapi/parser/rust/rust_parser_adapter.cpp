@@ -383,6 +383,14 @@ extern "C" bool pdfium_rust_name_tree_find_index(
     bool* found,
     uintptr_t* node,
     size_t* pair_index);
+extern "C" bool pdfium_rust_find_link_at_point(
+    size_t link_count,
+    float x,
+    float y,
+    void* context,
+    pdfium::rust::RustLinkRectCallback read_rect,
+    bool* found,
+    size_t* index);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -1314,6 +1322,20 @@ std::optional<RustNameTreeIndexResult> RustNameTreeFindIndex(
   if (!pdfium_rust_name_tree_find_index(
           root, target, context, describe, read_kid, &result.found,
           &result.node, &result.pair_index)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<RustLinkEnumerationResult> RustFindLinkAtPoint(
+    size_t link_count,
+    float x,
+    float y,
+    void* context,
+    RustLinkRectCallback read_rect) {
+  RustLinkEnumerationResult result = {};
+  if (!pdfium_rust_find_link_at_point(link_count, x, y, context, read_rect,
+                                      &result.found, &result.index)) {
     return std::nullopt;
   }
   return result;

@@ -301,6 +301,15 @@ type NameTreeDescribeCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool, *mut usize, *mut usize) -> bool;
 type NameTreeKidCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut usize) -> bool;
+type LinkRectCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    *mut bool,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+) -> bool;
 
 #[derive(Clone, Copy)]
 struct RedactionRect {
@@ -798,6 +807,31 @@ fn name_tree_find_index(
         let found = name_tree_find_index(kid, target, depth + 1, current, describe, read_kid)?;
         if found.is_some() {
             return Some(found);
+        }
+    }
+    Some(None)
+}
+
+fn find_link_at_point(
+    link_count: usize,
+    x: f32,
+    y: f32,
+    read_rect: &mut impl FnMut(usize) -> Option<Option<(f32, f32, f32, f32)>>,
+) -> Option<Option<usize>> {
+    for index in (0..link_count).rev() {
+        let Some((left, bottom, right, top)) = read_rect(index)? else {
+            continue;
+        };
+        let (normalized_left, normalized_right) =
+            if left > right { (right, left) } else { (left, right) };
+        let (normalized_bottom, normalized_top) =
+            if bottom > top { (top, bottom) } else { (bottom, top) };
+        if x >= normalized_left
+            && x <= normalized_right
+            && y >= normalized_bottom
+            && y <= normalized_top
+        {
+            return Some(Some(index));
         }
     }
     Some(None)
@@ -3982,6 +4016,50 @@ pub unsafe extern "C" fn pdfium_rust_name_tree_find_index(
     true
 }
 
+/// Finds the topmost link rectangle containing a public point.
+///
+/// # Safety
+/// Callback, context, and outputs must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_find_link_at_point(
+    link_count: usize,
+    x: f32,
+    y: f32,
+    context: *mut core::ffi::c_void,
+    read_rect: LinkRectCallback,
+    found: *mut bool,
+    index: *mut usize,
+) -> bool {
+    let (Some(found), Some(index)) = (unsafe { found.as_mut() }, unsafe { index.as_mut() }) else {
+        return false;
+    };
+    let mut callback = |candidate| {
+        let mut present = false;
+        let mut left = 0.0;
+        let mut bottom = 0.0;
+        let mut right = 0.0;
+        let mut top = 0.0;
+        unsafe {
+            read_rect(
+                context,
+                candidate,
+                &mut present,
+                &mut left,
+                &mut bottom,
+                &mut right,
+                &mut top,
+            )
+        }
+        .then_some(present.then_some((left, bottom, right, top)))
+    };
+    let Some(result) = find_link_at_point(link_count, x, y, &mut callback) else {
+        return false;
+    };
+    *found = result.is_some();
+    *index = result.unwrap_or_default();
+    true
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -5977,5 +6055,33 @@ mod tests {
                 &mut |_, _| Some(0),
             )
         );
+    }
+
+    #[test]
+    fn link_hit_test_should_normalize_rectangles_and_prefer_topmost_links() {
+        let rectangles = [Some((0.0, 0.0, 10.0, 10.0)), Some((8.0, 8.0, 2.0, 2.0)), None];
+        assert_eq!(
+            Some(Some(1)),
+            find_link_at_point(rectangles.len(), 5.0, 5.0, &mut |index| {
+                Some(rectangles[index])
+            })
+        );
+        assert_eq!(
+            Some(Some(0)),
+            find_link_at_point(rectangles.len(), 0.0, 0.0, &mut |index| {
+                Some(rectangles[index])
+            })
+        );
+        assert_eq!(
+            Some(None),
+            find_link_at_point(rectangles.len(), 11.0, 5.0, &mut |index| {
+                Some(rectangles[index])
+            })
+        );
+        assert_eq!(
+            Some(None),
+            find_link_at_point(1, 0.0, 0.0, &mut |_| { Some(Some((f32::NAN, 0.0, 1.0, 1.0))) })
+        );
+        assert_eq!(None, find_link_at_point(1, 0.0, 0.0, &mut |_| None));
     }
 }

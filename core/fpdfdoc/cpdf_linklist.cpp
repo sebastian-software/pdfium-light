@@ -11,6 +11,7 @@
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/numerics/safe_conversions.h"
 
 CPDF_LinkList::CPDF_LinkList() = default;
@@ -24,6 +25,44 @@ CPDF_Link CPDF_LinkList::GetLinkAtPoint(CPDF_Page* pPage,
       GetPageLinks(pPage);
   if (!pPageLinkList) {
     return CPDF_Link();
+  }
+
+  if (pdfium::rust::UseRustParserCandidate()) {
+    auto read_rect = [](void* context, size_t index, bool* present, float* left,
+                        float* bottom, float* right, float* top) {
+      const auto* links = static_cast<
+          const std::vector<RetainPtr<CPDF_Dictionary>>*>(context);
+      RetainPtr<CPDF_Dictionary> annotation = (*links)[index];
+      *present = !!annotation;
+      if (!annotation) {
+        return true;
+      }
+      CFX_FloatRect rect = CPDF_Link(annotation).GetRect();
+      *left = rect.left;
+      *bottom = rect.bottom;
+      *right = rect.right;
+      *top = rect.top;
+      return true;
+    };
+    std::optional<pdfium::rust::RustLinkEnumerationResult> result =
+        pdfium::rust::RustFindLinkAtPoint(
+            pPageLinkList->size(), point.x, point.y,
+            const_cast<std::vector<RetainPtr<CPDF_Dictionary>>*>(pPageLinkList),
+            read_rect);
+    if (result.has_value()) {
+      if (!result->found) {
+        return CPDF_Link();
+      }
+      RetainPtr<CPDF_Dictionary> annotation =
+          (*pPageLinkList)[result->index];
+      if (!annotation) {
+        return CPDF_Link();
+      }
+      if (z_order) {
+        *z_order = pdfium::checked_cast<int32_t>(result->index);
+      }
+      return CPDF_Link(std::move(annotation));
+    }
   }
 
   for (size_t i = pPageLinkList->size(); i > 0; --i) {

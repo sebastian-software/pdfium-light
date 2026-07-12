@@ -559,6 +559,19 @@ std::optional<RustNameTreeIndexResult> RustNameTreeFindIndex(
     void* context,
     RustNameTreeDescribeCallback describe,
     RustNameTreeKidCallback read_kid);
+using RustLinkRectCallback = bool (*)(void* context,
+                                      size_t index,
+                                      bool* present,
+                                      float* left,
+                                      float* bottom,
+                                      float* right,
+                                      float* top);
+std::optional<RustLinkEnumerationResult> RustFindLinkAtPoint(
+    size_t link_count,
+    float x,
+    float y,
+    void* context,
+    RustLinkRectCallback read_rect);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,
