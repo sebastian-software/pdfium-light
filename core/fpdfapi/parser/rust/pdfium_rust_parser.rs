@@ -2906,6 +2906,47 @@ fn parse_sdk_page_range(input: &[u8], page_count: u32) -> Option<Vec<u32>> {
     Some(result)
 }
 
+fn make_page_label_roman(mut number: i32) -> Vec<u8> {
+    const ARABIC: [i32; 13] = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+    const ROMAN: [&[u8]; 13] =
+        [b"m", b"cm", b"d", b"cd", b"c", b"xc", b"l", b"xl", b"x", b"ix", b"v", b"iv", b"i"];
+    number %= 1_000_000;
+    let mut result = Vec::new();
+    for (arabic, roman) in ARABIC.into_iter().zip(ROMAN) {
+        while number >= arabic {
+            number -= arabic;
+            result.extend_from_slice(roman);
+        }
+    }
+    result
+}
+
+fn make_page_label_letters(number: i32) -> Option<Vec<u8>> {
+    if number < 0 {
+        return None;
+    }
+    if number == 0 {
+        return Some(Vec::new());
+    }
+    let zero_based = number - 1;
+    let count = (zero_based / 26 + 1) % 1000;
+    let letter = b'a' + (zero_based % 26) as u8;
+    Some(vec![letter; count as usize])
+}
+
+fn page_label_number(number: i32, style: &[u8]) -> Option<Vec<u8>> {
+    let mut result = match style {
+        b"D" => number.to_string().into_bytes(),
+        b"R" | b"r" => make_page_label_roman(number),
+        b"A" | b"a" => make_page_label_letters(number)?,
+        _ => Vec::new(),
+    };
+    if matches!(style, b"R" | b"A") {
+        result.make_ascii_uppercase();
+    }
+    Some(result)
+}
+
 /// Parses the SDK page-range grammar and copies the zero-based page indices.
 ///
 /// A null output with zero capacity performs the sizing pass. Decimal overflow
@@ -2978,6 +3019,45 @@ pub unsafe extern "C" fn pdfium_rust_sdk_nul_terminate(
     let output = unsafe { core::slice::from_raw_parts_mut(output, required) };
     output[..input_len].copy_from_slice(input);
     output[input_len] = 0;
+    true
+}
+
+/// Formats the numeric portion of a public page label.
+///
+/// A null output with zero capacity performs the sizing pass. Negative
+/// alphabetic values reject the boundary so C++ can preserve malformed-input
+/// behavior in its retained implementation.
+///
+/// # Safety
+/// Nonempty style/output spans must identify readable/writable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_page_label_number(
+    number: i32,
+    style: *const u8,
+    style_len: usize,
+    output: *mut u8,
+    output_capacity: usize,
+    output_len: *mut usize,
+) -> bool {
+    let Some(output_len) = (unsafe { output_len.as_mut() }) else {
+        return false;
+    };
+    if style_len != 0 && style.is_null() {
+        return false;
+    }
+    let style =
+        if style_len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(style, style_len) } };
+    let Some(result) = page_label_number(number, style) else {
+        return false;
+    };
+    *output_len = result.len();
+    if output_capacity == 0 {
+        return output.is_null();
+    }
+    if output.is_null() || output_capacity < result.len() {
+        return false;
+    }
+    unsafe { core::slice::from_raw_parts_mut(output, result.len()) }.copy_from_slice(&result);
     true
 }
 
@@ -5206,5 +5286,18 @@ mod tests {
                 &mut |_| Some(0),
             )
         );
+    }
+
+    #[test]
+    fn page_label_number_should_preserve_all_styles_and_bounds() {
+        assert_eq!(Some(b"3098".to_vec()), page_label_number(3098, b"D"));
+        assert_eq!(Some(b"XXXVIII".to_vec()), page_label_number(38, b"R"));
+        assert_eq!(Some(b"dlxxx".to_vec()), page_label_number(580, b"r"));
+        assert_eq!(Some(b"E".to_vec()), page_label_number(5, b"A"));
+        assert_eq!(Some(vec![b'c'; 103]), page_label_number(2655, b"a"));
+        assert_eq!(Some(Vec::new()), page_label_number(1_000_000, b"R"));
+        assert_eq!(Some(Vec::new()), page_label_number(0, b"a"));
+        assert_eq!(Some(Vec::new()), page_label_number(42, b"unknown"));
+        assert_eq!(None, page_label_number(-1, b"A"));
     }
 }

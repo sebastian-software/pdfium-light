@@ -474,6 +474,9 @@ std::optional<uintptr_t> RustFindBookmark(
     RustBookmarkMatchCallback matches_title,
     RustBookmarkNavigateCallback first_child,
     RustBookmarkNavigateCallback next_sibling);
+std::optional<std::vector<uint8_t>> RustPageLabelNumber(
+    int32_t number,
+    pdfium::span<const uint8_t> style);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,

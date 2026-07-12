@@ -248,6 +248,12 @@ extern "C" bool pdfium_rust_sdk_nul_terminate(const uint8_t* input,
                                               uint8_t* output,
                                               size_t output_capacity,
                                               size_t* required_len);
+extern "C" bool pdfium_rust_page_label_number(int32_t number,
+                                              const uint8_t* style,
+                                              size_t style_len,
+                                              uint8_t* output,
+                                              size_t output_capacity,
+                                              size_t* output_len);
 extern "C" void* pdfium_rust_redaction_plan_new(
     bool has_rects,
     size_t rect_count,
@@ -1159,6 +1165,24 @@ std::optional<uintptr_t> RustFindBookmark(
     return std::nullopt;
   }
   return output;
+}
+
+std::optional<std::vector<uint8_t>> RustPageLabelNumber(
+    int32_t number,
+    pdfium::span<const uint8_t> style) {
+  size_t output_len = 0;
+  if (!pdfium_rust_page_label_number(number, style.data(), style.size(),
+                                     nullptr, 0, &output_len)) {
+    return std::nullopt;
+  }
+  std::vector<uint8_t> result(output_len);
+  if (output_len != 0 &&
+      !pdfium_rust_page_label_number(number, style.data(), style.size(),
+                                     result.data(), result.size(),
+                                     &output_len)) {
+    return std::nullopt;
+  }
+  return result;
 }
 
 std::optional<std::vector<size_t>> RustDocumentPageMutationPath(
