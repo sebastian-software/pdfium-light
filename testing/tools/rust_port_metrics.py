@@ -151,6 +151,7 @@ ACTIVE_SURFACES = (
     "public action type mapping and destination, file, and URI routing",
     "public destination zoom-mode, parameter-bound, and XYZ policy",
     "public bookmark depth-first traversal and cycle guarding",
+    "public page-label decimal, Roman, and alphabetic formatting",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
