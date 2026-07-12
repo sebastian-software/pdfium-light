@@ -446,6 +446,30 @@ TEST_F(FPDFTextEmbedderTest, RustTextObjectWritingModeMatchesCppOracle) {
   EXPECT_EQ(run(false), run(true));
 }
 
+TEST_F(FPDFTextEmbedderTest, RustTextObjectSeparatorMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bug_781804.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    const int count = FPDFText_CountChars(text_page.get());
+    std::vector<std::array<uint32_t, 3>> characters;
+    characters.reserve(count);
+    for (int index = 0; index < count; ++index) {
+      characters.push_back(
+          {FPDFText_GetUnicode(text_page.get(), index),
+           static_cast<uint32_t>(FPDFText_IsGenerated(text_page.get(), index)),
+           static_cast<uint32_t>(FPDFText_IsHyphen(text_page.get(), index))});
+    }
+    return characters;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
+
 TEST_F(FPDFTextEmbedderTest, TextHebrewMirrored) {
   ASSERT_TRUE(OpenDocument("hebrew_mirrored.pdf"));
   ScopedPage page = LoadScopedPage(0);
