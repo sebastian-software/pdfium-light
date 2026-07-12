@@ -183,6 +183,17 @@ void ExpectParserObjectSnapshotsEqual(const ParserObjectSnapshot& reference,
   EXPECT_EQ(reference.objects, candidate.objects);
 }
 
+struct ParserCorpusCase {
+  const char* name;
+  pdfium::span<const uint8_t> input;
+};
+
+const ParserCorpusCase kRustParserCorpus[] = {
+#define RUST_PARSER_CASE(name, input) {#name, pdfium::as_byte_span(input)},
+#include "testing/resources/rust_parser_corpus.inc"
+#undef RUST_PARSER_CASE
+};
+
 TEST(ParserTest, RebuildCrossRefCorrectly) {
   CPDF_TestParser parser;
   std::string test_file =
@@ -208,49 +219,14 @@ TEST(ParserTest, RebuildCrossRefCorrectly) {
 }
 
 TEST(ParserTest, RustCandidateMatchesCppCrossRefObjectSnapshots) {
-  static constexpr uint8_t kValidCrossRefStream[] =
-      "%PDF1-7\n%\xa0\xf2\xa4\xf4\n"
-      "7 0 obj <<\n"
-      "  /Filter /ASCIIHexDecode\n"
-      "  /Root 1 0 R\n"
-      "  /Size 3\n"
-      "  /W [1 1 1]\n"
-      ">>\n"
-      "stream\n"
-      "00 00 05\n"
-      "01 0F 00\n"
-      "02 01 02\n"
-      "endstream\n"
-      "endobj\n"
-      "startxref\n"
-      "14\n"
-      "%%EOF\n";
-  static constexpr uint8_t kTruncatedCrossRefStream[] =
-      "%PDF1-7\n%\xa0\xf2\xa4\xf4\n"
-      "7 0 obj <<\n"
-      "  /Filter /ASCIIHexDecode\n"
-      "  /Root 1 0 R\n"
-      "  /Size 3\n"
-      "  /W [1 1 1]\n"
-      ">>\n"
-      "stream\n"
-      "00 00 05\n"
-      "01 0F 00\n"
-      "02 01\n"
-      "endstream\n"
-      "endobj\n"
-      "startxref\n"
-      "14\n"
-      "%%EOF\n";
-
-  const std::array<pdfium::span<const uint8_t>, 2> inputs = {
-      pdfium::span(kValidCrossRefStream),
-      pdfium::span(kTruncatedCrossRefStream)};
-  for (pdfium::span<const uint8_t> input : inputs) {
+  for (const ParserCorpusCase& corpus_case : kRustParserCorpus) {
+    SCOPED_TRACE(corpus_case.name);
     const ParserObjectSnapshot reference =
-        CaptureParserObjectSnapshot(input, /*use_rust_candidate=*/false);
+        CaptureParserObjectSnapshot(corpus_case.input,
+                                    /*use_rust_candidate=*/false);
     const ParserObjectSnapshot candidate =
-        CaptureParserObjectSnapshot(input, /*use_rust_candidate=*/true);
+        CaptureParserObjectSnapshot(corpus_case.input,
+                                    /*use_rust_candidate=*/true);
     ExpectParserObjectSnapshotsEqual(reference, candidate);
   }
 }
