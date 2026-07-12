@@ -165,6 +165,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `4d64144fa` Phase 7 annotation-geometry slice | 24,084 | 17,273 | 241 | 6,794 | 6,570 | 292,547 | 8.23% | 8.07% | Rust owns public annotation rectangle corner transformation/reduction and signed page-rotation planning; C++ retains annotation/dictionary lifetimes, native writes, and the separately selected oracle |
 | `0649cbf37` Phase 7 public-action-routing slice | 24,143 | 17,332 | 241 | 6,816 | 6,570 | 292,699 | 8.25% | 8.09% | Rust owns internal-to-public action type mapping and destination/file/URI capability routing; C++ retains action dictionaries, destinations, path/URI byte storage, public copying, and the separately selected oracle |
 | `9bf42fcc4` Phase 7 public-destination-policy slice | 24,311 | 17,500 | 241 | 6,880 | 6,570 | 293,025 | 8.30% | 8.16% | Rust owns destination zoom-mode mapping, fit-parameter bounds, and XYZ validity/presence/zero-zoom policy; C++ retains destination arrays and name/number lifetimes, conditional output writes, and the separately selected oracle |
+| `f9ec47468` Phase 7 public-bookmark-traversal slice | 24,431 | 17,620 | 241 | 6,910 | 6,570 | 293,244 | 8.33% | 8.21% | Rust owns depth-first child/sibling traversal order, visited-set state, and cycle guarding; C++ retains bookmark-tree, dictionary, and title lifetimes, supplies borrowed comparison/navigation callbacks, and preserves the separately selected oracle |
 
 ## Toolchain
 
@@ -1795,6 +1796,22 @@ parameter count and untouched sentinel slots, XYZ validity, presence flags,
 and coordinate/zoom values under the C++ oracle and Rust candidate. All four
 public destination cases, all 47 parser-native tests, all 1,069 unit tests, and
 `pdfium_all` pass.
+
+The fortieth Phase 7 slice moves public bookmark search traversal into Rust.
+Rust owns depth-first child/sibling ordering, visited-set state, early-match
+return, and circular-tree guarding. C++ retains bookmark-tree, dictionary, and
+title lifetimes, supplies synchronous case-insensitive title comparison and
+borrowed child/sibling navigation callbacks, and preserves the complete
+original traversal as the separately selected oracle.
+
+A search remains O(n) in time, with O(n) visited-set storage and O(depth)
+recursion stack in both implementations. One parser-native test covers exact
+depth-first comparison order, a child cycle, and callback failure. A
+same-process public differential compares top-level, case-insensitive,
+descendant, and missing titles under the C++ oracle and Rust candidate; the
+existing circular-bookmark regression now compares both implementations too.
+All four focused public bookmark cases, all 48 parser-native tests, all 1,069
+unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
