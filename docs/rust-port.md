@@ -164,6 +164,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `c7e2eadb6` Phase 7 page-object-active-state slice | 24,008 | 17,197 | 241 | 6,771 | 6,570 | 292,373 | 8.21% | 8.04% | Rust owns active-state update and exact dirty decision plus active-object counting orchestration; C++ retains page-object storage/lifetimes, borrowed callbacks, and the separately selected oracle |
 | `4d64144fa` Phase 7 annotation-geometry slice | 24,084 | 17,273 | 241 | 6,794 | 6,570 | 292,547 | 8.23% | 8.07% | Rust owns public annotation rectangle corner transformation/reduction and signed page-rotation planning; C++ retains annotation/dictionary lifetimes, native writes, and the separately selected oracle |
 | `0649cbf37` Phase 7 public-action-routing slice | 24,143 | 17,332 | 241 | 6,816 | 6,570 | 292,699 | 8.25% | 8.09% | Rust owns internal-to-public action type mapping and destination/file/URI capability routing; C++ retains action dictionaries, destinations, path/URI byte storage, public copying, and the separately selected oracle |
+| `9bf42fcc4` Phase 7 public-destination-policy slice | 24,311 | 17,500 | 241 | 6,880 | 6,570 | 293,025 | 8.30% | 8.16% | Rust owns destination zoom-mode mapping, fit-parameter bounds, and XYZ validity/presence/zero-zoom policy; C++ retains destination arrays and name/number lifetimes, conditional output writes, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1777,6 +1778,23 @@ fixtures and compares public type, destination availability, and complete file
 and URI bytes including terminators under the C++ oracle and Rust candidate.
 All eight public action cases, all 46 parser-native tests, all 1,069 unit tests,
 and `pdfium_all` pass.
+
+The thirty-ninth Phase 7 slice moves public destination view and XYZ policy
+into Rust. Rust owns the complete zoom-mode name table, per-mode parameter
+caps, array-size bounding, XYZ structural validity, null-number presence flags,
+and the rule that numeric zero means an absent zoom. C++ retains destination
+arrays and name/number lifetimes, supplies borrowed decoded slot values,
+performs only the conditionally approved output writes, and preserves the
+complete original implementations as the separately selected oracle.
+
+Each destination operation remains O(1) in time and auxiliary storage. One
+parser-native test covers known and unknown modes, short and oversized arrays,
+all validity failures, absent coordinates, and zero zoom. A same-process
+public differential compares four named destinations across zoom mode,
+parameter count and untouched sentinel slots, XYZ validity, presence flags,
+and coordinate/zoom values under the C++ oracle and Rust candidate. All four
+public destination cases, all 47 parser-native tests, all 1,069 unit tests, and
+`pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
