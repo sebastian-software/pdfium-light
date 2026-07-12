@@ -138,6 +138,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `6f70ec2d4` Phase 7 text-query-tokenization slice | 20,258 | 13,447 | 241 | 5,185 | 6,570 | 285,113 | 7.11% | 6.46% | Rust owns leading/trailing-space markers, collapsed separators, script-boundary splitting, and right-apostrophe preservation; C++ retains only case folding and the separately selected tokenization oracle |
 | `2afa6a36f` Phase 7 text-link-extraction slice | 20,677 | 13,866 | 241 | 5,294 | 6,570 | 285,739 | 7.24% | 6.64% | Rust owns extracted web/mail URLs and ranges, multiline/hyphen joining, scheme/host/IPv6/bracket trimming, and email validation; C++ retains text geometry, public wrappers, and platform alphanumeric classification |
 | `0fc9dde75` Phase 7 text-index-mapping slice | 20,795 | 13,984 | 241 | 5,337 | 6,570 | 285,959 | 7.27% | 6.69% | Rust owns the visible-text segment map and both character/text index conversions; C++ retains character classification, public wrappers, and the separately selected mapping oracle |
+| `d13ca6f5d` Phase 7 text-hit-testing slice | 20,915 | 14,104 | 241 | 5,379 | 6,570 | 286,176 | 7.31% | 6.75% | Rust owns character-rectangle containment, tolerance expansion, nearest-edge selection, and tie order; C++ retains character rectangles, the synchronous rectangle callback, public wrappers, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1319,6 +1320,21 @@ separately on a fixture containing a non-printable character, then compares
 both conversions across negative, in-range, and out-of-range indexes. All
 seven search-extension tests, all 63 public text tests, all 1,069 unit tests,
 and `pdfium_all` pass.
+
+The thirteenth Phase 7 slice moves `FPDFText_GetCharIndexAtPos()` containment
+and nearest-character selection into Rust. The candidate reads one borrowed
+character rectangle at a time through a synchronous callback, preserving the
+oracle's O(n) time and O(1) auxiliary memory. Rust owns rectangle normalization,
+inclusive containment, tolerance expansion, edge-distance ranking, and stable
+first-match ties; C++ retains the character list, rectangle storage, public
+wrapper, and separately selected loop.
+
+The initial native callback harness failed before public validation, so the
+algorithm was separated into a safe statically dispatched helper and the raw
+callback was confined to the FFI wrapper. Seven native Rust text tests, a
+same-process public matrix covering exact, missed, extreme, negative, and
+zero-tolerance positions, all seven search-extension tests, all 64 public text
+tests, all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
