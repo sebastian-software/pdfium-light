@@ -119,6 +119,7 @@ pdfium_unittest_source_set("unittests") {
     "../page",
     "../page:unit_test_support",
     "../render",
+    "rust:rust_parser_adapter",
   ]
   pdfium_root_dir = "../../../"
 

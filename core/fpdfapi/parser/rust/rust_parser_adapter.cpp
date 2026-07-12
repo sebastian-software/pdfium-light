@@ -190,7 +190,8 @@ std::optional<PdfTokenScan> RustScanPdfToken(
           input.data(), input.size(), position, &result.position,
           &result.has_word, &result.start, &result.len) ||
       (result.has_word &&
-       (result.start > input.size() || result.len > input.size() - result.start))) {
+       (result.start > input.size() ||
+        result.len > input.size() - result.start))) {
     return std::nullopt;
   }
   return result;
@@ -204,6 +205,15 @@ bool SetUseRustParserCandidateForTesting(bool use_candidate) {
   const bool previous = g_use_rust_parser_candidate;
   g_use_rust_parser_candidate = use_candidate;
   return previous;
+}
+
+ScopedRustParserImplementationForTesting::
+    ScopedRustParserImplementationForTesting(bool use_candidate)
+    : previous_(SetUseRustParserCandidateForTesting(use_candidate)) {}
+
+ScopedRustParserImplementationForTesting::
+    ~ScopedRustParserImplementationForTesting() {
+  SetUseRustParserCandidateForTesting(previous_);
 }
 
 }  // namespace pdfium::rust

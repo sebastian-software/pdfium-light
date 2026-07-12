@@ -64,6 +64,19 @@ std::optional<PdfTokenScan> RustScanPdfToken(
 bool UseRustParserCandidate();
 bool SetUseRustParserCandidateForTesting(bool use_candidate);
 
+class ScopedRustParserImplementationForTesting final {
+ public:
+  explicit ScopedRustParserImplementationForTesting(bool use_candidate);
+  ScopedRustParserImplementationForTesting(
+      const ScopedRustParserImplementationForTesting&) = delete;
+  ScopedRustParserImplementationForTesting& operator=(
+      const ScopedRustParserImplementationForTesting&) = delete;
+  ~ScopedRustParserImplementationForTesting();
+
+ private:
+  bool previous_;
+};
+
 }  // namespace pdfium::rust
 
 #endif  // CORE_FPDFAPI_PARSER_RUST_RUST_PARSER_ADAPTER_H_
