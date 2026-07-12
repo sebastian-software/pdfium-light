@@ -152,6 +152,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `b3076bf2d` Phase 7 text-object-base-spacing slice | 22,439 | 15,628 | 241 | 6,078 | 6,570 | 289,068 | 7.76% | 7.40% | Rust owns per-object kerning scanning, minimum base spacing, negative/two-item suppression, and signed character-space adjustment; C++ retains text state, native matrix distance transforms, kerning storage, and the separately selected oracle |
 | `ec21cd640` Phase 7 marked-content slice | 22,693 | 15,882 | 241 | 6,217 | 6,570 | 289,558 | 7.84% | 7.50% | Rust owns ActualText pass/done/delay selection, printable filtering, control replacement, RTL/LTR box subdivision, and retained emissions; C++ retains marked-content dictionaries, object/matrix lifetimes, platform printability, native `CharInfo` construction, and the separately selected oracle |
 | `1c8ed33b2` Phase 7 text-space-threshold slice | 22,753 | 15,942 | 241 | 6,247 | 6,570 | 289,674 | 7.85% | 7.53% | Rust owns space-glyph threshold calculation, the one-third cap, halving, fallback-width request, and 300/500/700 normalization; C++ retains font character-code/width lookup, the synchronous fallback callback, and the separately selected oracle |
+| `6d6566673` Phase 7 text-item-spacing slice | 22,866 | 16,055 | 241 | 6,298 | 6,570 | 289,902 | 7.89% | 7.58% | Rust owns per-item kerning/base-space composition, prior-text/space suppression, threshold request, and generated-space decision; C++ retains font and text buffers, native character creation, validated writes, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1561,6 +1562,21 @@ tests cover accepted space widths, capped widths, missing space glyphs, and
 normalized fallback bands. Existing whitespace and separator differentials
 cover the production path. All seven search-extension tests, all 73 public text
 tests, all 1,069 unit tests, and `pdfium_all` pass.
+
+The twenty-seventh Phase 7 slice moves per-item spacing state and generated
+space decisions into Rust. Rust owns kerning-to-spacing conversion, previous
+text/space suppression, base-space subtraction, threshold requests, and the
+final generate/no-generate decision. C++ retains font and text-buffer access,
+native origin/`CharInfo` construction, and validated writes; the complete
+original loop remains the separately selected per-item fallback.
+
+The candidate remains O(n) in the text object's item count with O(1) auxiliary
+storage and requests the fallback glyph width only when needed. Twenty-two
+native Rust text tests cover first items, kerning, base spacing, prior spaces,
+and lazy fallback. The expanded same-process separator differential compares
+Unicode, generated/hyphen flags, origins, and character boxes exactly. All
+seven search-extension tests, all 73 public text tests, all 1,069 unit tests,
+and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
