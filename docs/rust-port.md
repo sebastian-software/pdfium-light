@@ -161,6 +161,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `764015ee2` Phase 7 indexed-object-insertion slice | 23,724 | 16,913 | 241 | 6,630 | 6,570 | 291,637 | 8.13% | 7.93% | Rust owns insertion-index validation, lazy neighbor lookup, content-stream inheritance, and dirty-stream selection; C++ retains page-object lifetimes, applies the validated deque/stream mutation, and preserves the complete separately selected oracle |
 | `aa090f3b1` Phase 7 page-object-matrix slice | 23,860 | 17,049 | 241 | 6,687 | 6,570 | 291,971 | 8.17% | 7.98% | Rust owns supported-object routing for public matrix access, exact image dirty-state selection, and rotated text/image QuadPoints geometry; C++ retains page-object lifetimes, native matrix storage/setters, and the separately selected oracle |
 | `feacb5472` Phase 7 page-object-removal slice | 23,935 | 17,124 | 241 | 6,724 | 6,570 | 292,171 | 8.19% | 8.01% | Rust owns stable handle lookup, removal-index selection, non-member results, and dirty content-stream selection; C++ retains page-object lifetimes, unique ownership transfer, deque erasure, dirty-set mutation, and the separately selected oracle |
+| `c7e2eadb6` Phase 7 page-object-active-state slice | 24,008 | 17,197 | 241 | 6,771 | 6,570 | 292,373 | 8.21% | 8.04% | Rust owns active-state update and exact dirty decision plus active-object counting orchestration; C++ retains page-object storage/lifetimes, borrowed callbacks, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1724,6 +1725,22 @@ non-member rejection under both implementations, then generates content,
 saves, reloads, and compares both pages again. The existing basic removal and
 add/remove path regressions also pass. All 43 parser-native tests, all 1,069
 unit tests, and `pdfium_all` pass.
+
+The thirty-sixth Phase 7 slice moves page-object active-state mutation policy
+and holder-wide active counting into Rust. Rust preserves the requested state,
+marks the object dirty only when that state changes, and counts active borrowed
+objects through an ordered synchronous callback. C++ retains the object fields,
+page-object storage and lifetimes, applies the validated update, and preserves
+the complete original implementations as the separately selected oracle.
+
+Both operations remain O(1) for one mutation and O(n) for holder counting with
+O(1) auxiliary storage. One parser-native test covers unchanged, activation,
+deactivation, mixed active lists, and callback failure. A same-process public
+differential compares initial and twice-deactivated state, object count, and
+public text character count under both implementations, then generates
+content, saves, reloads, and compares both pages again. The existing public
+active-state save/render regression also passes. All 44 parser-native tests,
+all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
