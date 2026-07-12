@@ -106,6 +106,26 @@ decision plus text-matrix availability. AGG and FreeType remain the retained
 raster and font backends; these tests validate the Rust-owned planning and
 adapter boundaries around them.
 
+For Rust parser changes, build the native parser tests, the C++ object-snapshot
+corpus, and the retained parser fuzzer source:
+
+```bash
+ninja -C out/light \
+  pdfium_rust_parser_unittests \
+  pdfium_unittests \
+  testing/fuzzers:pdf_parser_fuzzer_src
+out/light/pdfium_rust_parser_unittests
+out/light/pdfium_unittests \
+  --gtest_filter='ParserTest.RustCandidateMatchesCppCrossRefObjectSnapshots:SimpleParserTest.*'
+```
+
+The versioned corpus in `testing/resources/rust_parser_corpus.inc` compares
+parse status, rebuild decisions, trailer object number, and every
+cross-reference object entry for normal, defaulted, unknown, and truncated
+streams. `pdf_parser_fuzzer` performs allocation-free token and consumed-offset
+differential checks before sending the same bounded input through the public
+in-memory document parser. `pdfium_all` must continue to compile the fuzzer.
+
 For Rust DIB changes, build and run the native Rust target and the exhaustive
 C++/Rust blend and row parity cases:
 

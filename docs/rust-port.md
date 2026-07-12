@@ -106,6 +106,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `50bf3eb82` Phase 6 xref-field collection slice | 15,972 | 9,161 | 241 | 3,661 | 6,570 | 276,966 | 5.77% | 4.54% | Prior surfaces plus Rust-owned complete three-field cross-reference entry collection; C++ retains table mutation and object graph ownership |
 | `0c0f0c95b` Phase 6 simple-token boundary slice | 16,155 | 9,344 | 241 | 3,691 | 6,570 | 277,191 | 5.83% | 4.63% | Prior surfaces plus Rust-owned complete `CPDF_SimpleParser::GetWord()` token-range planning; C++ retains borrowed storage and `ByteStringView` ownership |
 | `1453d7000` Phase 6 object-snapshot baseline | 16,155 | 9,344 | 241 | 3,714 | 6,570 | 277,302 | 5.83% | 4.62% | Same-process C++/Rust parser selection and exact error, rebuild, trailer, and cross-reference object-map snapshots for valid and truncated streams |
+| `aae60a5ed` Phase 6 corpus/fuzzer baseline | 16,155 | 9,344 | 241 | 3,714 | 6,570 | 277,278 | 5.83% | 4.62% | Versioned normal, defaulted, unknown, and truncated cross-reference corpus plus retained token-differential and public document parser fuzzer |
 
 ## Toolchain
 
@@ -774,13 +775,21 @@ boundary fallback. Sixteen native parser tests cover the scalar and FFI
 contracts, including rejection without output mutation; the common local gate
 passes.
 
-The Phase 6 differential baseline now runs complete valid and truncated
-cross-reference streams twice in the same process. A test-only scoped selector
-chooses the retained C++ oracle or production Rust candidate, then compares the
-parse error, rebuild decision, trailer object number, and every free, normal,
-and compressed cross-reference object-map entry. The reduced-checkout gate
-validates the test wiring and build graph; executing the new unit case remains
-part of the next full GN parser gate.
+The Phase 6 differential baseline runs the versioned normal, default-type,
+unknown-type, and truncated cross-reference corpus twice in the same process.
+A test-only scoped selector chooses the retained C++ oracle or production Rust
+candidate, then compares the parse error, rebuild decision, trailer object
+number, and every free, normal, and compressed cross-reference object-map
+entry. The hermetic full gate builds `pdfium_unittests` and the retained parser
+fuzzer, passes all 16 native Rust parser tests, all four corpus snapshots, both
+existing simple-parser tests, and the complete 1,057-test unit suite.
+
+`pdf_parser_fuzzer` bounds each input to 1 MiB, compares every
+`CPDF_SimpleParser` token and consumed position between the C++ oracle and Rust
+candidate without intermediate allocations, and then passes the same bytes to
+the production public in-memory document parser. `pdfium_all` compiles this
+retained target so later sanitizer/libFuzzer campaigns keep the active parser
+boundary covered.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
