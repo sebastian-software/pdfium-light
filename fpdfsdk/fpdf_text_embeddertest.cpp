@@ -286,6 +286,41 @@ TEST_F(FPDFTextEmbedderTest, RustIndexAtPositionMatchesCppOracle) {
   EXPECT_EQ(run(false), run(true));
 }
 
+TEST_F(FPDFTextEmbedderTest, RustBoundedTextMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    int required;
+    int copied;
+    std::array<unsigned short, 64> buffer;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust, const std::array<double, 4>& rect) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    Snapshot snapshot = {};
+    snapshot.buffer.fill(0xbdbd);
+    snapshot.required = FPDFText_GetBoundedText(
+        text_page.get(), rect[0], rect[1], rect[2], rect[3], nullptr, 0);
+    snapshot.copied = FPDFText_GetBoundedText(
+        text_page.get(), rect[0], rect[1], rect[2], rect[3],
+        snapshot.buffer.data(), static_cast<int>(snapshot.buffer.size()));
+    return snapshot;
+  };
+
+  static constexpr std::array<double, 4> kCases[] = {
+      {41.0, 56.0, 82.0, 48.0},
+      {0.0, 1000.0, 1000.0, 0.0},
+      {0.0, 0.0, 1.0, -1.0},
+  };
+  for (const auto& rect : kCases) {
+    EXPECT_EQ(run(false, rect), run(true, rect));
+  }
+}
+
 TEST_F(FPDFTextEmbedderTest, TextVertical) {
   ASSERT_TRUE(OpenDocument("vertical_text.pdf"));
   ScopedPage page = LoadScopedPage(0);
