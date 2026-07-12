@@ -147,6 +147,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `a3368fe93` Phase 7 text-flow-orientation slice | 21,865 | 15,054 | 241 | 5,798 | 6,570 | 287,988 | 7.59% | 7.15% | Rust owns active text-object mask construction, page-bound clamping, occupied-span fill ratios, and horizontal/vertical flow selection; C++ retains page-object geometry, the synchronous callback, and the separately selected oracle |
 | `a23c711ec` Phase 7 text-object-writing-mode slice | 21,928 | 15,117 | 241 | 5,831 | 6,570 | 288,153 | 7.61% | 7.18% | Rust owns transformed-endpoint deltas, epsilon handling, vector normalization, axis thresholds, and fallback writing-mode selection; C++ retains text-object access, native matrix transforms, and the separately selected oracle |
 | `6fb298ba6` Phase 7 text-object-separator slice | 22,103 | 15,292 | 241 | 5,924 | 6,570 | 288,493 | 7.66% | 7.25% | Rust owns horizontal/vertical line-end geometry, ordered width-threshold normalization, and gap-based space insertion; C++ retains text/font access, matrix transforms, hyphen policy, native output mutation, and the separately selected oracle |
+| `dc960e660` Phase 7 text-hyphen-joining slice | 22,195 | 15,384 | 241 | 5,966 | 6,570 | 288,650 | 7.69% | 7.29% | Rust owns trailing-space backtracking, soft/ASCII hyphen recognition, word-continuation policy, and `CharType::kPiece` fallback; C++ retains native buffers, previous-character metadata, platform Unicode predicates, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1473,6 +1474,22 @@ threshold bands, touching glyphs, and separated glyphs. A same-process public
 differential compares every Unicode value, generated flag, and hyphen flag on
 the multiline hyphen fixture. All seven search-extension tests, all 72 public
 text tests, all 1,069 unit tests, and `pdfium_all` pass.
+
+The twenty-second Phase 7 slice moves line-ending hyphen joining into Rust.
+Rust scans the supplied active text buffer backward across trailing spaces,
+recognizes ASCII and soft hyphens, applies the alphabetic-to-alphanumeric word
+continuation rule, and preserves the prior `CharType::kPiece` fallback. C++
+retains native buffer and previous-character storage and supplies the platform
+Unicode alpha/alphanumeric predicates through a synchronous callback; the
+complete original implementation remains the separately selected oracle.
+
+The candidate remains O(n) only in the trailing-space suffix and uses O(n)
+temporary code-point storage at the checked ABI boundary. Sixteen native Rust
+text tests cover skipped spaces, ordinary word continuation, and piece
+fallback. The existing same-process multiline hyphen differential compares
+every Unicode value, generated flag, and hyphen flag. All seven
+search-extension tests, all 72 public text tests, all 1,069 unit tests, and
+`pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
