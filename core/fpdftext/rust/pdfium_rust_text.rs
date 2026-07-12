@@ -30,6 +30,8 @@ type TextCharacterPredicateCallback = unsafe extern "C" fn(*mut core::ffi::c_voi
 type TextCodePointCallback = unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut u32) -> bool;
 type TextFloatCallback = unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut f32) -> bool;
 type TextWidthCallback = unsafe extern "C" fn(*mut core::ffi::c_void, *mut i32) -> bool;
+type TextSameObjectItemCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut u32, *mut u32) -> bool;
 type TextOrientationObjectCallback = unsafe extern "C" fn(
     *mut core::ffi::c_void,
     usize,
@@ -1439,6 +1441,91 @@ fn text_item_space_plan(
     Some(TextItemSpacePlan { spacing, generate_space })
 }
 
+fn cpp_minimum(left: f32, right: f32) -> f32 {
+    if right < left {
+        right
+    } else {
+        left
+    }
+}
+
+fn cpp_maximum(left: f32, right: f32) -> f32 {
+    if left < right {
+        right
+    } else {
+        left
+    }
+}
+
+fn text_rect_is_empty(rect: [f32; 4]) -> bool {
+    rect[0] >= rect[2] || rect[1] >= rect[3]
+}
+
+#[allow(clippy::too_many_arguments)]
+fn text_objects_are_same(
+    mut previous_rect: [f32; 4],
+    current_rect: [f32; 4],
+    previous_char_box_width: Option<f32>,
+    previous_font_size: f32,
+    current_font_size: f32,
+    previous_item_count: usize,
+    current_item_count: usize,
+    mut get_item_characters: impl FnMut(usize) -> Option<(u32, u32)>,
+    position_difference: [f32; 2],
+    last_character_width: f32,
+) -> Option<bool> {
+    let previous_empty = text_rect_is_empty(previous_rect);
+    let current_empty = text_rect_is_empty(current_rect);
+    if previous_empty
+        && current_empty
+        && previous_char_box_width
+            .is_some_and(|width| (previous_rect[0] - current_rect[0]).abs() > width)
+    {
+        return Some(false);
+    }
+    if !previous_empty || !current_empty {
+        normalize_rect(&mut previous_rect);
+        let mut normalized_current = current_rect;
+        normalize_rect(&mut normalized_current);
+        previous_rect = [
+            cpp_maximum(previous_rect[0], normalized_current[0]),
+            cpp_maximum(previous_rect[1], normalized_current[1]),
+            cpp_minimum(previous_rect[2], normalized_current[2]),
+            cpp_minimum(previous_rect[3], normalized_current[3]),
+        ];
+        if previous_rect[0] > previous_rect[2] || previous_rect[1] > previous_rect[3] {
+            previous_rect = [0.0; 4];
+        }
+        let current_width = normalized_current[2] - normalized_current[0];
+        if text_rect_is_empty(previous_rect)
+            || (previous_rect[2] - previous_rect[0] - current_width).abs() > current_width / 2.0
+            || previous_font_size != current_font_size
+        {
+            return Some(false);
+        }
+    }
+    if previous_item_count != current_item_count {
+        return Some(false);
+    }
+    if previous_item_count == 0 {
+        return Some(true);
+    }
+    for index in 0..previous_item_count {
+        let (previous, current) = get_item_characters(index)?;
+        if previous != current {
+            return Some(false);
+        }
+    }
+    let maximum_previous_size = cpp_maximum(
+        cpp_maximum(previous_rect[3] - previous_rect[1], previous_rect[2] - previous_rect[0]),
+        previous_font_size,
+    );
+    Some(
+        position_difference[0].abs() <= 0.9 * last_character_width * previous_font_size / 1000.0
+            && position_difference[1].abs() <= maximum_previous_size / 8.0,
+    )
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -1851,6 +1938,62 @@ pub unsafe extern "C" fn pdfium_rust_text_item_space_plan(
     };
     *spacing = plan.spacing;
     *generate_space = plan.generate_space;
+    true
+}
+
+/// Compares two text objects using PDFium's duplicate-suppression policy.
+///
+/// # Safety
+/// The callback, context, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn pdfium_rust_text_objects_are_same(
+    previous_left: f32,
+    previous_bottom: f32,
+    previous_right: f32,
+    previous_top: f32,
+    current_left: f32,
+    current_bottom: f32,
+    current_right: f32,
+    current_top: f32,
+    has_previous_char_box_width: bool,
+    previous_char_box_width: f32,
+    previous_font_size: f32,
+    current_font_size: f32,
+    previous_item_count: usize,
+    current_item_count: usize,
+    context: *mut core::ffi::c_void,
+    get_item_characters: TextSameObjectItemCallback,
+    difference_x: f32,
+    difference_y: f32,
+    last_character_width: f32,
+    output: *mut bool,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let result = text_objects_are_same(
+        [previous_left, previous_bottom, previous_right, previous_top],
+        [current_left, current_bottom, current_right, current_top],
+        has_previous_char_box_width.then_some(previous_char_box_width),
+        previous_font_size,
+        current_font_size,
+        previous_item_count,
+        current_item_count,
+        |index| {
+            let mut previous = 0;
+            let mut current = 0;
+            // SAFETY: The caller guarantees synchronous callback validity.
+            unsafe { get_item_characters(context, index, &mut previous, &mut current) }
+                .then_some((previous, current))
+        },
+        [difference_x, difference_y],
+        last_character_width,
+    );
+    let Some(result) = result else {
+        return false;
+    };
+    *output = result;
     true
 }
 
@@ -2968,6 +3111,56 @@ mod tests {
             })
         );
         assert_eq!(1, calls);
+    }
+
+    #[test]
+    fn text_object_duplicate_policy_should_compare_geometry_and_items() {
+        let items = [(65, 65), (66, 66)];
+        assert_eq!(
+            Some(true),
+            text_objects_are_same(
+                [0.0, 0.0, 20.0, 10.0],
+                [0.0, 0.0, 20.0, 10.0],
+                None,
+                10.0,
+                10.0,
+                2,
+                2,
+                |index| items.get(index).copied(),
+                [1.0, 0.5],
+                600.0,
+            )
+        );
+        assert_eq!(
+            Some(false),
+            text_objects_are_same(
+                [0.0, 0.0, 20.0, 10.0],
+                [30.0, 0.0, 50.0, 10.0],
+                None,
+                10.0,
+                10.0,
+                2,
+                2,
+                |index| items.get(index).copied(),
+                [0.0, 0.0],
+                600.0,
+            )
+        );
+        assert_eq!(
+            Some(false),
+            text_objects_are_same(
+                [0.0; 4],
+                [8.0, 0.0, 8.0, 0.0],
+                Some(5.0),
+                10.0,
+                10.0,
+                2,
+                2,
+                |index| items.get(index).copied(),
+                [0.0, 0.0],
+                600.0,
+            )
+        );
     }
 
     #[test]

@@ -2057,6 +2057,52 @@ bool CPDF_TextPage::IsSameTextObject(CPDF_TextObject* text_obj1,
     return false;
   }
 
+  if (use_rust_) {
+    const CFX_FloatRect& previous_rect = text_obj2->GetRect();
+    const CFX_FloatRect& current_rect = text_obj1->GetRect();
+    std::optional<float> previous_char_box_width;
+    if (char_list_.size() >= 2) {
+      previous_char_box_width =
+          char_list_[char_list_.size() - 2].char_box().Width();
+    }
+    const size_t previous_item_count = text_obj2->CountItems();
+    const size_t current_item_count = text_obj1->CountItems();
+    struct ItemContext {
+      CPDF_TextObject* previous;
+      CPDF_TextObject* current;
+    } context = {text_obj2, text_obj1};
+    auto get_item_characters = [](void* context, size_t index,
+                                  uint32_t* previous, uint32_t* current) {
+      auto* item_context = static_cast<ItemContext*>(context);
+      if (index >= item_context->previous->CountItems() ||
+          index >= item_context->current->CountItems()) {
+        return false;
+      }
+      *previous = item_context->previous->GetItemInfo(index).char_code_;
+      *current = item_context->current->GetItemInfo(index).char_code_;
+      return true;
+    };
+    const CFX_PointF difference = text_obj1->GetPos() - text_obj2->GetPos();
+    float last_character_width = 0.0f;
+    if (previous_item_count > 0) {
+      const auto last_item = text_obj2->GetItemInfo(previous_item_count - 1);
+      last_character_width =
+          GetCharWidth(last_item.char_code_, text_obj2->GetFont().Get());
+    }
+    const auto same = pdfium::rust::RustTextObjectsAreSame(
+        {previous_rect.left, previous_rect.bottom, previous_rect.right,
+         previous_rect.top},
+        {current_rect.left, current_rect.bottom, current_rect.right,
+         current_rect.top},
+        previous_char_box_width, text_obj2->GetFontSize(),
+        text_obj1->GetFontSize(), previous_item_count, current_item_count,
+        &context, get_item_characters, difference.x, difference.y,
+        last_character_width);
+    if (same.has_value()) {
+      return *same;
+    }
+  }
+
   CFX_FloatRect prev_obj_rect = text_obj2->GetRect();
   const CFX_FloatRect& current_obj_rect = text_obj1->GetRect();
   if (prev_obj_rect.IsEmpty() && current_obj_rect.IsEmpty()) {

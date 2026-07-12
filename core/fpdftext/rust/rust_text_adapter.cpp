@@ -102,6 +102,27 @@ extern "C" bool pdfium_rust_text_item_space_plan(
     pdfium::rust::RustTextWidthCallback get_fallback_width,
     float* spacing,
     bool* generate_space);
+extern "C" bool pdfium_rust_text_objects_are_same(
+    float previous_left,
+    float previous_bottom,
+    float previous_right,
+    float previous_top,
+    float current_left,
+    float current_bottom,
+    float current_right,
+    float current_top,
+    bool has_previous_char_box_width,
+    float previous_char_box_width,
+    float previous_font_size,
+    float current_font_size,
+    size_t previous_item_count,
+    size_t current_item_count,
+    void* context,
+    pdfium::rust::RustTextSameObjectItemCallback get_item_characters,
+    float difference_x,
+    float difference_y,
+    float last_character_width,
+    bool* output);
 extern "C" bool pdfium_rust_text_marked_content_state(
     bool has_actual_text,
     bool repeats_previous_mark,
@@ -480,6 +501,34 @@ std::optional<RustTextItemSpacePlan> RustTextPlanItemSpace(
     return std::nullopt;
   }
   return plan;
+}
+
+std::optional<bool> RustTextObjectsAreSame(
+    const RustTextRect& previous_rect,
+    const RustTextRect& current_rect,
+    std::optional<float> previous_char_box_width,
+    float previous_font_size,
+    float current_font_size,
+    size_t previous_item_count,
+    size_t current_item_count,
+    void* context,
+    RustTextSameObjectItemCallback get_item_characters,
+    float difference_x,
+    float difference_y,
+    float last_character_width) {
+  bool output = false;
+  if (!pdfium_rust_text_objects_are_same(
+          previous_rect.left, previous_rect.bottom, previous_rect.right,
+          previous_rect.top, current_rect.left, current_rect.bottom,
+          current_rect.right, current_rect.top,
+          previous_char_box_width.has_value(),
+          previous_char_box_width.value_or(0.0f), previous_font_size,
+          current_font_size, previous_item_count, current_item_count, context,
+          get_item_characters, difference_x, difference_y, last_character_width,
+          &output)) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 std::optional<RustTextMarkedContentState> RustTextSelectMarkedContentState(

@@ -164,6 +164,10 @@ using RustTextFloatCallback = bool (*)(void* context,
                                        size_t index,
                                        float* value);
 using RustTextWidthCallback = bool (*)(void* context, int32_t* width);
+using RustTextSameObjectItemCallback = bool (*)(void* context,
+                                                size_t index,
+                                                uint32_t* previous,
+                                                uint32_t* current);
 
 std::optional<bool> RustTextIsHyphenJoin(
     WideStringView current_text,
@@ -217,6 +221,20 @@ std::optional<RustTextItemSpacePlan> RustTextPlanItemSpace(
     int32_t space_character_width,
     void* context,
     RustTextWidthCallback get_fallback_width);
+
+std::optional<bool> RustTextObjectsAreSame(
+    const RustTextRect& previous_rect,
+    const RustTextRect& current_rect,
+    std::optional<float> previous_char_box_width,
+    float previous_font_size,
+    float current_font_size,
+    size_t previous_item_count,
+    size_t current_item_count,
+    void* context,
+    RustTextSameObjectItemCallback get_item_characters,
+    float difference_x,
+    float difference_y,
+    float last_character_width);
 
 enum class RustTextMarkedContentState : uint8_t {
   kPass = 0,
