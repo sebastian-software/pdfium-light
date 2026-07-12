@@ -62,6 +62,66 @@ pub struct TextPredicateResultState {
     text: Vec<u32>,
 }
 
+pub struct TextLinePlanState {
+    kept_indices: Vec<usize>,
+    emissions: Vec<(usize, bool)>,
+}
+
+#[repr(C)]
+pub struct TextBidiSegment {
+    start: usize,
+    count: usize,
+    direction: u8,
+}
+
+impl TextLinePlanState {
+    fn new(text: &[u32]) -> Self {
+        let mut kept_indices = Vec::with_capacity(text.len());
+        let mut previous_was_space = false;
+        for (index, character) in text.iter().enumerate() {
+            let is_space = *character == b' ' as u32;
+            if !is_space || !previous_was_space {
+                kept_indices.push(index);
+            }
+            previous_was_space = is_space;
+        }
+        Self { kept_indices, emissions: Vec::new() }
+    }
+
+    fn set_segments(&mut self, overall_direction: u8, segments: &[TextBidiSegment]) -> bool {
+        if overall_direction != 1 && overall_direction != 2 {
+            return false;
+        }
+        let mut emissions = Vec::with_capacity(self.kept_indices.len());
+        let mut current_direction = overall_direction;
+        for segment in segments {
+            let Some(end) = segment.start.checked_add(segment.count) else {
+                return false;
+            };
+            if end > self.kept_indices.len() || segment.direction > 3 {
+                return false;
+            }
+            let is_rtl =
+                segment.direction == 2 || (segment.direction == 0 && current_direction == 2);
+            if is_rtl {
+                current_direction = 2;
+                for index in (segment.start..end).rev() {
+                    emissions.push((index, true));
+                }
+            } else {
+                if segment.direction != 3 {
+                    current_direction = 1;
+                }
+                for index in segment.start..end {
+                    emissions.push((index, false));
+                }
+            }
+        }
+        self.emissions = emissions;
+        true
+    }
+}
+
 impl TextIndexMapState {
     fn new(included: &[u8]) -> Option<Self> {
         if included.len() > i32::MAX as usize {
@@ -1068,6 +1128,116 @@ pub unsafe extern "C" fn pdfium_rust_text_predicate_result_copy(
     true
 }
 
+/// Creates the duplicate-space normalization and Bidi emission plan state.
+///
+/// # Safety
+/// The code-point span must remain readable for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_line_plan_new(
+    text: *const u32,
+    text_len: usize,
+) -> *mut TextLinePlanState {
+    let text = if text_len == 0 {
+        &[]
+    } else if text.is_null() {
+        return core::ptr::null_mut();
+    } else {
+        unsafe { core::slice::from_raw_parts(text, text_len) }
+    };
+    Box::into_raw(Box::new(TextLinePlanState::new(text)))
+}
+
+/// # Safety
+/// `state` must be null or returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_line_plan_free(state: *mut TextLinePlanState) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_line_plan_kept_count(
+    state: *const TextLinePlanState,
+) -> usize {
+    unsafe { state.as_ref() }.map_or(0, |state| state.kept_indices.len())
+}
+
+/// # Safety
+/// State and output must remain readable/writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_line_plan_kept_index(
+    state: *const TextLinePlanState,
+    index: usize,
+    source_index: *mut usize,
+) -> bool {
+    let (Some(source), Some(output)) =
+        (unsafe { state.as_ref() }.and_then(|state| state.kept_indices.get(index)), unsafe {
+            source_index.as_mut()
+        })
+    else {
+        return false;
+    };
+    *output = *source;
+    true
+}
+
+/// Replaces the emission order using native-classified Bidi segments.
+///
+/// # Safety
+/// State and the segment span must remain readable/writable for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_line_plan_set_segments(
+    state: *mut TextLinePlanState,
+    overall_direction: u8,
+    segments: *const TextBidiSegment,
+    segment_count: usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    let segments = if segment_count == 0 {
+        &[]
+    } else if segments.is_null() {
+        return false;
+    } else {
+        unsafe { core::slice::from_raw_parts(segments, segment_count) }
+    };
+    state.set_segments(overall_direction, segments)
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_line_plan_emission_count(
+    state: *const TextLinePlanState,
+) -> usize {
+    unsafe { state.as_ref() }.map_or(0, |state| state.emissions.len())
+}
+
+/// # Safety
+/// State and outputs must remain readable/writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_line_plan_emission(
+    state: *const TextLinePlanState,
+    index: usize,
+    character_index: *mut usize,
+    is_rtl: *mut bool,
+) -> bool {
+    let (Some(emission), Some(character_index), Some(is_rtl)) = (
+        unsafe { state.as_ref() }.and_then(|state| state.emissions.get(index)),
+        unsafe { character_index.as_mut() },
+        unsafe { is_rtl.as_mut() },
+    ) else {
+        return false;
+    };
+    *character_index = emission.0;
+    *is_rtl = emission.1;
+    true
+}
+
 /// # Safety
 /// The inclusion span must remain readable for this call.
 #[unsafe(no_mangle)]
@@ -1425,6 +1595,21 @@ mod tests {
             Some(vec![b'A' as u32, b' ' as u32, b'B' as u32, 13, 10, b'C' as u32]),
             text_by_predicate(characters.len(), |index| characters.get(index).copied())
         );
+    }
+
+    #[test]
+    fn text_line_plan_should_collapse_spaces_and_reverse_rtl_segments() {
+        let mut plan =
+            TextLinePlanState::new(&[b'A' as u32, b' ' as u32, b' ' as u32, 0x05d0, 0x05d1]);
+        assert_eq!(vec![0, 1, 3, 4], plan.kept_indices);
+        assert!(plan.set_segments(
+            1,
+            &[
+                TextBidiSegment { start: 0, count: 2, direction: 1 },
+                TextBidiSegment { start: 2, count: 2, direction: 2 },
+            ],
+        ));
+        assert_eq!(vec![(0, false), (1, false), (3, true), (2, true)], plan.emissions);
     }
 
     #[test]

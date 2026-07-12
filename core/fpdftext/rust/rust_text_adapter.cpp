@@ -56,6 +56,23 @@ extern "C" size_t pdfium_rust_text_predicate_result_len(const void* state);
 extern "C" bool pdfium_rust_text_predicate_result_copy(const void* state,
                                                         uint32_t* output,
                                                         size_t output_capacity);
+extern "C" void* pdfium_rust_text_line_plan_new(const uint32_t* text,
+                                                 size_t text_len);
+extern "C" void pdfium_rust_text_line_plan_free(void* state);
+extern "C" size_t pdfium_rust_text_line_plan_kept_count(const void* state);
+extern "C" bool pdfium_rust_text_line_plan_kept_index(const void* state,
+                                                       size_t index,
+                                                       size_t* source_index);
+extern "C" bool pdfium_rust_text_line_plan_set_segments(
+    void* state,
+    pdfium::rust::RustTextDirection overall_direction,
+    const pdfium::rust::RustTextBidiSegment* segments,
+    size_t segment_count);
+extern "C" size_t pdfium_rust_text_line_plan_emission_count(const void* state);
+extern "C" bool pdfium_rust_text_line_plan_emission(const void* state,
+                                                     size_t index,
+                                                     size_t* character_index,
+                                                     bool* is_rtl);
 extern "C" void* pdfium_rust_text_find_new(const uint32_t* page_text,
                                            size_t page_text_len,
                                            const uint32_t* query,
@@ -99,6 +116,9 @@ extern "C" bool pdfium_rust_text_link_extract_url(const void* state,
                                                   size_t* url_len);
 
 namespace pdfium::rust {
+
+static_assert(offsetof(RustTextBidiSegment, direction) == 2 * sizeof(size_t));
+static_assert(sizeof(RustTextBidiSegment) == 3 * sizeof(size_t));
 
 namespace {
 
@@ -218,6 +238,52 @@ std::optional<WideString> RustTextPredicateResult::GetText() const {
     characters.push_back(static_cast<wchar_t>(code_point));
   }
   return UNSAFE_BUFFERS(WideString(characters.data(), characters.size()));
+}
+
+RustTextLinePlan::RustTextLinePlan(WideStringView text) : state_(nullptr) {
+  std::vector<uint32_t> code_points = ToCodePoints(text);
+  state_ = pdfium_rust_text_line_plan_new(code_points.data(),
+                                          code_points.size());
+}
+
+RustTextLinePlan::~RustTextLinePlan() {
+  pdfium_rust_text_line_plan_free(state_);
+}
+
+size_t RustTextLinePlan::kept_count() const {
+  return state_ ? pdfium_rust_text_line_plan_kept_count(state_) : 0;
+}
+
+std::optional<size_t> RustTextLinePlan::GetKeptIndex(size_t index) const {
+  size_t source_index = 0;
+  if (!state_ ||
+      !pdfium_rust_text_line_plan_kept_index(state_, index, &source_index)) {
+    return std::nullopt;
+  }
+  return source_index;
+}
+
+bool RustTextLinePlan::SetSegments(
+    RustTextDirection overall_direction,
+    pdfium::span<const RustTextBidiSegment> segments) {
+  return state_ && pdfium_rust_text_line_plan_set_segments(
+                       state_, overall_direction, segments.data(),
+                       segments.size());
+}
+
+size_t RustTextLinePlan::emission_count() const {
+  return state_ ? pdfium_rust_text_line_plan_emission_count(state_) : 0;
+}
+
+std::optional<RustTextEmission> RustTextLinePlan::GetEmission(
+    size_t index) const {
+  RustTextEmission emission = {};
+  if (!state_ || !pdfium_rust_text_line_plan_emission(
+                     state_, index, &emission.character_index,
+                     &emission.is_rtl)) {
+    return std::nullopt;
+  }
+  return emission;
 }
 
 RustTextPageFind::RustTextPageFind(WideStringView page_text,

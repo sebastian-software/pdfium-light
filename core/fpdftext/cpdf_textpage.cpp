@@ -164,6 +164,21 @@ bool IsRectIntersect(const CFX_FloatRect& rect1, const CFX_FloatRect& rect2) {
   return !rect.IsEmpty();
 }
 
+pdfium::rust::RustTextDirection ToRustTextDirection(
+    CFX_BidiChar::Direction direction) {
+  switch (direction) {
+    case CFX_BidiChar::Direction::kNeutral:
+      return pdfium::rust::RustTextDirection::kNeutral;
+    case CFX_BidiChar::Direction::kLeft:
+      return pdfium::rust::RustTextDirection::kLeft;
+    case CFX_BidiChar::Direction::kRight:
+      return pdfium::rust::RustTextDirection::kRight;
+    case CFX_BidiChar::Direction::kLeftWeak:
+      return pdfium::rust::RustTextDirection::kLeftWeak;
+  }
+  NOTREACHED();
+}
+
 bool IsRightToLeft(const CPDF_TextObject& text_obj) {
   RetainPtr<const CPDF_Font> font = text_obj.GetFont();
   const size_t nItems = text_obj.CountItems();
@@ -958,6 +973,61 @@ void CPDF_TextPage::CloseTempLine() {
   }
 
   WideString str = temp_text_buf_.MakeString();
+  if (use_rust_) {
+    auto process_rust = [&]() {
+      pdfium::rust::RustTextLinePlan plan(str.AsStringView());
+      WideString collapsed;
+      collapsed.Reserve(plan.kept_count());
+      std::vector<CharInfo> collapsed_characters;
+      collapsed_characters.reserve(plan.kept_count());
+      for (size_t index = 0; index < plan.kept_count(); ++index) {
+        const auto source_index = plan.GetKeptIndex(index);
+        if (!source_index.has_value() || *source_index >= str.GetLength() ||
+            *source_index >= temp_char_list_.size()) {
+          return false;
+        }
+        collapsed += str[*source_index];
+        collapsed_characters.push_back(temp_char_list_[*source_index]);
+      }
+
+      CFX_BidiString bidi(collapsed);
+      if (rtl_) {
+        bidi.SetOverallDirectionRight();
+      }
+      std::vector<pdfium::rust::RustTextBidiSegment> segments;
+      for (const auto& segment : bidi) {
+        segments.push_back({segment.start, segment.count,
+                            ToRustTextDirection(segment.direction)});
+      }
+      if (!plan.SetSegments(ToRustTextDirection(bidi.OverallDirection()),
+                            segments)) {
+        return false;
+      }
+      std::vector<pdfium::rust::RustTextEmission> emissions;
+      emissions.reserve(plan.emission_count());
+      for (size_t index = 0; index < plan.emission_count(); ++index) {
+        const auto emission = plan.GetEmission(index);
+        if (!emission.has_value() ||
+            emission->character_index >= collapsed.GetLength() ||
+            emission->character_index >= collapsed_characters.size()) {
+          return false;
+        }
+        emissions.push_back(*emission);
+      }
+      for (const auto& emission : emissions) {
+        AddCharInfo(collapsed[emission.character_index],
+                    collapsed_characters[emission.character_index],
+                    emission.is_rtl);
+      }
+      temp_char_list_.clear();
+      temp_text_buf_.Delete(0, temp_text_buf_.GetLength());
+      return true;
+    };
+    if (process_rust()) {
+      return;
+    }
+  }
+
   bool prev_char_is_space = false;
   for (size_t i = 0; i < str.GetLength(); ++i) {
     if (str[i] != ' ') {

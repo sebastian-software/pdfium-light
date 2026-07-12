@@ -146,6 +146,43 @@ class RustTextPredicateResult final {
   void* state_;
 };
 
+enum class RustTextDirection : uint8_t {
+  kNeutral = 0,
+  kLeft = 1,
+  kRight = 2,
+  kLeftWeak = 3,
+};
+
+struct RustTextBidiSegment {
+  size_t start;
+  size_t count;
+  RustTextDirection direction;
+};
+
+struct RustTextEmission {
+  size_t character_index;
+  bool is_rtl;
+};
+
+class RustTextLinePlan final {
+ public:
+  explicit RustTextLinePlan(WideStringView text);
+  RustTextLinePlan(const RustTextLinePlan&) = delete;
+  RustTextLinePlan& operator=(const RustTextLinePlan&) = delete;
+  ~RustTextLinePlan();
+
+  bool valid() const { return state_ != nullptr; }
+  size_t kept_count() const;
+  std::optional<size_t> GetKeptIndex(size_t index) const;
+  bool SetSegments(RustTextDirection overall_direction,
+                   pdfium::span<const RustTextBidiSegment> segments);
+  size_t emission_count() const;
+  std::optional<RustTextEmission> GetEmission(size_t index) const;
+
+ private:
+  void* state_;
+};
+
 class RustTextLinkExtract final {
  public:
   RustTextLinkExtract();
