@@ -140,6 +140,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `0fc9dde75` Phase 7 text-index-mapping slice | 20,795 | 13,984 | 241 | 5,337 | 6,570 | 285,959 | 7.27% | 6.69% | Rust owns the visible-text segment map and both character/text index conversions; C++ retains character classification, public wrappers, and the separately selected mapping oracle |
 | `d13ca6f5d` Phase 7 text-hit-testing slice | 20,915 | 14,104 | 241 | 5,379 | 6,570 | 286,176 | 7.31% | 6.75% | Rust owns character-rectangle containment, tolerance expansion, nearest-edge selection, and tie order; C++ retains character rectangles, the synchronous rectangle callback, public wrappers, and the separately selected oracle |
 | `244e6f130` Phase 7 text-selection-rectangle slice | 21,087 | 14,276 | 241 | 5,456 | 6,570 | 286,525 | 7.36% | 6.82% | Rust owns selected-rectangle grouping, normalization, union, range handling, and retained public result state; C++ retains character metadata, the synchronous callback, public wrappers, and the separately selected oracle |
+| `9216b82ed` Phase 7 visible-text-range slice | 21,155 | 14,344 | 241 | 5,480 | 6,570 | 286,654 | 7.38% | 6.85% | Rust owns printable range-edge scanning and visible-buffer range calculation; C++ retains the text buffer, final substring copy, public wrapper, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1351,6 +1352,22 @@ union, and object-boundary splitting. A same-process public matrix compares
 counts and every rectangle for invalid, empty, bounded, remainder, and
 oversized ranges. All seven search-extension tests, all 65 public text tests,
 all 1,069 unit tests, and `pdfium_all` pass.
+
+The fifteenth Phase 7 slice moves `CPDF_TextPage::GetPageText()` range planning
+onto the existing Rust-owned character/visible-text index map. Rust now owns
+forward scanning from a non-printing start, backward scanning from a
+non-printing end, count clipping, and the final visible buffer offset/length.
+C++ retains the `WideTextBuffer`, final substring value copy, public wrapper,
+and separately selected scan. The candidate performs no mapping callback or
+parallel C++ scan.
+
+The native corpus exposed and records the historical shifted-start rule: the
+requested count is applied after advancing past a non-printing start, so the
+visible range can extend one character farther than a caller might expect.
+Nine native Rust text tests and a same-process public comparison of exact
+buffers and return lengths across invalid, empty, clipped, and non-printing
+ranges pass, together with all seven search-extension tests, all 66 public text
+tests, all 1,069 unit tests, and `pdfium_all`.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
