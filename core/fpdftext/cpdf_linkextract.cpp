@@ -10,7 +10,10 @@
 
 #include <vector>
 
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fpdftext/cpdf_textpage.h"
+#include "core/fpdftext/rust/rust_text_adapter.h"
+#include "core/fxcrt/check.h"
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
@@ -110,11 +113,36 @@ size_t TrimExternalBracketsFromWebLink(const WideString& str,
 }  // namespace
 
 CPDF_LinkExtract::CPDF_LinkExtract(const CPDF_TextPage* pTextPage)
-    : text_page_(pTextPage) {}
+    : text_page_(pTextPage),
+      use_rust_(pdfium::rust::UseRustParserCandidate()),
+      rust_links_(use_rust_
+                      ? std::make_unique<pdfium::rust::RustTextLinkExtract>()
+                      : nullptr) {}
 
 CPDF_LinkExtract::~CPDF_LinkExtract() = default;
 
 void CPDF_LinkExtract::ExtractLinks() {
+  if (use_rust_) {
+    const size_t total_characters = text_page_->CountChars();
+    std::vector<uint32_t> characters;
+    std::vector<uint8_t> flags;
+    characters.reserve(total_characters);
+    flags.reserve(total_characters);
+    for (size_t index = 0; index < total_characters; ++index) {
+      const CPDF_TextPage::CharInfo& info = text_page_->GetCharInfo(index);
+      characters.push_back(static_cast<uint32_t>(info.unicode()));
+      uint8_t flag =
+          info.char_type() == CPDF_TextPage::CharType::kGenerated ? 1 : 0;
+      if (info.char_type() == CPDF_TextPage::CharType::kHyphen) {
+        flag |= 2;
+      }
+      flags.push_back(flag);
+    }
+    const WideString page_text = text_page_->GetAllPageText();
+    CHECK(rust_links_->Extract(page_text.AsStringView(), characters, flags,
+                               nullptr, IsAlphanumeric));
+    return;
+  }
   link_array_.clear();
   size_t start = 0;
   size_t pos = 0;
@@ -307,10 +335,24 @@ bool CPDF_LinkExtract::CheckMailLink(WideString* str) {
 }
 
 WideString CPDF_LinkExtract::GetURL(size_t index) const {
+  if (use_rust_) {
+    return rust_links_->GetUrl(index).value_or(WideString());
+  }
   return index < link_array_.size() ? link_array_[index].url_ : WideString();
 }
 
+size_t CPDF_LinkExtract::CountLinks() const {
+  return use_rust_ ? rust_links_->size() : link_array_.size();
+}
+
 std::vector<CFX_FloatRect> CPDF_LinkExtract::GetRects(size_t index) const {
+  if (use_rust_) {
+    std::optional<pdfium::rust::RustTextLinkRange> range =
+        rust_links_->GetRange(index);
+    return range.has_value()
+               ? text_page_->GetRectArray(range->start, range->count)
+               : std::vector<CFX_FloatRect>();
+  }
   if (index >= link_array_.size()) {
     return std::vector<CFX_FloatRect>();
   }
@@ -321,8 +363,21 @@ std::vector<CFX_FloatRect> CPDF_LinkExtract::GetRects(size_t index) const {
 
 std::optional<CPDF_LinkExtract::Range> CPDF_LinkExtract::GetTextRange(
     size_t index) const {
+  if (use_rust_) {
+    std::optional<pdfium::rust::RustTextLinkRange> range =
+        rust_links_->GetRange(index);
+    if (!range.has_value()) {
+      return std::nullopt;
+    }
+    return Range{range->start, range->count};
+  }
   if (index >= link_array_.size()) {
     return std::nullopt;
   }
   return link_array_[index];
+}
+
+// static
+bool CPDF_LinkExtract::IsAlphanumeric(void*, uint32_t character) {
+  return FXSYS_iswalnum(static_cast<wchar_t>(character));
 }

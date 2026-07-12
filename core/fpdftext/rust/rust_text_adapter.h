@@ -11,6 +11,7 @@
 #include <optional>
 #include <utility>
 
+#include "core/fxcrt/span.h"
 #include "core/fxcrt/widestring.h"
 
 namespace pdfium::rust {
@@ -44,6 +45,34 @@ class RustTextPageFind final {
   void* context_;
   RustTextIndexMapCallback text_to_character_;
   RustTextIndexMapCallback character_to_text_;
+};
+
+using RustTextIsAlphanumericCallback = bool (*)(void* context,
+                                                uint32_t character);
+
+struct RustTextLinkRange {
+  size_t start;
+  size_t count;
+};
+
+class RustTextLinkExtract final {
+ public:
+  RustTextLinkExtract();
+  RustTextLinkExtract(const RustTextLinkExtract&) = delete;
+  RustTextLinkExtract& operator=(const RustTextLinkExtract&) = delete;
+  ~RustTextLinkExtract();
+
+  bool Extract(WideStringView page_text,
+               pdfium::span<const uint32_t> characters,
+               pdfium::span<const uint8_t> flags,
+               void* context,
+               RustTextIsAlphanumericCallback is_alphanumeric);
+  size_t size() const;
+  std::optional<RustTextLinkRange> GetRange(size_t index) const;
+  std::optional<WideString> GetUrl(size_t index) const;
+
+ private:
+  void* state_;
 };
 
 }  // namespace pdfium::rust

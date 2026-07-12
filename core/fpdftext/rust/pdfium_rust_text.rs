@@ -5,6 +5,7 @@
 #![allow(unsafe_code)]
 
 type IndexMapCallback = unsafe extern "C" fn(*mut core::ffi::c_void, i32, *mut i32) -> bool;
+type IsAlphanumericCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
 
 #[derive(Clone)]
 pub struct TextFindState {
@@ -16,6 +17,17 @@ pub struct TextFindState {
     previous_start: Option<usize>,
     result_start: usize,
     result_end: usize,
+}
+
+struct TextLink {
+    start: usize,
+    count: usize,
+    url: Vec<u32>,
+}
+
+#[derive(Default)]
+pub struct TextLinkExtractState {
+    links: Vec<TextLink>,
 }
 
 fn is_ignored_space_character(character: u32) -> bool {
@@ -322,6 +334,270 @@ impl TextFindState {
     }
 }
 
+fn find_web_link_ending(text: &[u32], start: usize, mut end: usize) -> usize {
+    if text[start..].contains(&(b'/' as u32)) {
+        return end;
+    }
+    if text[start] == b'[' as u32 {
+        if let Some(relative_end) = text[start + 1..].iter().position(|value| *value == b']' as u32)
+        {
+            end = start + 1 + relative_end;
+            if end > start + 1 {
+                let mut offset = end + 1;
+                if offset < text.len() && text[offset] == b':' as u32 {
+                    offset += 1;
+                    while offset < text.len() && is_decimal_digit(text[offset]) {
+                        offset += 1;
+                    }
+                    if offset > end + 2 {
+                        end = offset - 1;
+                    }
+                }
+            }
+        }
+        return end;
+    }
+    while end > start && text[end] < 0x80 {
+        let character = text[end];
+        if is_decimal_digit(character)
+            || (b'a' as u32..=b'z' as u32).contains(&character)
+            || character == b'.' as u32
+        {
+            break;
+        }
+        end -= 1;
+    }
+    end
+}
+
+fn trim_backwards_to_character(text: &[u32], character: u32, start: usize, end: &mut usize) {
+    if let Some(position) = (start..=*end).rev().find(|position| text[*position] == character) {
+        *end = position.wrapping_sub(1);
+    }
+}
+
+fn trim_external_brackets(text: &[u32], start: usize, mut end: usize) -> usize {
+    for &character in &text[..start] {
+        let closing = match character {
+            value if value == b'(' as u32 => b')' as u32,
+            value if value == b'[' as u32 => b']' as u32,
+            value if value == b'{' as u32 => b'}' as u32,
+            value if value == b'<' as u32 => b'>' as u32,
+            value if value == b'"' as u32 => b'"' as u32,
+            value if value == b'\'' as u32 => b'\'' as u32,
+            _ => continue,
+        };
+        trim_backwards_to_character(text, closing, start, &mut end);
+    }
+    end
+}
+
+fn find_sequence(text: &[u32], needle: &[u32], start: usize) -> Option<usize> {
+    text.get(start..)?
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .map(|position| start + position)
+}
+
+fn check_web_link(text: &[u32]) -> Option<TextLink> {
+    let lower: Vec<u32> = text
+        .iter()
+        .map(|character| {
+            if (b'A' as u32..=b'Z' as u32).contains(character) {
+                character + u32::from(b'a' - b'A')
+            } else {
+                *character
+            }
+        })
+        .collect();
+    if let Some(start) =
+        find_sequence(&lower, &[b'h' as u32, b't' as u32, b't' as u32, b'p' as u32], 0)
+    {
+        let mut offset = start + 4;
+        if lower.len() > offset + 4 {
+            if lower[offset] == b's' as u32 {
+                offset += 1;
+            }
+            if lower[offset..].starts_with(&[b':' as u32, b'/' as u32, b'/' as u32]) {
+                offset += 3;
+                let end = find_web_link_ending(
+                    &lower,
+                    offset,
+                    trim_external_brackets(&lower, start, lower.len() - 1),
+                );
+                if end > offset {
+                    return Some(TextLink {
+                        start,
+                        count: end - start + 1,
+                        url: text[start..=end].to_vec(),
+                    });
+                }
+            }
+        }
+    }
+    let www = [b'w' as u32, b'w' as u32, b'w' as u32, b'.' as u32];
+    if let Some(start) = find_sequence(&lower, &www, 0) {
+        let offset = start + www.len();
+        if lower.len() > offset {
+            let end = find_web_link_ending(
+                &lower,
+                start,
+                trim_external_brackets(&lower, start, lower.len() - 1),
+            );
+            if end > offset {
+                let mut url: Vec<u32> = "http://".chars().map(u32::from).collect();
+                url.extend_from_slice(&text[start..=end]);
+                return Some(TextLink { start, count: end - start + 1, url });
+            }
+        }
+    }
+    None
+}
+
+fn check_mail_link(
+    text: &mut Vec<u32>,
+    context: *mut core::ffi::c_void,
+    is_alphanumeric: IsAlphanumericCallback,
+) -> bool {
+    let Some(mut at_position) = text.iter().position(|character| *character == b'@' as u32) else {
+        return false;
+    };
+    if at_position == 0 || at_position == text.len() - 1 {
+        return false;
+    }
+    let mut period_position = at_position;
+    for index in (1..=at_position).rev() {
+        let character = text[index - 1];
+        if character == b'_' as u32
+            || character == b'-' as u32
+            || unsafe { is_alphanumeric(context, character) }
+        {
+            continue;
+        }
+        if character != b'.' as u32 || index == period_position || index == 1 {
+            if index == at_position {
+                return false;
+            }
+            let removed = if index == period_position { index + 1 } else { index };
+            text.drain(..removed);
+            break;
+        }
+        period_position = index - 1;
+    }
+
+    let Some(updated_at) = text.iter().position(|character| *character == b'@' as u32) else {
+        return false;
+    };
+    at_position = updated_at;
+    while text.last() == Some(&(b'.' as u32)) {
+        text.pop();
+    }
+    let Some(first_period) = text[at_position + 1..]
+        .iter()
+        .position(|character| *character == b'.' as u32)
+        .map(|position| at_position + 1 + position)
+    else {
+        return false;
+    };
+    if first_period == at_position + 1 {
+        return false;
+    }
+
+    period_position = 0;
+    let mut index = at_position + 1;
+    while index < text.len() {
+        let character = text[index];
+        if character == b'-' as u32 || unsafe { is_alphanumeric(context, character) } {
+            index += 1;
+            continue;
+        }
+        if character != b'.' as u32 || index == period_position + 1 {
+            let host_end =
+                if index == period_position + 1 { index.wrapping_sub(2) } else { index - 1 };
+            if period_position > 0 && host_end.wrapping_sub(at_position) >= 3 {
+                text.truncate(host_end + 1);
+                break;
+            }
+            return false;
+        }
+        period_position = index;
+        index += 1;
+    }
+
+    let mailto: Vec<u32> = "mailto:".chars().map(u32::from).collect();
+    if find_sequence(text, &mailto, 0).is_none() {
+        let mut result = mailto;
+        result.append(text);
+        *text = result;
+    }
+    true
+}
+
+impl TextLinkExtractState {
+    fn extract(
+        &mut self,
+        page_text: &[u32],
+        characters: &[u32],
+        flags: &[u8],
+        context: *mut core::ffi::c_void,
+        is_alphanumeric: IsAlphanumericCallback,
+    ) -> bool {
+        if characters.len() != flags.len() || page_text.len() < characters.len() {
+            return false;
+        }
+        self.links.clear();
+        let mut start = 0;
+        let mut position = 0;
+        let mut after_hyphen = false;
+        let mut line_break = false;
+        while position < characters.len() {
+            let character = characters[position];
+            let generated = flags[position] & 1 != 0;
+            let hyphen = flags[position] & 2 != 0;
+            if !generated && character != b' ' as u32 && position != characters.len() - 1 {
+                after_hyphen = hyphen || character == b'-' as u32;
+                position += 1;
+                continue;
+            }
+            let mut count = position - start;
+            if position == characters.len() - 1 {
+                count += 1;
+            } else if after_hyphen && matches!(character, 10 | 13) {
+                line_break = true;
+                position += 1;
+                continue;
+            }
+            let Some(candidate_span) = page_text.get(start..start + count) else {
+                return false;
+            };
+            let mut candidate: Vec<u32> = candidate_span
+                .iter()
+                .filter(|character| !line_break || !matches!(**character, 10 | 13))
+                .map(|character| if *character == 0xfffe { b'-' as u32 } else { *character })
+                .collect();
+            line_break = false;
+            if candidate.len() > 5 {
+                while matches!(candidate.last(), Some(value) if matches!(*value, 41 | 44 | 46 | 62))
+                {
+                    candidate.pop();
+                    count -= 1;
+                }
+                if count > 5 {
+                    if let Some(mut link) = check_web_link(&candidate) {
+                        link.start += start;
+                        self.links.push(link);
+                    } else if check_mail_link(&mut candidate, context, is_alphanumeric) {
+                        self.links.push(TextLink { start, count, url: candidate });
+                    }
+                }
+            }
+            position += 1;
+            start = position;
+        }
+        true
+    }
+}
+
 fn read_u32_span(data: *const u32, len: usize) -> Option<Vec<u32>> {
     if len == 0 {
         return Some(Vec::new());
@@ -429,9 +705,123 @@ pub unsafe extern "C" fn pdfium_rust_text_find_result(
     true
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_text_link_extract_new() -> *mut TextLinkExtractState {
+    Box::into_raw(Box::new(TextLinkExtractState::default()))
+}
+
+/// # Safety
+/// `state` must be null or returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_link_extract_free(state: *mut TextLinkExtractState) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// Replaces the extracted link list from one page snapshot.
+///
+/// # Safety
+/// State, callbacks, and all equally indexed character spans remain valid for
+/// this synchronous call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_link_extract_run(
+    state: *mut TextLinkExtractState,
+    page_text: *const u32,
+    page_text_len: usize,
+    characters: *const u32,
+    flags: *const u8,
+    character_count: usize,
+    context: *mut core::ffi::c_void,
+    is_alphanumeric: Option<IsAlphanumericCallback>,
+) -> bool {
+    let (Some(state), Some(page_text), Some(characters), Some(flags), Some(is_alphanumeric)) = (
+        unsafe { state.as_mut() },
+        read_u32_span(page_text, page_text_len),
+        read_u32_span(characters, character_count),
+        if character_count == 0 {
+            Some(Vec::new())
+        } else if flags.is_null() {
+            None
+        } else {
+            Some(unsafe { core::slice::from_raw_parts(flags, character_count).to_vec() })
+        },
+        is_alphanumeric,
+    ) else {
+        return false;
+    };
+    state.extract(&page_text, &characters, &flags, context, is_alphanumeric)
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_link_extract_count(
+    state: *const TextLinkExtractState,
+) -> usize {
+    unsafe { state.as_ref() }.map_or(0, |state| state.links.len())
+}
+
+/// # Safety
+/// State and outputs must remain readable/writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_link_extract_range(
+    state: *const TextLinkExtractState,
+    index: usize,
+    start: *mut usize,
+    count: *mut usize,
+) -> bool {
+    let (Some(link), Some(start), Some(count)) = (
+        unsafe { state.as_ref() }.and_then(|state| state.links.get(index)),
+        unsafe { start.as_mut() },
+        unsafe { count.as_mut() },
+    ) else {
+        return false;
+    };
+    *start = link.start;
+    *count = link.count;
+    true
+}
+
+/// # Safety
+/// State, `url_len`, and a sufficiently large non-null output must remain
+/// readable/writable. A null output performs the sizing pass.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_link_extract_url(
+    state: *const TextLinkExtractState,
+    index: usize,
+    output: *mut u32,
+    output_capacity: usize,
+    url_len: *mut usize,
+) -> bool {
+    let (Some(link), Some(url_len)) =
+        (unsafe { state.as_ref() }.and_then(|state| state.links.get(index)), unsafe {
+            url_len.as_mut()
+        })
+    else {
+        return false;
+    };
+    *url_len = link.url.len();
+    if output_capacity == 0 {
+        return output.is_null();
+    }
+    if output.is_null() || output_capacity < link.url.len() {
+        return false;
+    }
+    unsafe { core::slice::from_raw_parts_mut(output, link.url.len()) }.copy_from_slice(&link.url);
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    unsafe extern "C" fn test_is_alphanumeric(
+        _context: *mut core::ffi::c_void,
+        character: u32,
+    ) -> bool {
+        char::from_u32(character).is_some_and(char::is_alphanumeric)
+    }
 
     #[test]
     fn find_next_should_preserve_overlap_and_whole_word_behavior() {
@@ -491,5 +881,34 @@ mod tests {
             extract_find_words(&code_points("abc漢def"))
         );
         assert_eq!(vec![code_points("l’homme")], extract_find_words(&code_points("l’homme")));
+    }
+
+    #[test]
+    fn link_extraction_should_preserve_web_and_mail_ranges() {
+        let text: Vec<u32> =
+            "See (www.Example.com), mail a.b@example.com.".chars().map(u32::from).collect();
+        let mut state = TextLinkExtractState::default();
+        assert!(state.extract(
+            &text,
+            &text,
+            &vec![0; text.len()],
+            core::ptr::null_mut(),
+            test_is_alphanumeric,
+        ));
+        assert_eq!(2, state.links.len());
+        let url = |link: &TextLink| {
+            link.url.iter().filter_map(|value| char::from_u32(*value)).collect::<String>()
+        };
+        assert_eq!("http://www.Example.com", url(&state.links[0]));
+        assert_eq!("mailto:a.b@example.com", url(&state.links[1]));
+        assert_eq!(text.iter().position(|value| *value == b'w' as u32), Some(state.links[0].start));
+    }
+
+    #[test]
+    fn web_link_ending_should_keep_ipv6_ports_and_trim_host_punctuation() {
+        let ipv6: Vec<u32> = "[::1]:8080 trailing".chars().map(u32::from).collect();
+        assert_eq!(9, find_web_link_ending(&ipv6, 0, ipv6.len() - 1));
+        let host: Vec<u32> = "example.com)-".chars().map(u32::from).collect();
+        assert_eq!(10, find_web_link_ending(&host, 0, host.len() - 1));
     }
 }

@@ -6,6 +6,8 @@
 
 #include <vector>
 
+#include "core/fxcrt/compiler_specific.h"
+
 extern "C" void* pdfium_rust_text_find_new(const uint32_t* page_text,
                                            size_t page_text_len,
                                            const uint32_t* query,
@@ -26,6 +28,27 @@ extern "C" bool pdfium_rust_text_find_previous(
 extern "C" bool pdfium_rust_text_find_result(const void* state,
                                              size_t* start,
                                              size_t* end);
+extern "C" void* pdfium_rust_text_link_extract_new();
+extern "C" void pdfium_rust_text_link_extract_free(void* state);
+extern "C" bool pdfium_rust_text_link_extract_run(
+    void* state,
+    const uint32_t* page_text,
+    size_t page_text_len,
+    const uint32_t* characters,
+    const uint8_t* flags,
+    size_t character_count,
+    void* context,
+    pdfium::rust::RustTextIsAlphanumericCallback is_alphanumeric);
+extern "C" size_t pdfium_rust_text_link_extract_count(const void* state);
+extern "C" bool pdfium_rust_text_link_extract_range(const void* state,
+                                                    size_t index,
+                                                    size_t* start,
+                                                    size_t* count);
+extern "C" bool pdfium_rust_text_link_extract_url(const void* state,
+                                                  size_t index,
+                                                  uint32_t* output,
+                                                  size_t output_capacity,
+                                                  size_t* url_len);
 
 namespace pdfium::rust {
 
@@ -95,6 +118,63 @@ std::optional<std::pair<size_t, size_t>> RustTextPageFind::GetResult() const {
     return std::nullopt;
   }
   return std::make_pair(start, end);
+}
+
+RustTextLinkExtract::RustTextLinkExtract()
+    : state_(pdfium_rust_text_link_extract_new()) {}
+
+RustTextLinkExtract::~RustTextLinkExtract() {
+  pdfium_rust_text_link_extract_free(state_);
+}
+
+bool RustTextLinkExtract::Extract(
+    WideStringView page_text,
+    pdfium::span<const uint32_t> characters,
+    pdfium::span<const uint8_t> flags,
+    void* context,
+    RustTextIsAlphanumericCallback is_alphanumeric) {
+  if (characters.size() != flags.size()) {
+    return false;
+  }
+  std::vector<uint32_t> page_code_points = ToCodePoints(page_text);
+  return state_ && pdfium_rust_text_link_extract_run(
+                       state_, page_code_points.data(), page_code_points.size(),
+                       characters.data(), flags.data(), characters.size(),
+                       context, is_alphanumeric);
+}
+
+size_t RustTextLinkExtract::size() const {
+  return state_ ? pdfium_rust_text_link_extract_count(state_) : 0;
+}
+
+std::optional<RustTextLinkRange> RustTextLinkExtract::GetRange(
+    size_t index) const {
+  RustTextLinkRange result = {};
+  if (!state_ || !pdfium_rust_text_link_extract_range(
+                     state_, index, &result.start, &result.count)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<WideString> RustTextLinkExtract::GetUrl(size_t index) const {
+  size_t length = 0;
+  if (!state_ ||
+      !pdfium_rust_text_link_extract_url(state_, index, nullptr, 0, &length)) {
+    return std::nullopt;
+  }
+  std::vector<uint32_t> code_points(length);
+  if (length != 0 &&
+      !pdfium_rust_text_link_extract_url(state_, index, code_points.data(),
+                                         code_points.size(), &length)) {
+    return std::nullopt;
+  }
+  std::vector<wchar_t> characters;
+  characters.reserve(code_points.size());
+  for (uint32_t code_point : code_points) {
+    characters.push_back(static_cast<wchar_t>(code_point));
+  }
+  return UNSAFE_BUFFERS(WideString(characters.data(), characters.size()));
 }
 
 }  // namespace pdfium::rust
