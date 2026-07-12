@@ -38,6 +38,17 @@ type TextRecentCharacterCallback = unsafe extern "C" fn(
     *mut f32,
     *mut f32,
 ) -> bool;
+type TextObjectGroupSummaryCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    *mut usize,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+) -> bool;
+type TextObjectPositionCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut f32) -> bool;
 type TextSameObjectItemCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut u32, *mut u32) -> bool;
 type TextOrientationObjectCallback = unsafe extern "C" fn(
@@ -1575,6 +1586,45 @@ fn text_character_suppression_action(
     Some(0)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TextObjectGroupPlan {
+    action: u8,
+    insert_index: usize,
+}
+
+fn text_object_group_plan(
+    object_width: f32,
+    object_count: usize,
+    is_duplicate: bool,
+    mut get_summary: impl FnMut() -> Option<(usize, f32, f32, f32, f32, f32)>,
+    mut get_object_x: impl FnMut(usize) -> Option<f32>,
+) -> Option<TextObjectGroupPlan> {
+    if object_width.abs() < 0.01 {
+        return Some(TextObjectGroupPlan { action: 0, insert_index: 0 });
+    }
+    if object_count == 0 {
+        return Some(TextObjectGroupPlan { action: 1, insert_index: 0 });
+    }
+    if is_duplicate {
+        return Some(TextObjectGroupPlan { action: 0, insert_index: 0 });
+    }
+    let (previous_item_count, previous_width, current_width, previous_y, current_x, current_y) =
+        get_summary()?;
+    if previous_item_count == 0 {
+        return Some(TextObjectGroupPlan { action: 0, insert_index: 0 });
+    }
+    let threshold = cpp_maximum(previous_width, current_width) / 4.0;
+    if (current_y - previous_y).abs() > threshold * 2.0 {
+        return Some(TextObjectGroupPlan { action: 2, insert_index: 0 });
+    }
+    for index in (0..object_count).rev() {
+        if current_x >= get_object_x(index)? {
+            return Some(TextObjectGroupPlan { action: 3, insert_index: index + 1 });
+        }
+    }
+    Some(TextObjectGroupPlan { action: 3, insert_index: 0 })
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -2131,6 +2181,73 @@ pub unsafe extern "C" fn pdfium_rust_text_character_suppression_action(
         return false;
     };
     *output = action;
+    true
+}
+
+/// Plans skip, append, flush-and-append, or sorted insertion for one text
+/// object.
+///
+/// # Safety
+/// The callbacks, context, and output pointers must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_object_group_plan(
+    object_width: f32,
+    object_count: usize,
+    is_duplicate: bool,
+    context: *mut core::ffi::c_void,
+    get_summary: TextObjectGroupSummaryCallback,
+    get_object_x: TextObjectPositionCallback,
+    action: *mut u8,
+    insert_index: *mut usize,
+) -> bool {
+    let (Some(action), Some(insert_index)) =
+        (unsafe { action.as_mut() }, unsafe { insert_index.as_mut() })
+    else {
+        return false;
+    };
+    let result = text_object_group_plan(
+        object_width,
+        object_count,
+        is_duplicate,
+        || {
+            let mut previous_item_count = 0;
+            let mut previous_width = 0.0;
+            let mut current_width = 0.0;
+            let mut previous_y = 0.0;
+            let mut current_x = 0.0;
+            let mut current_y = 0.0;
+            // SAFETY: The caller guarantees synchronous callback validity.
+            unsafe {
+                get_summary(
+                    context,
+                    &mut previous_item_count,
+                    &mut previous_width,
+                    &mut current_width,
+                    &mut previous_y,
+                    &mut current_x,
+                    &mut current_y,
+                )
+            }
+            .then_some((
+                previous_item_count,
+                previous_width,
+                current_width,
+                previous_y,
+                current_x,
+                current_y,
+            ))
+        },
+        |index| {
+            let mut x = 0.0;
+            // SAFETY: The caller guarantees synchronous callback validity.
+            unsafe { get_object_x(context, index, &mut x) }.then_some(x)
+        },
+    );
+    let Some(result) = result else {
+        return false;
+    };
+    *action = result.action;
+    *insert_index = result.insert_index;
     true
 }
 
@@ -3344,6 +3461,39 @@ mod tests {
                 false,
                 |index| recent.get(index).copied(),
             )
+        );
+    }
+
+    #[test]
+    fn text_object_group_plan_should_flush_lines_and_sort_stably() {
+        assert_eq!(
+            Some(TextObjectGroupPlan { action: 1, insert_index: 0 }),
+            text_object_group_plan(10.0, 0, false, || None, |_| None)
+        );
+        assert_eq!(
+            Some(TextObjectGroupPlan { action: 2, insert_index: 0 }),
+            text_object_group_plan(
+                10.0,
+                2,
+                false,
+                || Some((1, 4.0, 8.0, 0.0, 10.0, 10.0)),
+                |_| None,
+            )
+        );
+        let positions = [0.0, 10.0, 20.0];
+        assert_eq!(
+            Some(TextObjectGroupPlan { action: 3, insert_index: 2 }),
+            text_object_group_plan(
+                10.0,
+                positions.len(),
+                false,
+                || Some((1, 8.0, 8.0, 0.0, 10.0, 0.0)),
+                |index| positions.get(index).copied(),
+            )
+        );
+        assert_eq!(
+            Some(TextObjectGroupPlan { action: 0, insert_index: 0 }),
+            text_object_group_plan(0.001, 3, false, || None, |_| None)
         );
     }
 

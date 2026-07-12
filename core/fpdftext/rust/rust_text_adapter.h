@@ -174,6 +174,16 @@ using RustTextRecentCharacterCallback = bool (*)(void* context,
                                                  uintptr_t* font,
                                                  float* origin_x,
                                                  float* origin_y);
+using RustTextObjectGroupSummaryCallback = bool (*)(void* context,
+                                                    size_t* previous_item_count,
+                                                    float* previous_width,
+                                                    float* current_width,
+                                                    float* previous_y,
+                                                    float* current_x,
+                                                    float* current_y);
+using RustTextObjectPositionCallback = bool (*)(void* context,
+                                                size_t index,
+                                                float* x);
 
 std::optional<bool> RustTextIsHyphenJoin(
     WideStringView current_text,
@@ -262,6 +272,19 @@ std::optional<uint8_t> RustTextCharacterSuppressionAction(
     bool temporary_text_ends_space,
     void* context,
     RustTextRecentCharacterCallback get_character);
+
+struct RustTextObjectGroupPlan {
+  uint8_t action;
+  size_t insert_index;
+};
+
+std::optional<RustTextObjectGroupPlan> RustTextPlanObjectGroup(
+    float object_width,
+    size_t object_count,
+    bool is_duplicate,
+    void* context,
+    RustTextObjectGroupSummaryCallback get_summary,
+    RustTextObjectPositionCallback get_object_x);
 
 enum class RustTextMarkedContentState : uint8_t {
   kPass = 0,

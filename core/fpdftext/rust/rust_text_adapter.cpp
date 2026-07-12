@@ -145,6 +145,15 @@ extern "C" bool pdfium_rust_text_character_suppression_action(
     void* context,
     pdfium::rust::RustTextRecentCharacterCallback get_character,
     uint8_t* output);
+extern "C" bool pdfium_rust_text_object_group_plan(
+    float object_width,
+    size_t object_count,
+    bool is_duplicate,
+    void* context,
+    pdfium::rust::RustTextObjectGroupSummaryCallback get_summary,
+    pdfium::rust::RustTextObjectPositionCallback get_object_x,
+    uint8_t* action,
+    size_t* insert_index);
 extern "C" bool pdfium_rust_text_marked_content_state(
     bool has_actual_text,
     bool repeats_previous_mark,
@@ -592,6 +601,23 @@ std::optional<uint8_t> RustTextCharacterSuppressionAction(
     return std::nullopt;
   }
   return output;
+}
+
+std::optional<RustTextObjectGroupPlan> RustTextPlanObjectGroup(
+    float object_width,
+    size_t object_count,
+    bool is_duplicate,
+    void* context,
+    RustTextObjectGroupSummaryCallback get_summary,
+    RustTextObjectPositionCallback get_object_x) {
+  RustTextObjectGroupPlan plan = {};
+  if (!pdfium_rust_text_object_group_plan(
+          object_width, object_count, is_duplicate, context, get_summary,
+          get_object_x, &plan.action, &plan.insert_index) ||
+      plan.action > 3 || plan.insert_index > object_count) {
+    return std::nullopt;
+  }
+  return plan;
 }
 
 std::optional<RustTextMarkedContentState> RustTextSelectMarkedContentState(

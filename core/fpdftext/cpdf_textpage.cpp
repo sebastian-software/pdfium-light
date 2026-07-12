@@ -1162,6 +1162,99 @@ void CPDF_TextPage::ProcessTextObject(
     const CFX_Matrix& form_matrix,
     const CPDF_PageObjectHolder* obj_list,
     CPDF_PageObjectHolder::const_iterator obj_iter) {
+  if (use_rust_) {
+    const float object_width = text_obj->GetRect().Width();
+    const size_t object_count = text_objects_.size();
+    const bool is_duplicate =
+        fabs(object_width) >= kSizeEpsilon && object_count > 0 &&
+        IsSameAsPreTextObject(text_obj, obj_list, obj_iter);
+    struct GroupContext {
+      CPDF_TextObject* current;
+      const CFX_Matrix* current_form_matrix;
+      const CFX_Matrix* display_matrix;
+      const std::vector<TransformedTextObject>* objects;
+    } context = {text_obj, &form_matrix, &display_matrix_, &text_objects_};
+    auto get_summary = [](void* context, size_t* previous_item_count,
+                          float* previous_width, float* current_width,
+                          float* previous_y, float* current_x,
+                          float* current_y) {
+      auto* group = static_cast<GroupContext*>(context);
+      if (group->objects->empty()) {
+        return false;
+      }
+      const TransformedTextObject& previous = group->objects->back();
+      *previous_item_count = previous.text_obj_->CountItems();
+      if (*previous_item_count == 0) {
+        return true;
+      }
+
+      const auto previous_item =
+          previous.text_obj_->GetItemInfo(*previous_item_count - 1);
+      *previous_width = GetCharWidth(previous_item.char_code_,
+                                     previous.text_obj_->GetFont().Get()) *
+                        previous.text_obj_->GetFontSize() / 1000;
+      const CFX_Matrix previous_matrix =
+          previous.text_obj_->GetTextMatrix() * previous.form_matrix_;
+      *previous_width =
+          previous_matrix.TransformDistance(fabs(*previous_width));
+
+      const auto current_item = group->current->GetItemInfo(0);
+      *current_width = GetCharWidth(current_item.char_code_,
+                                    group->current->GetFont().Get()) *
+                       group->current->GetFontSize() / 1000;
+      const CFX_Matrix current_matrix =
+          group->current->GetTextMatrix() * *group->current_form_matrix;
+      *current_width = current_matrix.TransformDistance(fabs(*current_width));
+
+      const CFX_PointF previous_position = group->display_matrix->Transform(
+          previous.form_matrix_.Transform(previous.text_obj_->GetPos()));
+      const CFX_PointF current_position = group->display_matrix->Transform(
+          group->current_form_matrix->Transform(group->current->GetPos()));
+      *previous_y = previous_position.y;
+      *current_x = current_position.x;
+      *current_y = current_position.y;
+      return true;
+    };
+    auto get_object_x = [](void* context, size_t index, float* x) {
+      auto* group = static_cast<GroupContext*>(context);
+      if (index >= group->objects->size()) {
+        return false;
+      }
+      const TransformedTextObject& object = (*group->objects)[index];
+      *x = group->display_matrix
+               ->Transform(
+                   object.form_matrix_.Transform(object.text_obj_->GetPos()))
+               .x;
+      return true;
+    };
+    const auto plan = pdfium::rust::RustTextPlanObjectGroup(
+        object_width, object_count, is_duplicate, &context, get_summary,
+        get_object_x);
+    if (plan.has_value()) {
+      TransformedTextObject new_obj;
+      new_obj.text_obj_ = text_obj;
+      new_obj.form_matrix_ = form_matrix;
+      switch (plan->action) {
+        case 0:
+          return;
+        case 1:
+          text_objects_.push_back(new_obj);
+          return;
+        case 2:
+          for (const auto& object : text_objects_) {
+            ProcessTextObject(object);
+          }
+          text_objects_.clear();
+          text_objects_.push_back(new_obj);
+          return;
+        case 3:
+          text_objects_.insert(text_objects_.begin() + plan->insert_index,
+                               new_obj);
+          return;
+      }
+    }
+  }
+
   if (fabs(text_obj->GetRect().Width()) < kSizeEpsilon) {
     return;
   }
