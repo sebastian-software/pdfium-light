@@ -104,6 +104,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `d8a078a25` Phase 6 xref-width slice | 15,774 | 8,963 | 241 | 3,601 | 6,570 | 276,688 | 5.70% | 4.45% | Prior surfaces plus Rust-owned `/W` signed-to-unsigned field-width conversion; C++ retains array traversal and object graph mutation |
 | `cb1fb95a7` Phase 6 simple-token scan slice | 15,885 | 9,074 | 241 | 3,628 | 6,570 | 276,831 | 5.74% | 4.50% | Prior surfaces plus Rust-owned simple-PDF-token whitespace and comment scanning; C++ retains the borrowed buffer and token handling |
 | `50bf3eb82` Phase 6 xref-field collection slice | 15,972 | 9,161 | 241 | 3,661 | 6,570 | 276,966 | 5.77% | 4.54% | Prior surfaces plus Rust-owned complete three-field cross-reference entry collection; C++ retains table mutation and object graph ownership |
+| `0c0f0c95b` Phase 6 simple-token boundary slice | 16,155 | 9,344 | 241 | 3,691 | 6,570 | 277,191 | 5.83% | 4.63% | Prior surfaces plus Rust-owned complete `CPDF_SimpleParser::GetWord()` token-range planning; C++ retains borrowed storage and `ByteStringView` ownership |
 
 ## Toolchain
 
@@ -761,6 +762,16 @@ C++ retains type interpretation fallback, range policy, and every
 `CPDF_CrossRefTable` mutation. The native parser tests cover zero-width fields,
 over-wide wrapping fields, short-entry rejection, and the no-output-mutation
 failure contract.
+
+The eleventh Phase 6 slice moves complete `CPDF_SimpleParser::GetWord()` token
+range planning into Rust. Rust preserves names, regular tokens, nested
+parentheses, hexadecimal strings, dictionary brackets, single delimiters,
+PDFium's extended `0x80` and `0xff` whitespace bytes, and the historical empty
+result for unterminated names. C++ retains the borrowed input storage,
+`ByteStringView` construction, and the complete handler-based oracle as the
+boundary fallback. Sixteen native parser tests cover the scalar and FFI
+contracts, including rejection without output mutation; the common local gate
+passes.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

@@ -96,7 +96,7 @@ ACTIVE_SURFACES = (
     "cross-reference stream segment entry iteration",
     "cross-reference stream field-width conversion",
     "cross-reference stream entry field collection",
-    "simple PDF token whitespace and comment scanning",
+    "complete simple PDF token scanning",
 )
 CANDIDATE_SURFACES = (
     "PDF text draw backend execution",
