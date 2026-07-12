@@ -279,6 +279,21 @@ pdfium_fuzzer("pdf_parser_fuzzer") {
   ]
 }
 
+executable("pdf_parser_fuzzer_corpus") {
+  testonly = true
+  sources = [
+    "pdf_parser_fuzzer.cc",
+    "pdf_parser_fuzzer_corpus.cc",
+  ]
+  configs += [ ":fuzzer_config" ]
+  deps = [
+    "../../:pdfium",
+    "../../:pdfium_public_headers",
+    "../../core/fpdfapi/parser/rust:rust_parser_adapter",
+    "../../core/fxcrt",
+  ]
+}
+
 pdfium_fuzzer("pdf_scanlinecompositor_fuzzer") {
   sources = [ "pdf_scanlinecompositor_fuzzer.cc" ]
   deps = [
