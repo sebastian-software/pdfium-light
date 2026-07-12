@@ -25,6 +25,10 @@ class CPDF_StreamAcc;
 class IFX_SeekableReadStream;
 class JBig2_DocumentContext;
 
+namespace pdfium::rust {
+class RustDocumentPageIndex;
+}
+
 class CPDF_Document : public Observable,
                       public CPDF_Parser::ParsedObjectsHolder {
  public:
@@ -211,6 +215,14 @@ class CPDF_Document : public Observable,
                            std::set<RetainPtr<CPDF_Dictionary>>* visited);
 
   bool InsertNewPage(int iPage, RetainPtr<CPDF_Dictionary> pPageDict);
+  size_t PageListSize() const;
+  bool IsPageIndexValid(int page_index) const;
+  uint32_t GetPageObjNumAt(size_t page_index) const;
+  void SetPageObjNumAt(size_t page_index, uint32_t object_number);
+  void ResizePageList(size_t size);
+  void InsertPageObjNumAt(size_t page_index, uint32_t object_number);
+  void RemovePageObjNumAt(size_t page_index);
+  bool PageListContains(uint32_t object_number) const;
   void ResetTraversal();
   CPDF_Parser::Error HandleLoadResult(CPDF_Parser::Error error);
 
@@ -237,6 +249,8 @@ class CPDF_Document : public Observable,
   std::unique_ptr<JBig2_DocumentContext> codec_context_;
   std::unique_ptr<LinkListIface> links_context_;
   std::set<uint32_t> modified_apstream_ids_;
+  const bool use_rust_page_index_;
+  std::unique_ptr<pdfium::rust::RustDocumentPageIndex> rust_page_index_;
   std::vector<uint32_t> page_list_;  // Page number to page's dict objnum.
 
   // Must be second to last.

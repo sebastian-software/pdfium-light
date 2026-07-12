@@ -175,6 +175,11 @@ pub struct PdfStreamDataState {
     bytes: Vec<u8>,
 }
 
+#[derive(Default)]
+pub struct DocumentPageIndexState {
+    object_numbers: Vec<u32>,
+}
+
 type PdfDictionarySnapshotCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, usize) -> bool;
 
@@ -1770,6 +1775,134 @@ pub unsafe extern "C" fn pdfium_rust_pdf_stream_data_span(
     true
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_document_page_index_new() -> *mut DocumentPageIndexState {
+    Box::into_raw(Box::new(DocumentPageIndexState::default()))
+}
+
+/// # Safety
+/// `state` must be null or uniquely owned from
+/// `pdfium_rust_document_page_index_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_index_destroy(
+    state: *mut DocumentPageIndexState,
+) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state` and `output` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_index_len(
+    state: *const DocumentPageIndexState,
+    output: *mut usize,
+) -> bool {
+    let (Some(state), Some(output)) = (unsafe { state.as_ref() }, unsafe { output.as_mut() })
+    else {
+        return false;
+    };
+    *output = state.object_numbers.len();
+    true
+}
+
+/// # Safety
+/// `state` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_index_resize(
+    state: *mut DocumentPageIndexState,
+    len: usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    state.object_numbers.resize(len, 0);
+    true
+}
+
+/// # Safety
+/// `state` and `output` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_index_get(
+    state: *const DocumentPageIndexState,
+    index: usize,
+    output: *mut u32,
+) -> bool {
+    let (Some(state), Some(output)) = (unsafe { state.as_ref() }, unsafe { output.as_mut() })
+    else {
+        return false;
+    };
+    let Some(value) = state.object_numbers.get(index) else {
+        return false;
+    };
+    *output = *value;
+    true
+}
+
+/// # Safety
+/// `state` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_index_set(
+    state: *mut DocumentPageIndexState,
+    index: usize,
+    object_number: u32,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    let Some(value) = state.object_numbers.get_mut(index) else {
+        return false;
+    };
+    *value = object_number;
+    true
+}
+
+/// # Safety
+/// `state` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_index_insert(
+    state: *mut DocumentPageIndexState,
+    index: usize,
+    object_number: u32,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    if index > state.object_numbers.len() {
+        return false;
+    }
+    state.object_numbers.insert(index, object_number);
+    true
+}
+
+/// # Safety
+/// `state` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_index_remove(
+    state: *mut DocumentPageIndexState,
+    index: usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    if index >= state.object_numbers.len() {
+        return false;
+    }
+    state.object_numbers.remove(index);
+    true
+}
+
+/// # Safety
+/// `state` must remain valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_document_page_index_contains(
+    state: *const DocumentPageIndexState,
+    object_number: u32,
+) -> bool {
+    unsafe { state.as_ref() }.is_some_and(|state| state.object_numbers.contains(&object_number))
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -2445,6 +2578,20 @@ mod tests {
         assert!(unsafe { pdfium_rust_pdf_stream_data_span(&state, &mut data, &mut len) });
         assert_eq!(input.len(), len);
         assert_eq!(input, unsafe { core::slice::from_raw_parts(data, len) });
+    }
+
+    #[test]
+    fn document_page_index_should_own_resize_insert_remove_and_lookup() {
+        let mut state = DocumentPageIndexState::default();
+        assert!(unsafe { pdfium_rust_document_page_index_resize(&mut state, 3) });
+        assert!(unsafe { pdfium_rust_document_page_index_set(&mut state, 1, 20) });
+        assert!(unsafe { pdfium_rust_document_page_index_insert(&mut state, 1, 10) });
+        assert_eq!(vec![0, 10, 20, 0], state.object_numbers);
+        assert!(unsafe { pdfium_rust_document_page_index_contains(&state, 20) });
+        assert!(unsafe { pdfium_rust_document_page_index_remove(&mut state, 2) });
+        assert_eq!(vec![0, 10, 0], state.object_numbers);
+        assert!(!unsafe { pdfium_rust_document_page_index_contains(&state, 20) });
+        assert!(!unsafe { pdfium_rust_document_page_index_set(&mut state, 4, 99) });
     }
 
     #[test]

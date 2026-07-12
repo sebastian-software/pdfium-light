@@ -174,6 +174,25 @@ extern "C" void pdfium_rust_pdf_stream_data_destroy(void* state);
 extern "C" bool pdfium_rust_pdf_stream_data_span(const void* state,
                                                  const uint8_t** data,
                                                  size_t* len);
+extern "C" void* pdfium_rust_document_page_index_new();
+extern "C" void pdfium_rust_document_page_index_destroy(void* state);
+extern "C" bool pdfium_rust_document_page_index_len(const void* state,
+                                                    size_t* output);
+extern "C" bool pdfium_rust_document_page_index_resize(void* state, size_t len);
+extern "C" bool pdfium_rust_document_page_index_get(const void* state,
+                                                    size_t index,
+                                                    uint32_t* output);
+extern "C" bool pdfium_rust_document_page_index_set(void* state,
+                                                    size_t index,
+                                                    uint32_t object_number);
+extern "C" bool pdfium_rust_document_page_index_insert(void* state,
+                                                       size_t index,
+                                                       uint32_t object_number);
+extern "C" bool pdfium_rust_document_page_index_remove(void* state,
+                                                       size_t index);
+extern "C" bool pdfium_rust_document_page_index_contains(
+    const void* state,
+    uint32_t object_number);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -644,6 +663,49 @@ pdfium::span<const uint8_t> RustPdfStreamData::GetSpan() const {
   size_t len = 0;
   CHECK(pdfium_rust_pdf_stream_data_span(state_, &data, &len));
   return pdfium::span(data, len);
+}
+
+RustDocumentPageIndex::RustDocumentPageIndex()
+    : state_(pdfium_rust_document_page_index_new()) {
+  CHECK(state_);
+}
+
+RustDocumentPageIndex::~RustDocumentPageIndex() {
+  pdfium_rust_document_page_index_destroy(state_);
+}
+
+size_t RustDocumentPageIndex::size() const {
+  size_t result = 0;
+  CHECK(pdfium_rust_document_page_index_len(state_, &result));
+  return result;
+}
+
+bool RustDocumentPageIndex::Resize(size_t size) {
+  return pdfium_rust_document_page_index_resize(state_, size);
+}
+
+std::optional<uint32_t> RustDocumentPageIndex::Get(size_t index) const {
+  uint32_t result = 0;
+  if (!pdfium_rust_document_page_index_get(state_, index, &result)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+bool RustDocumentPageIndex::Set(size_t index, uint32_t object_number) {
+  return pdfium_rust_document_page_index_set(state_, index, object_number);
+}
+
+bool RustDocumentPageIndex::Insert(size_t index, uint32_t object_number) {
+  return pdfium_rust_document_page_index_insert(state_, index, object_number);
+}
+
+bool RustDocumentPageIndex::Remove(size_t index) {
+  return pdfium_rust_document_page_index_remove(state_, index);
+}
+
+bool RustDocumentPageIndex::Contains(uint32_t object_number) const {
+  return pdfium_rust_document_page_index_contains(state_, object_number);
 }
 
 std::optional<uint32_t> RustReadBigEndianVarInt(

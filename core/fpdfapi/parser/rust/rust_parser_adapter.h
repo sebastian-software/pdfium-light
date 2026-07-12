@@ -214,6 +214,25 @@ class RustPdfStreamData final {
   void* state_;
 };
 
+class RustDocumentPageIndex final {
+ public:
+  RustDocumentPageIndex();
+  RustDocumentPageIndex(const RustDocumentPageIndex&) = delete;
+  RustDocumentPageIndex& operator=(const RustDocumentPageIndex&) = delete;
+  ~RustDocumentPageIndex();
+
+  size_t size() const;
+  bool Resize(size_t size);
+  std::optional<uint32_t> Get(size_t index) const;
+  bool Set(size_t index, uint32_t object_number);
+  bool Insert(size_t index, uint32_t object_number);
+  bool Remove(size_t index);
+  bool Contains(uint32_t object_number) const;
+
+ private:
+  void* state_;
+};
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);
