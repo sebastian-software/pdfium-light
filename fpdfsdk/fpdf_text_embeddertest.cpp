@@ -530,6 +530,36 @@ TEST_F(FPDFTextEmbedderTest, RustDuplicateTextObjectsMatchCppOracle) {
   EXPECT_EQ(cpp, run(true));
 }
 
+TEST_F(FPDFTextEmbedderTest, RustDuplicateTextCharactersMatchCppOracle) {
+  ASSERT_TRUE(OpenDocument("duplicate_text_characters.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    std::vector<std::array<double, 7>> characters;
+    const int count = FPDFText_CountChars(text_page.get());
+    characters.reserve(count);
+    for (int index = 0; index < count; ++index) {
+      std::array<double, 7> character = {
+          static_cast<double>(FPDFText_GetUnicode(text_page.get(), index))};
+      EXPECT_TRUE(FPDFText_GetCharOrigin(text_page.get(), index,
+                                        &character[1], &character[2]));
+      EXPECT_TRUE(FPDFText_GetCharBox(
+          text_page.get(), index, &character[3], &character[4],
+          &character[5], &character[6]));
+      characters.push_back(character);
+    }
+    return characters;
+  };
+
+  const auto cpp = run(false);
+  ASSERT_EQ(1u, cpp.size());
+  EXPECT_EQ(cpp, run(true));
+}
+
 TEST_F(FPDFTextEmbedderTest, TextHebrewMirrored) {
   ASSERT_TRUE(OpenDocument("hebrew_mirrored.pdf"));
   ScopedPage page = LoadScopedPage(0);
