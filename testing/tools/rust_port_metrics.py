@@ -99,12 +99,10 @@ ACTIVE_SURFACES = (
     "cross-reference stream entry field collection",
     "complete simple PDF token scanning",
     "cross-reference stream mutation orchestration",
-    "cross-reference object-map sizing orchestration",
-    "cross-reference object-map overlay conflict policy",
-    "cross-reference object admission policy",
+    "cross-reference table storage, mutation, sizing, and overlay",
 )
 CANDIDATE_SURFACES = (
-    "cross-reference table storage and PDF object graph ownership",
+    "PDF object graph ownership",
 )
 
 

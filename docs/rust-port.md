@@ -112,6 +112,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `d23c49f8c` Phase 6 xref-map-size slice | 16,463 | 9,652 | 241 | 3,782 | 6,570 | 277,756 | 5.93% | 4.77% | Prior surfaces plus Rust-owned clear/truncate/ensure-last object-map sizing orchestration; C++ retains the single map storage and object lifetimes |
 | `2c63f57dc` Phase 6 xref-merge-policy slice | 16,534 | 9,723 | 241 | 3,805 | 6,570 | 277,878 | 5.95% | 4.80% | Prior surfaces plus Rust-owned overlay conflict policy and object-stream flag preservation; C++ retains the single map storage and object lifetimes |
 | `b425794a2` Phase 6 xref-admission slice | 16,604 | 9,793 | 241 | 3,829 | 6,570 | 277,991 | 5.97% | 4.83% | Prior surfaces plus Rust-owned normal-generation precedence and compressed-object stream guards; C++ retains the single map storage and object lifetimes |
+| `00020e5e2` Phase 6 xref-storage slice | 16,767 | 9,956 | 241 | 3,898 | 6,570 | 278,243 | 6.03% | 4.91% | Rust `BTreeMap` is the production source of truth for cross-reference entries, mutation, sizing, and overlay; C++ retains the oracle map, a lazy derived view, trailers, and PDF object lifetimes |
 
 ## Toolchain
 
@@ -859,6 +860,25 @@ Twenty-one native parser tests cover equal, newer, and older generations,
 compressed-entry guards, invalid type codes, and FFI failure behavior. The
 four-case object snapshots and both simple-parser tests match the oracle, the
 retained parser fuzzer and `pdfium_all` build, and all 1,057 unit tests pass.
+
+The sixteenth Phase 6 slice replaces the production cross-reference entry map
+with a Rust-owned `BTreeMap`. Rust now owns free, normal, and compressed entry
+storage, generation and object-stream guards, size truncation, overlay merge
+semantics, lookup state, and ascending snapshot traversal. The C++ map remains
+the independently selected oracle when the test selector disables the
+candidate. In production it is only a lazily rebuilt compatibility view for
+legacy iteration and test access; mutations never use that view as input.
+
+The initial storage commit adds opaque allocation, mutation, overlay, lookup,
+and snapshot boundaries. Activation fixes the implementation choice for each
+`CPDF_CrossRefTable` lifetime and invalidates the derived view after every Rust
+mutation. A cleanup commit removes the three superseded policy-only FFIs and
+their tests so they cannot inflate the active ownership claim.
+
+Twenty focused native parser tests remain after that cleanup. The four normal,
+defaulted, unknown, and truncated object snapshots match the retained C++ map,
+both simple-parser tests pass, the parser fuzzer source builds, `pdfium_all`
+builds, and all 1,057 unit tests pass in the full GN configuration.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
