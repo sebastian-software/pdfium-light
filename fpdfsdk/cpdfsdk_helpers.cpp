@@ -227,6 +227,13 @@ FS_MATRIX FSMatrixFromCFXMatrix(const CFX_Matrix& matrix) {
 unsigned long NulTerminateMaybeCopyAndReturnLength(
     const ByteString& text,
     pdfium::span<char> result_span) {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    std::optional<size_t> result =
+        pdfium::rust::RustSdkNulTerminate(text.unsigned_span(), result_span);
+    if (result.has_value()) {
+      return pdfium::checked_cast<unsigned long>(*result);
+    }
+  }
   pdfium::span<const char> text_span = text.span_with_terminator();
   fxcrt::try_spancpy(result_span, text_span);
   return pdfium::checked_cast<unsigned long>(text_span.size());

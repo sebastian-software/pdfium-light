@@ -2309,6 +2309,43 @@ pub unsafe extern "C" fn pdfium_rust_sdk_parse_page_range(
     true
 }
 
+/// Computes a public SDK byte-string result length and conditionally copies a
+/// trailing-NUL representation without partially modifying short outputs.
+///
+/// # Safety
+/// Nonempty input/output spans must identify readable/writable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_sdk_nul_terminate(
+    input: *const u8,
+    input_len: usize,
+    output: *mut u8,
+    output_capacity: usize,
+    required_len: *mut usize,
+) -> bool {
+    let Some(required_len) = (unsafe { required_len.as_mut() }) else {
+        return false;
+    };
+    if input_len != 0 && input.is_null() {
+        return false;
+    }
+    let Some(required) = input_len.checked_add(1) else {
+        return false;
+    };
+    *required_len = required;
+    if output_capacity < required {
+        return output_capacity == 0 || !output.is_null();
+    }
+    if output.is_null() {
+        return false;
+    }
+    let input =
+        if input_len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(input, input_len) } };
+    let output = unsafe { core::slice::from_raw_parts_mut(output, required) };
+    output[..input_len].copy_from_slice(input);
+    output[input_len] = 0;
+    true
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -3460,6 +3497,36 @@ mod tests {
                 &mut len,
             )
         });
+    }
+
+    #[test]
+    fn sdk_nul_termination_should_copy_only_complete_results() {
+        let input = b"a\0b";
+        let mut short = [0x42; 3];
+        let mut required = 0;
+        assert!(unsafe {
+            pdfium_rust_sdk_nul_terminate(
+                input.as_ptr(),
+                input.len(),
+                short.as_mut_ptr(),
+                short.len(),
+                &mut required,
+            )
+        });
+        assert_eq!(4, required);
+        assert_eq!([0x42; 3], short);
+
+        let mut complete = [0x42; 4];
+        assert!(unsafe {
+            pdfium_rust_sdk_nul_terminate(
+                input.as_ptr(),
+                input.len(),
+                complete.as_mut_ptr(),
+                complete.len(),
+                &mut required,
+            )
+        });
+        assert_eq!([b'a', 0, b'b', 0], complete);
     }
 
     #[test]

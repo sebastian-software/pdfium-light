@@ -220,6 +220,11 @@ extern "C" bool pdfium_rust_sdk_parse_page_range(const uint8_t* input,
                                                  uint32_t* output,
                                                  size_t output_capacity,
                                                  size_t* output_len);
+extern "C" bool pdfium_rust_sdk_nul_terminate(const uint8_t* input,
+                                              size_t input_len,
+                                              uint8_t* output,
+                                              size_t output_capacity,
+                                              size_t* required_len);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -803,6 +808,17 @@ std::optional<std::vector<uint32_t>> RustSdkParsePageRange(
     return std::nullopt;
   }
   return result;
+}
+
+std::optional<size_t> RustSdkNulTerminate(pdfium::span<const uint8_t> input,
+                                          pdfium::span<char> output) {
+  size_t required_len = 0;
+  if (!pdfium_rust_sdk_nul_terminate(input.data(), input.size(),
+                                     reinterpret_cast<uint8_t*>(output.data()),
+                                     output.size(), &required_len)) {
+    return std::nullopt;
+  }
+  return required_len;
 }
 
 std::optional<std::vector<size_t>> RustDocumentPageMutationPath(

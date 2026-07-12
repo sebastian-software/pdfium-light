@@ -287,6 +287,8 @@ std::optional<int> RustDocumentFindPageIndex(
 std::optional<std::vector<uint32_t>> RustSdkParsePageRange(
     pdfium::span<const uint8_t> input,
     uint32_t page_count);
+std::optional<size_t> RustSdkNulTerminate(pdfium::span<const uint8_t> input,
+                                          pdfium::span<char> output);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,

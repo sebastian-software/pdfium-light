@@ -5,6 +5,7 @@
 #include "fpdfsdk/cpdfsdk_helpers.h"
 
 #include <algorithm>
+#include <array>
 
 #include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/compiler_specific.h"
@@ -46,6 +47,26 @@ TEST(CPDFSDKHelpersTest, NulTerminateMaybeCopyAndReturnLength) {
     ASSERT_EQ(1u,
               NulTerminateMaybeCopyAndReturnLength(empty, pdfium::span(buf)));
     EXPECT_EQ(empty, ByteString(buf));
+  }
+}
+
+TEST(CPDFSDKHelpersTest, RustNulTerminationMatchesCppOracle) {
+  struct Snapshot {
+    unsigned long length;
+    std::array<char, 6> buffer;
+    bool operator==(const Snapshot&) const = default;
+  };
+  const ByteString input("value");
+  for (size_t capacity : {0u, 3u, 6u}) {
+    auto run = [&](bool use_rust) {
+      pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+          use_rust);
+      Snapshot snapshot = {.buffer = {0x42, 0x42, 0x42, 0x42, 0x42, 0x42}};
+      snapshot.length = NulTerminateMaybeCopyAndReturnLength(
+          input, pdfium::span(snapshot.buffer).first(capacity));
+      return snapshot;
+    };
+    EXPECT_EQ(run(false), run(true));
   }
 }
 
