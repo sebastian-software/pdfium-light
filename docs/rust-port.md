@@ -168,6 +168,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `f9ec47468` Phase 7 public-bookmark-traversal slice | 24,431 | 17,620 | 241 | 6,910 | 6,570 | 293,244 | 8.33% | 8.21% | Rust owns depth-first child/sibling traversal order, visited-set state, and cycle guarding; C++ retains bookmark-tree, dictionary, and title lifetimes, supplies borrowed comparison/navigation callbacks, and preserves the separately selected oracle |
 | `4c170af21` Phase 7 public-page-label-formatting slice | 24,524 | 17,713 | 241 | 6,937 | 6,570 | 293,413 | 8.36% | 8.25% | Rust owns decimal, upper/lower Roman, upper/lower repeated-letter, modulo, and unknown-style formatting; C++ retains number-tree, label-dictionary, prefix, and string lifetimes plus the malformed-negative fallback oracle |
 | `99e2c736d` Phase 7 public-link-enumeration slice | 24,581 | 17,770 | 241 | 6,969 | 6,570 | 293,570 | 8.37% | 8.27% | Rust owns public annotation-cursor normalization, forward scan, first-link selection, and miss/error state; C++ retains annotation arrays, dictionary/subtype access, selected handles, and the separately selected oracle loop |
+| `8f97a67d8` Phase 7 document-number-tree slice | 24,924 | 18,113 | 241 | 7,054 | 6,570 | 294,097 | 8.47% | 8.41% | Rust owns exact and greatest-key-at-most traversal, limits pruning, forward/reverse ordering, and cycle guarding; C++ retains dictionaries, arrays, object lifetimes, borrowed callbacks, and the separately selected oracle traversals |
 
 ## Toolchain
 
@@ -1848,6 +1849,24 @@ compares all four selected handles, every advanced cursor, terminal state,
 negative cursor, and oversized cursor under the C++ oracle and Rust candidate.
 Both focused public link cases, all 50 parser-native tests, all 1,070 unit
 tests, and `pdfium_all` pass.
+
+The forty-third Phase 7 slice moves both document number-tree searches into
+Rust. Rust owns exact-key and greatest-key-at-most traversal, `/Limits`
+pruning, `/Nums` precedence, forward exact-search ordering, reverse lower-bound
+ordering, and shared/circular-node guarding. C++ retains dictionary, array, and
+value lifetimes, supplies synchronous borrowed node/entry/child callbacks, and
+preserves both complete original recursive traversals as separately selected
+oracles.
+
+Valid-tree traversal remains O(nodes + entries) in expected time and O(depth)
+stack. The candidate deliberately adds O(nodes) visited-set storage so cyclic
+or shared malformed graphs terminate; hash-backed membership keeps the added
+work expected-linear (`b2bff4e05`). One parser-native test covers limits,
+forward and reverse order, exact and lower-bound results, misses, and a child
+cycle. Same-process differentials compare both operations
+over all 10,003 keys from -1 through 10,001 in the three-level page-label tree.
+All four page-label unit cases, all 21 StructTree public cases, all 51
+parser-native tests, all 1,071 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

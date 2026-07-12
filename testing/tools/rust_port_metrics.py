@@ -153,6 +153,7 @@ ACTIVE_SURFACES = (
     "public bookmark depth-first traversal and cycle guarding",
     "public page-label decimal, Roman, and alphabetic formatting",
     "public link-annotation cursor scanning and selection",
+    "document number-tree exact and lower-bound traversal",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
