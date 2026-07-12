@@ -697,6 +697,28 @@ TEST_F(FPDFDocEmbedderTest, Bookmarks) {
   EXPECT_FALSE(FPDFBookmark_GetNextSibling(document(), grand_child));
 }
 
+TEST_F(FPDFDocEmbedderTest, RustBookmarkDestinationMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bookmarks.pdf"));
+
+  FPDF_BOOKMARK child = FPDFBookmark_GetFirstChild(document(), nullptr);
+  ASSERT_TRUE(child);
+  FPDF_BOOKMARK sibling = FPDFBookmark_GetNextSibling(document(), child);
+  ASSERT_TRUE(sibling);
+  FPDF_BOOKMARK grand_child =
+      FPDFBookmark_GetFirstChild(document(), sibling);
+  ASSERT_TRUE(grand_child);
+
+  auto get_destination = [&](FPDF_BOOKMARK bookmark, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    return FPDFBookmark_GetDest(document(), bookmark);
+  };
+  for (FPDF_BOOKMARK bookmark : {child, sibling, grand_child}) {
+    EXPECT_EQ(get_destination(bookmark, false),
+              get_destination(bookmark, true));
+  }
+}
+
 TEST_F(FPDFDocEmbedderTest, FindBookmarks) {
   unsigned short buf[128];
 
