@@ -3027,6 +3027,13 @@ mod tests {
         count_count: usize,
     }
 
+    #[derive(Default)]
+    struct PageTraversalTestState {
+        retained: Vec<usize>,
+        cached: Vec<(i32, u32)>,
+        selected: usize,
+    }
+
     unsafe extern "C" fn describe_page_node(
         _context: *mut core::ffi::c_void,
         handle: usize,
@@ -3211,6 +3218,104 @@ mod tests {
             *node_type = value.1;
             *page_count = value.2;
         }
+        true
+    }
+
+    unsafe extern "C" fn retain_page_traversal_handle(
+        context: *mut core::ffi::c_void,
+        handle: usize,
+    ) -> bool {
+        let state = unsafe { &mut *context.cast::<PageTraversalTestState>() };
+        state.retained.push(handle);
+        true
+    }
+
+    unsafe extern "C" fn release_page_traversal_handle(
+        context: *mut core::ffi::c_void,
+        handle: usize,
+    ) -> bool {
+        let state = unsafe { &mut *context.cast::<PageTraversalTestState>() };
+        let Some(index) = state.retained.iter().position(|value| *value == handle) else {
+            return false;
+        };
+        state.retained.remove(index);
+        true
+    }
+
+    unsafe extern "C" fn describe_page_traversal_node(
+        _context: *mut core::ffi::c_void,
+        handle: usize,
+        has_kids_array: *mut bool,
+        node_type: *mut u8,
+        object_number: *mut u32,
+        child_count: *mut usize,
+    ) -> bool {
+        if has_kids_array.is_null()
+            || node_type.is_null()
+            || object_number.is_null()
+            || child_count.is_null()
+        {
+            return false;
+        }
+        let (has_kids, kind, object, count) = match handle {
+            1 => (true, 1, 1, 2),
+            2 => (true, 1, 2, 2),
+            3 => (false, 2, 10, 0),
+            4 => (false, 2, 11, 0),
+            5 => (false, 2, 12, 0),
+            _ => return false,
+        };
+        unsafe {
+            *has_kids_array = has_kids;
+            *node_type = kind;
+            *object_number = object;
+            *child_count = count;
+        }
+        true
+    }
+
+    unsafe extern "C" fn describe_page_traversal_child(
+        _context: *mut core::ffi::c_void,
+        handle: usize,
+        child_index: usize,
+        child_handle: *mut usize,
+        has_kids: *mut bool,
+        object_number: *mut u32,
+    ) -> bool {
+        if child_handle.is_null() || has_kids.is_null() || object_number.is_null() {
+            return false;
+        }
+        let value = match (handle, child_index) {
+            (1, 0) => (2, true, 2),
+            (1, 1) => (5, false, 12),
+            (2, 0) => (3, false, 10),
+            (2, 1) => (4, false, 11),
+            _ => return false,
+        };
+        unsafe {
+            *child_handle = value.0;
+            *has_kids = value.1;
+            *object_number = value.2;
+        }
+        true
+    }
+
+    unsafe extern "C" fn cache_page_traversal_result(
+        context: *mut core::ffi::c_void,
+        page_index: i32,
+        object_number: u32,
+    ) -> bool {
+        let state = unsafe { &mut *context.cast::<PageTraversalTestState>() };
+        state.cached.push((page_index, object_number));
+        true
+    }
+
+    unsafe extern "C" fn select_page_traversal_result(
+        context: *mut core::ffi::c_void,
+        handle: usize,
+    ) -> bool {
+        let state = unsafe { &mut *context.cast::<PageTraversalTestState>() };
+        state.selected = handle;
         true
     }
 
@@ -3864,6 +3969,51 @@ mod tests {
                 &mut len,
             )
         });
+    }
+
+    #[test]
+    fn document_page_traversal_should_preserve_incremental_stack_and_lifetimes() {
+        let mut traversal = DocumentPageTraversalState::default();
+        let mut state = PageTraversalTestState::default();
+        let context = (&mut state as *mut PageTraversalTestState).cast();
+        assert!(unsafe {
+            pdfium_rust_document_page_traversal_reset(
+                &mut traversal,
+                1,
+                context,
+                Some(retain_page_traversal_handle),
+                Some(release_page_traversal_handle),
+            )
+        });
+        for (page_index, expected_handle) in [(0, 3), (1, 4), (2, 5)] {
+            state.selected = 0;
+            let mut found = false;
+            assert!(unsafe {
+                pdfium_rust_document_page_traversal_run(
+                    &mut traversal,
+                    page_index,
+                    context,
+                    Some(describe_page_traversal_node),
+                    Some(describe_page_traversal_child),
+                    Some(cache_page_traversal_result),
+                    Some(select_page_traversal_result),
+                    Some(retain_page_traversal_handle),
+                    Some(release_page_traversal_handle),
+                    &mut found,
+                )
+            });
+            assert!(found);
+            assert_eq!(expected_handle, state.selected);
+        }
+        assert_eq!(vec![(0, 10), (1, 11), (2, 12)], state.cached);
+        assert!(unsafe {
+            pdfium_rust_document_page_traversal_clear(
+                &mut traversal,
+                context,
+                Some(release_page_traversal_handle),
+            )
+        });
+        assert!(state.retained.is_empty());
     }
 
     #[test]
