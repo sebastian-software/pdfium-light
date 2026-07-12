@@ -127,6 +127,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `5525cc9a3` Phase 6 object-graph save/reload gate | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,722 | 6.44% | 5.52% | Catalog/page key order, types, MediaBox, filtered content bytes, text, and rendering remain exact after public save/reload; all six Rust codec/object-graph embedder cases pass |
 | `75380056e` Phase 6 object-slot-lifetime slice | 18,194 | 11,383 | 241 | 4,627 | 6,570 | 281,778 | 6.46% | 5.54% | Rust array, dictionary, and indirect-object states decide whether removed or replaced handles still occupy any slot; C++ retains one intrusive-pointer ABI handle without a duplicate reference-count policy |
 | `0b3f209ba` Phase 7 document-page-index slice | 18,341 | 11,530 | 241 | 4,708 | 6,570 | 282,125 | 6.50% | 5.60% | Rust owns the document page object-number cache, unloaded slots, lookup, resize, insertion, removal, and membership; C++ retains page-tree traversal and tree-dictionary mutation |
+| `3eac0d9c0` Phase 7 page-move-planning slice | 18,414 | 11,603 | 241 | 4,732 | 6,570 | 282,204 | 6.53% | 5.64% | Rust validates public page-move cardinality, ranges, destination, and uniqueness and produces descending deletion order; C++ retains page dictionaries, extension callbacks, and tree mutation |
 
 ## Toolchain
 
@@ -1142,6 +1143,19 @@ loaded state for every remaining page.
 All 29 parser-native Rust tests, all nine `DocumentTest` cases, six public page
 delete/save cases, the public page-move corpus, the object-graph save/reload
 test, all 1,067 unit tests, and `pdfium_all` pass in the full light build.
+
+The second Phase 7 slice moves the complete public page-move plan into Rust.
+Rust rejects empty, oversized, duplicate, negative, out-of-range, and invalid
+destination requests before mutation and returns the unique source indices in
+descending deletion order. C++ retains borrowed page dictionaries in original
+input order, XFA extension policy/callbacks, page-tree deletion/insertion, and
+the public `FPDF_MovePages()` wrapper.
+
+The native Rust test covers valid unsorted input and every rejection class.
+The existing public 44-case move corpus passes unchanged, including expected
+success/failure results and rendered/save behavior. All 30 parser-native Rust
+tests, the document Oracle/Candidate create-move-delete scenario, all 1,067
+unit tests, and `pdfium_all` pass in the full light build.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

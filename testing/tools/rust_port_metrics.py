@@ -112,6 +112,7 @@ ACTIVE_SURFACES = (
     "PDF stream in-memory byte storage, mutation, sizing, and cloning",
     "PDF object slot membership and last-reference lifetime decisions",
     "document page object-number indexing, caching, insertion, removal, and lookup",
+    "public document page-move validation and deletion-order planning",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
