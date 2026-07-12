@@ -144,6 +144,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `f9b2e8c81` Phase 7 predicate-text-assembly slice | 21,281 | 14,470 | 241 | 5,540 | 6,570 | 286,897 | 7.42% | 6.90% | Rust owns bounded/object-selected character assembly, intervening spaces, line-transition state, and CRLF insertion; C++ retains predicate evaluation, character metadata, final `WideString` conversion, public wrappers, and the separately selected oracle |
 | `7178d32c6` Phase 7 temporary-line-ordering slice | 21,466 | 14,655 | 241 | 5,643 | 6,570 | 287,282 | 7.47% | 6.98% | Rust owns duplicate-space normalization, Bidi direction carry, segment reversal/forward emission, source ordering, and RTL flags; C++ retains Unicode Bidi classification, character objects, normalization callbacks, and the separately selected oracle |
 | `048b8f8ee` Phase 7 character-normalization slice | 21,707 | 14,896 | 241 | 5,754 | 6,570 | 287,715 | 7.54% | 7.08% | Rust owns control/normal classification, mirror/normalization requests, ligature expansion emissions, text-append decisions, Unicode overrides, and `CharType::kPiece`; C++ retains mirror/normalization table lookup, native character values, buffer/list writes, and the separately selected oracle |
+| `a3368fe93` Phase 7 text-flow-orientation slice | 21,865 | 15,054 | 241 | 5,798 | 6,570 | 287,988 | 7.59% | 7.15% | Rust owns active text-object mask construction, page-bound clamping, occupied-span fill ratios, and horizontal/vertical flow selection; C++ retains page-object geometry, the synchronous callback, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1425,6 +1426,22 @@ generated flag, and hyphen flag across the full ligature/control fixture, while
 the mixed RTL differential covers mirrored normalization. All seven
 search-extension tests, all 69 public text tests, all 1,069 unit tests, and
 `pdfium_all` pass.
+
+The nineteenth Phase 7 slice moves `FindTextlineFlowOrientation()` mask
+construction and decision logic into Rust. Rust clamps active text-object
+bounds to the integral page extent, fills the horizontal and vertical masks,
+tracks occupied spans and the first usable line height, computes the exact
+filled ratios, and selects horizontal, vertical, or unknown flow. C++ supplies
+borrowed page-object activity, type, and geometry through a synchronous
+callback; the complete original implementation remains the separately selected
+oracle.
+
+The candidate preserves the legacy page-sized O(width + height) masks and
+linear object/range traversal, including integer truncation and empty-page
+behavior. Thirteen native Rust text tests include horizontal and vertical
+fixtures. A same-process public differential compares every character's
+Unicode, origin, and box on vertical text. All seven search-extension tests,
+all 70 public text tests, all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

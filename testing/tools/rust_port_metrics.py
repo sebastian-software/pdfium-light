@@ -129,6 +129,7 @@ ACTIVE_SURFACES = (
     "bounded and object-selected text assembly with space and line-break policy",
     "temporary text-line space collapse and Bidi segment emission ordering",
     "text character control classification and Unicode normalization emission planning",
+    "page text-line flow mask construction, fill ratios, and orientation selection",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
