@@ -130,6 +130,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `3eac0d9c0` Phase 7 page-move-planning slice | 18,414 | 11,603 | 241 | 4,732 | 6,570 | 282,204 | 6.53% | 5.64% | Rust validates public page-move cardinality, ranges, destination, and uniqueness and produces descending deletion order; C++ retains page dictionaries, extension callbacks, and tree mutation |
 | `fa444d71e` Phase 7 page-tree-count slice | 18,682 | 11,871 | 241 | 4,780 | 6,570 | 282,590 | 6.61% | 5.76% | Rust owns page-tree count traversal, active-path cycle guarding, malformed-type and count normalization, checked totals, and a bounded candidate depth; C++ retains borrowed dictionaries and the exact fallback traversal |
 | `53f150f66` Phase 7 page-index-traversal slice | 18,901 | 12,090 | 241 | 4,823 | 6,570 | 282,912 | 6.68% | 5.86% | Rust owns page-object-number lookup traversal, cached-prefix skipping, count shortcuts, direct-reference lookup, and the depth bound; C++ retains borrowed dictionaries and exact fallback traversal |
+| `0dfd10951` Phase 7 SDK-page-range slice | 19,041 | 12,230 | 241 | 4,851 | 6,570 | 283,118 | 6.73% | 5.92% | Rust validates and expands the public import-page range grammar with exact order and duplicates; C++ retains the public wrapper, document import, and overflow oracle fallback |
 
 ## Toolchain
 
@@ -1192,6 +1193,18 @@ The same-process document scenario now clears every cache slot after its
 create/move/delete sequence and compares the index resolved for every remaining
 page under Oracle and Candidate. All 33 parser-native tests, all nine document
 tests, all 1,067 unit tests, and `pdfium_all` pass.
+
+The fifth Phase 7 slice moves the page-range grammar used by public
+`FPDF_ImportPages()` into Rust. Rust owns character validation, space removal,
+single-page and inclusive-range expansion, one-based bounds, input ordering,
+and duplicate preservation. The adapter uses a sizing pass followed by a fill
+pass; this doubles parsing work by a constant factor without changing linear
+time or output memory complexity. Decimal values outside the C++ `atoi()`
+domain reject the Rust boundary and run the retained platform oracle.
+
+The full legacy grammar corpus and an explicit same-process Oracle/Candidate
+matrix pass, as do the public import good/bad-range cases. All 34 parser-native
+tests, all three SDK-helper tests, all 1,068 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
