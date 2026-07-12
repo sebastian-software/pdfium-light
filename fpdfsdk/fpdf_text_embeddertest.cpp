@@ -851,6 +851,41 @@ TEST_F(FPDFTextEmbedderTest, WebLinksAcrossLines) {
   FPDFLink_CloseWebLinks(pagelink);
 }
 
+TEST_F(FPDFTextEmbedderTest, RustWebLinksMatchCppOracle) {
+  ASSERT_TRUE(OpenDocument("weblinks_across_lines.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+  ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+  ASSERT_TRUE(text_page);
+
+  struct Snapshot {
+    int start;
+    int count;
+    std::vector<unsigned short> url;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFPageLink links(FPDFLink_LoadWebLinks(text_page.get()));
+    std::vector<Snapshot> result;
+    const int link_count = FPDFLink_CountWebLinks(links.get());
+    for (int index = 0; index < link_count; ++index) {
+      Snapshot snapshot = {};
+      EXPECT_TRUE(FPDFLink_GetTextRange(links.get(), index, &snapshot.start,
+                                        &snapshot.count));
+      const int url_length = FPDFLink_GetURL(links.get(), index, nullptr, 0);
+      snapshot.url.resize(url_length);
+      EXPECT_EQ(url_length,
+                FPDFLink_GetURL(links.get(), index, snapshot.url.data(),
+                                snapshot.url.size()));
+      result.push_back(std::move(snapshot));
+    }
+    return result;
+  };
+  EXPECT_EQ(run(false), run(true));
+}
+
 TEST_F(FPDFTextEmbedderTest, WebLinksAcrossLinesBug) {
   ASSERT_TRUE(OpenDocument("bug_650.pdf"));
   ScopedPage page = LoadScopedPage(0);
