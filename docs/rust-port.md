@@ -137,6 +137,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `85aab3743` Phase 7 public-text-search slice | 20,193 | 13,382 | 241 | 5,195 | 6,570 | 285,051 | 7.08% | 6.43% | A dedicated Rust text crate owns page/word search data, forward/backward cursors, match results, whole-word, spacing, and overlap policy; C++ retains case folding, query tokenization, and text/character index mapping |
 | `6f70ec2d4` Phase 7 text-query-tokenization slice | 20,258 | 13,447 | 241 | 5,185 | 6,570 | 285,113 | 7.11% | 6.46% | Rust owns leading/trailing-space markers, collapsed separators, script-boundary splitting, and right-apostrophe preservation; C++ retains only case folding and the separately selected tokenization oracle |
 | `2afa6a36f` Phase 7 text-link-extraction slice | 20,677 | 13,866 | 241 | 5,294 | 6,570 | 285,739 | 7.24% | 6.64% | Rust owns extracted web/mail URLs and ranges, multiline/hyphen joining, scheme/host/IPv6/bracket trimming, and email validation; C++ retains text geometry, public wrappers, and platform alphanumeric classification |
+| `0fc9dde75` Phase 7 text-index-mapping slice | 20,795 | 13,984 | 241 | 5,337 | 6,570 | 285,959 | 7.27% | 6.69% | Rust owns the visible-text segment map and both character/text index conversions; C++ retains character classification, public wrappers, and the separately selected mapping oracle |
 
 ## Toolchain
 
@@ -1303,6 +1304,21 @@ native text tests, both existing web/mail oracle unit corpora, all five existing
 public web/annotation link cases, and a new same-process comparison of every
 multi-line URL code unit and text range pass. All 1,069 unit tests and
 `pdfium_all` also pass.
+
+The twelfth Phase 7 slice replaces the production `CPDF_TextPage` visible-text
+index vector with a Rust-owned segment map. Candidate text pages classify each
+character once in C++, pass only inclusion bytes across the synchronous
+constructor boundary, and retain no parallel C++ `char_indices_`. Rust owns
+segment compaction and both text-to-character and character-to-text conversion;
+C++ retains PDF character objects, the historical normal/generated-character
+classification, public wrappers, and the separately selected oracle vector.
+
+Six native Rust text tests cover excluded runs and both mapping directions. A
+new same-process public differential constructs candidate and oracle text pages
+separately on a fixture containing a non-printable character, then compares
+both conversions across negative, in-range, and out-of-range indexes. All
+seven search-extension tests, all 63 public text tests, all 1,069 unit tests,
+and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
