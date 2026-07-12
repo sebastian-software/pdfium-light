@@ -119,6 +119,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `545ff9e45` Phase 6 PDF-reference-value slice | 17,573 | 10,762 | 241 | 4,257 | 6,570 | 279,977 | 6.28% | 5.27% | Rust owns referenced object-number storage, mutation, and clone state; C++ retains the non-owning holder pointer and object/archive adapters |
 | `30549ba0c` Phase 6 PDF-array-container slice | 17,744 | 10,933 | 241 | 4,344 | 6,570 | 280,423 | 6.33% | 5.35% | Rust owns ordered array slots and mutations; C++ retains object values in an opaque-handle registry and derives the legacy iterator view |
 | `d9bd92b8b` Phase 6 PDF-dictionary-container slice | 17,908 | 11,097 | 241 | 4,439 | 6,570 | 280,871 | 6.38% | 5.42% | Rust owns binary key bytes, sorted mapping, and mutations; C++ retains object values in an opaque-handle registry and derives the pooled legacy iterator view |
+| `91ad4cb4e` Phase 6 byte-string-pool foundation | 18,005 | 11,194 | 241 | 4,518 | 6,570 | 281,070 | 6.41% | 5.46% | Rust owns the binary string-to-handle interning index; C++ retains shared `ByteString` buffers in a handle registry so existing copy-on-write identity remains exact |
 
 ## Toolchain
 
@@ -994,6 +995,24 @@ keys, overwrite, replacement over an existing key, removal with ownership
 return, missing-key deletion, clone state, and indexed lookup. All 26 native
 Rust tests, five focused dictionary tests, all 1,063 unit tests, the retained
 parser fuzzer build, and `pdfium_all` pass in the full GN configuration.
+
+The twenty-third Phase 6 slice establishes the string-ownership foundation by
+replacing `ByteStringPool`'s C++ `unordered_set` index with a Rust-owned binary
+key-to-handle map. Rust decides whether a byte sequence is new or already
+interned, including sequences containing embedded NUL bytes. A dedicated
+`core/fxcrt/rust` crate keeps this low-level boundary independent of the parser
+crate and available to parser object constructors without an upward dependency.
+
+C++ retains one `ByteString` per opaque handle because `ByteString` is the
+native copy-on-write ABI value returned throughout PDFium. This is an explicit
+buffer adapter, not a second lookup index. The existing pool test proves that
+the first input buffer remains the canonical backing allocation and repeated
+interning returns the exact same non-null `c_str()` address. The native Rust
+test covers distinct binary keys and stable existing-handle selection.
+
+The Rust pool test, the existing exact-sharing pool test, both array and
+dictionary differential regressions, all 1,063 unit tests, the retained parser
+fuzzer build, and `pdfium_all` pass in the full GN configuration.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
