@@ -110,6 +110,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `aae60a5ed` Phase 6 corpus/fuzzer baseline | 16,155 | 9,344 | 241 | 3,714 | 6,570 | 277,278 | 5.83% | 4.62% | Versioned normal, defaulted, unknown, and truncated cross-reference corpus plus retained token-differential and public document parser fuzzer |
 | `e24070b45` Phase 6 xref-mutation slice | 16,364 | 9,553 | 241 | 3,765 | 6,570 | 277,614 | 5.89% | 4.72% | Prior surfaces plus Rust-owned skip/free/normal/compressed mutation orchestration; C++ retains cross-reference map storage and object lifetimes |
 | `d23c49f8c` Phase 6 xref-map-size slice | 16,463 | 9,652 | 241 | 3,782 | 6,570 | 277,756 | 5.93% | 4.77% | Prior surfaces plus Rust-owned clear/truncate/ensure-last object-map sizing orchestration; C++ retains the single map storage and object lifetimes |
+| `2c63f57dc` Phase 6 xref-merge-policy slice | 16,534 | 9,723 | 241 | 3,805 | 6,570 | 277,878 | 5.95% | 4.80% | Prior surfaces plus Rust-owned overlay conflict policy and object-stream flag preservation; C++ retains the single map storage and object lifetimes |
 
 ## Toolchain
 
@@ -833,6 +834,19 @@ maximum scalar boundaries, callback failure short-circuiting, and invalid FFI
 boundaries. The four-case object snapshot corpus and both simple-parser tests
 match the C++ oracle, the retained parser fuzzer source builds, and all 1,057
 unit tests pass in the full GN build.
+
+The fourteenth Phase 6 slice moves cross-reference overlay conflict policy
+into Rust. For each current entry, Rust chooses whether the top table remains
+authoritative, the current entry fills a missing key, or the object-stream flag
+must survive when both entries are normal objects. C++ retains the sole
+`std::map`, ordered traversal, and all object lifetimes; the original merge
+algorithm remains selected by the test-only oracle switch.
+
+Twenty native parser tests cover missing entries, overlay precedence, flag
+preservation, invalid type codes, and no-output-mutation FFI failures. The
+four-case object snapshot corpus and both simple-parser tests match the oracle,
+the retained parser fuzzer source builds, and all 1,057 unit tests pass in the
+full GN build.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
