@@ -156,6 +156,11 @@ pub struct PdfReferenceState {
     object_number: u32,
 }
 
+#[derive(Default)]
+pub struct PdfArrayState {
+    objects: Vec<usize>,
+}
+
 impl Default for PdfNumberState {
     fn default() -> Self {
         Self { value: PdfNumberValue::Unsigned(0) }
@@ -1325,6 +1330,151 @@ pub unsafe extern "C" fn pdfium_rust_pdf_reference_set(
     true
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_pdf_array_new() -> *mut PdfArrayState {
+    Box::into_raw(Box::new(PdfArrayState::default()))
+}
+
+/// # Safety
+///
+/// `state` must be null or a uniquely owned pointer returned by
+/// `pdfium_rust_pdf_array_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_array_destroy(state: *mut PdfArrayState) {
+    if !state.is_null() {
+        // SAFETY: The caller transfers the unique allocation back to Rust.
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+///
+/// `state` and `output` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_array_len(
+    state: *const PdfArrayState,
+    output: *mut usize,
+) -> bool {
+    let (Some(state), Some(output)) = ((unsafe { state.as_ref() }), (unsafe { output.as_mut() }))
+    else {
+        return false;
+    };
+    *output = state.objects.len();
+    true
+}
+
+/// # Safety
+///
+/// `state` and `output` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_array_get(
+    state: *const PdfArrayState,
+    index: usize,
+    output: *mut usize,
+) -> bool {
+    let (Some(state), Some(output)) = ((unsafe { state.as_ref() }), (unsafe { output.as_mut() }))
+    else {
+        return false;
+    };
+    let Some(handle) = state.objects.get(index) else {
+        return false;
+    };
+    *output = *handle;
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live value and `handle` must be nonzero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_array_append(
+    state: *mut PdfArrayState,
+    handle: usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    if handle == 0 {
+        return false;
+    }
+    state.objects.push(handle);
+    true
+}
+
+/// # Safety
+///
+/// `state` and `old_handle` must remain valid and `handle` must be nonzero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_array_set(
+    state: *mut PdfArrayState,
+    index: usize,
+    handle: usize,
+    old_handle: *mut usize,
+) -> bool {
+    let (Some(state), Some(old_handle)) =
+        ((unsafe { state.as_mut() }), (unsafe { old_handle.as_mut() }))
+    else {
+        return false;
+    };
+    if handle == 0 || index >= state.objects.len() {
+        return false;
+    }
+    *old_handle = std::mem::replace(&mut state.objects[index], handle);
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live value and `handle` must be nonzero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_array_insert(
+    state: *mut PdfArrayState,
+    index: usize,
+    handle: usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    if handle == 0 || index > state.objects.len() {
+        return false;
+    }
+    state.objects.insert(index, handle);
+    true
+}
+
+/// # Safety
+///
+/// `state` and `old_handle` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_array_remove(
+    state: *mut PdfArrayState,
+    index: usize,
+    old_handle: *mut usize,
+) -> bool {
+    let (Some(state), Some(old_handle)) =
+        ((unsafe { state.as_mut() }), (unsafe { old_handle.as_mut() }))
+    else {
+        return false;
+    };
+    if index >= state.objects.len() {
+        return false;
+    }
+    *old_handle = state.objects.remove(index);
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_array_clear(state: *mut PdfArrayState) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    state.objects.clear();
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -1921,6 +2071,27 @@ mod tests {
             });
             assert_eq!(object_number.wrapping_add(1), state.object_number);
         }
+    }
+
+    #[test]
+    fn pdf_array_state_should_own_ordered_slot_mutations() {
+        let mut state = PdfArrayState::default();
+        assert!(unsafe { pdfium_rust_pdf_array_append(&mut state, 10) });
+        assert!(unsafe { pdfium_rust_pdf_array_append(&mut state, 20) });
+        assert!(unsafe { pdfium_rust_pdf_array_insert(&mut state, 1, 15) });
+        assert_eq!(vec![10, 15, 20], state.objects);
+
+        let mut old_handle = 0;
+        assert!(unsafe { pdfium_rust_pdf_array_set(&mut state, 2, 25, &mut old_handle) });
+        assert_eq!(20, old_handle);
+        assert!(unsafe { pdfium_rust_pdf_array_remove(&mut state, 0, &mut old_handle) });
+        assert_eq!(10, old_handle);
+        assert_eq!(vec![15, 25], state.objects);
+
+        assert!(!unsafe { pdfium_rust_pdf_array_insert(&mut state, 4, 30) });
+        assert!(!unsafe { pdfium_rust_pdf_array_append(&mut state, 0) });
+        assert!(unsafe { pdfium_rust_pdf_array_clear(&mut state) });
+        assert!(state.objects.is_empty());
     }
 
     #[test]

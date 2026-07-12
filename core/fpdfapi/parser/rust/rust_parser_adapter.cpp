@@ -111,6 +111,24 @@ extern "C" bool pdfium_rust_pdf_reference_get(const void* state,
                                               uint32_t* output);
 extern "C" bool pdfium_rust_pdf_reference_set(void* state,
                                               uint32_t object_number);
+extern "C" void* pdfium_rust_pdf_array_new();
+extern "C" void pdfium_rust_pdf_array_destroy(void* state);
+extern "C" bool pdfium_rust_pdf_array_len(const void* state, size_t* output);
+extern "C" bool pdfium_rust_pdf_array_get(const void* state,
+                                          size_t index,
+                                          uintptr_t* output);
+extern "C" bool pdfium_rust_pdf_array_append(void* state, uintptr_t handle);
+extern "C" bool pdfium_rust_pdf_array_set(void* state,
+                                          size_t index,
+                                          uintptr_t handle,
+                                          uintptr_t* old_handle);
+extern "C" bool pdfium_rust_pdf_array_insert(void* state,
+                                             size_t index,
+                                             uintptr_t handle);
+extern "C" bool pdfium_rust_pdf_array_remove(void* state,
+                                             size_t index,
+                                             uintptr_t* old_handle);
+extern "C" bool pdfium_rust_pdf_array_clear(void* state);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -427,6 +445,56 @@ uint32_t RustPdfReference::GetObjectNumber() const {
 
 bool RustPdfReference::SetObjectNumber(uint32_t object_number) {
   return pdfium_rust_pdf_reference_set(state_, object_number);
+}
+
+RustPdfArray::RustPdfArray() : state_(pdfium_rust_pdf_array_new()) {
+  CHECK(state_);
+}
+
+RustPdfArray::~RustPdfArray() {
+  pdfium_rust_pdf_array_destroy(state_);
+}
+
+size_t RustPdfArray::size() const {
+  size_t result = 0;
+  CHECK(pdfium_rust_pdf_array_len(state_, &result));
+  return result;
+}
+
+std::optional<uintptr_t> RustPdfArray::Get(size_t index) const {
+  uintptr_t result = 0;
+  if (!pdfium_rust_pdf_array_get(state_, index, &result)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+bool RustPdfArray::Append(uintptr_t handle) {
+  return pdfium_rust_pdf_array_append(state_, handle);
+}
+
+std::optional<uintptr_t> RustPdfArray::Set(size_t index, uintptr_t handle) {
+  uintptr_t old_handle = 0;
+  if (!pdfium_rust_pdf_array_set(state_, index, handle, &old_handle)) {
+    return std::nullopt;
+  }
+  return old_handle;
+}
+
+bool RustPdfArray::Insert(size_t index, uintptr_t handle) {
+  return pdfium_rust_pdf_array_insert(state_, index, handle);
+}
+
+std::optional<uintptr_t> RustPdfArray::Remove(size_t index) {
+  uintptr_t old_handle = 0;
+  if (!pdfium_rust_pdf_array_remove(state_, index, &old_handle)) {
+    return std::nullopt;
+  }
+  return old_handle;
+}
+
+bool RustPdfArray::Clear() {
+  return pdfium_rust_pdf_array_clear(state_);
 }
 
 std::optional<uint32_t> RustReadBigEndianVarInt(

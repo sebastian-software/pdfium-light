@@ -140,6 +140,25 @@ class RustPdfReference final {
   void* state_;
 };
 
+class RustPdfArray final {
+ public:
+  RustPdfArray();
+  RustPdfArray(const RustPdfArray&) = delete;
+  RustPdfArray& operator=(const RustPdfArray&) = delete;
+  ~RustPdfArray();
+
+  size_t size() const;
+  std::optional<uintptr_t> Get(size_t index) const;
+  bool Append(uintptr_t handle);
+  std::optional<uintptr_t> Set(size_t index, uintptr_t handle);
+  bool Insert(size_t index, uintptr_t handle);
+  std::optional<uintptr_t> Remove(size_t index);
+  bool Clear();
+
+ private:
+  void* state_;
+};
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);
