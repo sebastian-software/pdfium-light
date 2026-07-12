@@ -195,16 +195,20 @@ std::unique_ptr<CPDF_TextPageFind> CPDF_TextPageFind::Create(
     const WideString& findwhat,
     const Options& options,
     std::optional<size_t> startPos) {
-  std::vector<WideString> findwhat_array =
-      ExtractFindWhat(GetStringCase(findwhat, options.bMatchCase));
-  auto find = pdfium::WrapUnique(
-      new CPDF_TextPageFind(pTextPage, findwhat_array, options, startPos));
+  WideString normalized_query = GetStringCase(findwhat, options.bMatchCase);
+  std::vector<WideString> findwhat_array;
+  if (!pdfium::rust::UseRustParserCandidate()) {
+    findwhat_array = ExtractFindWhat(normalized_query);
+  }
+  auto find = pdfium::WrapUnique(new CPDF_TextPageFind(
+      pTextPage, normalized_query, findwhat_array, options, startPos));
   find->FindFirst();
   return find;
 }
 
 CPDF_TextPageFind::CPDF_TextPageFind(
     const CPDF_TextPage* pTextPage,
+    const WideString& normalized_query,
     const std::vector<WideString>& findwhat_array,
     const Options& options,
     std::optional<size_t> startPos)
@@ -219,9 +223,10 @@ CPDF_TextPageFind::CPDF_TextPageFind(
     WideString page_text =
         GetStringCase(pTextPage->GetAllPageText(), options.bMatchCase);
     rust_find_ = std::make_unique<pdfium::rust::RustTextPageFind>(
-        page_text.AsStringView(), findwhat_array, options.bMatchWholeWord,
-        options.bConsecutive, startPos, const_cast<CPDF_TextPage*>(pTextPage),
-        TextIndexToCharacterIndex, CharacterIndexToTextIndex);
+        page_text.AsStringView(), normalized_query.AsStringView(),
+        options.bMatchWholeWord, options.bConsecutive, startPos,
+        const_cast<CPDF_TextPage*>(pTextPage), TextIndexToCharacterIndex,
+        CharacterIndexToTextIndex);
     CHECK(rust_find_->valid());
     return;
   }

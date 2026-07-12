@@ -4,14 +4,12 @@
 
 #include "core/fpdftext/rust/rust_text_adapter.h"
 
-#include "core/fxcrt/check.h"
+#include <vector>
 
 extern "C" void* pdfium_rust_text_find_new(const uint32_t* page_text,
                                            size_t page_text_len,
-                                           const uint32_t* word_data,
-                                           size_t word_data_len,
-                                           const size_t* word_offsets,
-                                           size_t word_count,
+                                           const uint32_t* query,
+                                           size_t query_len,
                                            bool match_whole_word,
                                            bool consecutive,
                                            bool has_start,
@@ -45,7 +43,7 @@ std::vector<uint32_t> ToCodePoints(WideStringView value) {
 }  // namespace
 
 RustTextPageFind::RustTextPageFind(WideStringView page_text,
-                                   pdfium::span<const WideString> words,
+                                   WideStringView query,
                                    bool match_whole_word,
                                    bool consecutive,
                                    std::optional<size_t> start,
@@ -57,16 +55,10 @@ RustTextPageFind::RustTextPageFind(WideStringView page_text,
       text_to_character_(text_to_character),
       character_to_text_(character_to_text) {
   std::vector<uint32_t> page_code_points = ToCodePoints(page_text);
-  std::vector<uint32_t> word_data;
-  std::vector<size_t> word_offsets = {0};
-  for (const WideString& word : words) {
-    std::vector<uint32_t> code_points = ToCodePoints(word.AsStringView());
-    word_data.insert(word_data.end(), code_points.begin(), code_points.end());
-    word_offsets.push_back(word_data.size());
-  }
+  std::vector<uint32_t> query_code_points = ToCodePoints(query);
   state_ = pdfium_rust_text_find_new(
-      page_code_points.data(), page_code_points.size(), word_data.data(),
-      word_data.size(), word_offsets.data(), words.size(), match_whole_word,
+      page_code_points.data(), page_code_points.size(),
+      query_code_points.data(), query_code_points.size(), match_whole_word,
       consecutive, start.has_value(), start.value_or(0));
 }
 

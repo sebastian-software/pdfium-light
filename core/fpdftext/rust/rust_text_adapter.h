@@ -10,9 +10,7 @@
 
 #include <optional>
 #include <utility>
-#include <vector>
 
-#include "core/fxcrt/span.h"
 #include "core/fxcrt/widestring.h"
 
 namespace pdfium::rust {
@@ -24,7 +22,7 @@ using RustTextIndexMapCallback = bool (*)(void* context,
 class RustTextPageFind final {
  public:
   RustTextPageFind(WideStringView page_text,
-                   pdfium::span<const WideString> words,
+                   WideStringView query,
                    bool match_whole_word,
                    bool consecutive,
                    std::optional<size_t> start,

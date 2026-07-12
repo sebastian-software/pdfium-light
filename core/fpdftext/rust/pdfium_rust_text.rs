@@ -82,6 +82,67 @@ fn find_subslice(haystack: &[u32], needle: &[u32], start: usize) -> Option<usize
         .map(|position| start + position)
 }
 
+fn extract_find_words(query: &[u32]) -> Vec<Vec<u32>> {
+    if query.iter().all(|character| *character == b' ' as u32) {
+        return vec![query.to_vec()];
+    }
+    let mut raw_words = Vec::new();
+    let mut start = 0;
+    loop {
+        let end = query[start..]
+            .iter()
+            .position(|character| *character == b' ' as u32)
+            .map(|offset| start + offset)
+            .unwrap_or(query.len());
+        raw_words.push(query[start..end].to_vec());
+        if end == query.len() {
+            break;
+        }
+        start = end + 1;
+        while start < query.len() && query[start] == b' ' as u32 {
+            start += 1;
+        }
+        if start == query.len() {
+            raw_words.push(Vec::new());
+            break;
+        }
+    }
+
+    let mut words = Vec::new();
+    for mut word in raw_words {
+        if word.is_empty() {
+            words.push(word);
+            continue;
+        }
+        let mut position = 0;
+        while position < word.len() {
+            let character = word[position];
+            if is_ignored_space_character(character) {
+                if position > 0 && character == 0x2019 {
+                    position += 1;
+                    continue;
+                }
+                if position > 0 {
+                    words.push(word[..position].to_vec());
+                }
+                words.push(vec![character]);
+                if position == word.len() - 1 {
+                    word.clear();
+                    break;
+                }
+                word = word[position + 1..].to_vec();
+                position = 0;
+                continue;
+            }
+            position += 1;
+        }
+        if !word.is_empty() {
+            words.push(word);
+        }
+    }
+    words
+}
+
 impl TextFindState {
     fn new(
         page_text: Vec<u32>,
@@ -269,40 +330,26 @@ fn read_u32_span(data: *const u32, len: usize) -> Option<Vec<u32>> {
 }
 
 /// # Safety
-/// All spans must remain readable for this call. `word_offsets` has
-/// `word_count + 1` entries and partitions `word_data` monotonically.
+/// Both code-point spans must remain readable for this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pdfium_rust_text_find_new(
     page_text: *const u32,
     page_text_len: usize,
-    word_data: *const u32,
-    word_data_len: usize,
-    word_offsets: *const usize,
-    word_count: usize,
+    query: *const u32,
+    query_len: usize,
     match_whole_word: bool,
     consecutive: bool,
     has_start: bool,
     start: usize,
 ) -> *mut TextFindState {
-    let (Some(page_text), Some(word_data)) =
-        (read_u32_span(page_text, page_text_len), read_u32_span(word_data, word_data_len))
+    let (Some(page_text), Some(query)) =
+        (read_u32_span(page_text, page_text_len), read_u32_span(query, query_len))
     else {
         return core::ptr::null_mut();
     };
-    if word_count == usize::MAX || word_offsets.is_null() {
-        return core::ptr::null_mut();
-    }
-    let offsets = unsafe { core::slice::from_raw_parts(word_offsets, word_count + 1) };
-    if offsets.first() != Some(&0)
-        || offsets.last() != Some(&word_data.len())
-        || offsets.windows(2).any(|pair| pair[0] > pair[1])
-    {
-        return core::ptr::null_mut();
-    }
-    let words = offsets.windows(2).map(|pair| word_data[pair[0]..pair[1]].to_vec()).collect();
     Box::into_raw(Box::new(TextFindState::new(
         page_text,
-        words,
+        extract_find_words(&query),
         match_whole_word,
         consecutive,
         has_start.then_some(start),
@@ -426,5 +473,23 @@ mod tests {
         );
         assert!(state.find_next());
         assert_eq!((0, 11), (state.result_start, state.result_end));
+    }
+
+    #[test]
+    fn query_tokenization_should_preserve_space_and_script_boundaries() {
+        let code_points = |value: &str| value.chars().map(u32::from).collect::<Vec<_>>();
+        assert_eq!(
+            vec![Vec::new(), code_points("world")],
+            extract_find_words(&code_points("  world"))
+        );
+        assert_eq!(
+            vec![code_points("world"), Vec::new()],
+            extract_find_words(&code_points("world  "))
+        );
+        assert_eq!(
+            vec![code_points("abc"), code_points("漢"), code_points("def")],
+            extract_find_words(&code_points("abc漢def"))
+        );
+        assert_eq!(vec![code_points("l’homme")], extract_find_words(&code_points("l’homme")));
     }
 }

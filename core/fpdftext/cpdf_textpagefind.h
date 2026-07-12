@@ -46,6 +46,7 @@ class CPDF_TextPageFind {
 
  private:
   CPDF_TextPageFind(const CPDF_TextPage* pTextPage,
+                    const WideString& normalized_query,
                     const std::vector<WideString>& findwhat_array,
                     const Options& options,
                     std::optional<size_t> startPos);
