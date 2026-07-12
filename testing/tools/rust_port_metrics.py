@@ -141,6 +141,7 @@ ACTIVE_SURFACES = (
     "text-object duplicate geometry and character comparison",
     "generated-character font-size fallback and origin advancement",
     "recent-character duplicate suppression and leading-space trim",
+    "text-object line flushing and stable horizontal grouping",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",

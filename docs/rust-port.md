@@ -156,6 +156,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `f19b313b9` Phase 7 duplicate-text-object slice | 23,059 | 16,248 | 241 | 6,365 | 6,570 | 290,248 | 7.94% | 7.66% | Rust owns empty/overlap rectangle policy, width/font/item equality, character comparison, and position tolerances; C++ retains text-object/font access, the bounded prior-object scan, synchronous item callback, and the separately selected oracle |
 | `d822f622b` Phase 7 generated-character-origin slice | 23,125 | 16,314 | 241 | 6,403 | 6,570 | 290,377 | 7.96% | 7.69% | Rust owns prior-width admission, text-object/box font-size selection, zero-size fallback, and origin advancement; C++ retains prior-character/font access, matrix and native `CharInfo` construction, and the separately selected oracle |
 | `f0a4139db` Phase 7 duplicate-character slice | 23,243 | 16,432 | 241 | 6,455 | 6,570 | 290,615 | 8.00% | 7.73% | Rust owns the seven-character reverse scan, code/font/origin equality, threshold comparison, suppression, and first-item space-trim action; C++ retains character/font lifetimes, buffer mutation, and the separately selected oracle |
+| `ddf10ee58` Phase 7 text-object-grouping slice | 23,393 | 16,582 | 241 | 6,504 | 6,570 | 290,954 | 8.04% | 7.79% | Rust owns zero-width/duplicate/empty-item actions, line-change thresholding, flush/append selection, and stable horizontal insertion index; C++ retains object/font/matrix lifetimes, transformed geometry callbacks, native vector mutation, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1626,6 +1627,23 @@ compares Unicode, origin, and box values exactly. Twenty same-process
 repetitions pass, followed by the complete 82-case text/search matrix. All
 seven search-extension tests, all 75 public text tests, all 1,069 unit tests,
 and `pdfium_all` pass.
+
+The thirty-first Phase 7 slice moves text-object grouping decisions into Rust.
+Rust owns zero-width and duplicate suppression actions, empty-item handling,
+line-change thresholding, flush/append selection, and the stable horizontal
+insertion index. C++ retains text-object/font/matrix lifetimes, supplies
+transformed widths and positions through synchronous callbacks, and applies the
+validated vector mutation; the complete original grouping path remains the
+separately selected oracle.
+
+The candidate remains O(n) in the current line's grouped object count and uses
+O(1) auxiliary storage. Twenty-six native Rust text tests cover skip, append,
+flush, front/middle/tail insertion, and equal-X stability. The exact separator
+differential compares final order, Unicode, flags, origins, and boxes through
+the production grouping path. A dedicated `B`, `A`, then next-line `C` fixture
+proves `A`, `B`, `C` output order with exact generated flags, origins, and boxes.
+All seven search-extension tests, all 76 public text tests, all 1,069 unit
+tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
