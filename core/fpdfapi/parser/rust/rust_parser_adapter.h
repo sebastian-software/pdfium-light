@@ -265,16 +265,17 @@ std::optional<int> RustDocumentCountPages(
     RustDocumentPageSetCountCallback set_count);
 
 using RustDocumentPageFindDescribeCallback = bool (*)(void* context,
-                                                       uintptr_t handle,
-                                                       bool* has_kids,
-                                                       int32_t* count_hint,
-                                                       uint32_t* object_number,
-                                                       size_t* child_count);
-using RustDocumentPageFindChildCallback = bool (*)(void* context,
-                                                    uintptr_t handle,
-                                                    size_t child_index,
-                                                    uintptr_t* child_handle,
-                                                    uint32_t* reference_object_number);
+                                                      uintptr_t handle,
+                                                      bool* has_kids,
+                                                      int32_t* count_hint,
+                                                      uint32_t* object_number,
+                                                      size_t* child_count);
+using RustDocumentPageFindChildCallback =
+    bool (*)(void* context,
+             uintptr_t handle,
+             size_t child_index,
+             uintptr_t* child_handle,
+             uint32_t* reference_object_number);
 std::optional<int> RustDocumentFindPageIndex(
     uintptr_t root_handle,
     uint32_t target_object_number,
@@ -282,6 +283,10 @@ std::optional<int> RustDocumentFindPageIndex(
     void* context,
     RustDocumentPageFindDescribeCallback describe,
     RustDocumentPageFindChildCallback child);
+
+std::optional<std::vector<uint32_t>> RustSdkParsePageRange(
+    pdfium::span<const uint8_t> input,
+    uint32_t page_count);
 
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);

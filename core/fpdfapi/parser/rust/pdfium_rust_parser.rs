@@ -2207,6 +2207,98 @@ pub unsafe extern "C" fn pdfium_rust_document_find_page_index(
     true
 }
 
+fn parse_sdk_page_number(input: &[u8]) -> Option<u32> {
+    if input.is_empty() {
+        return Some(0);
+    }
+    let mut value: u32 = 0;
+    for &byte in input {
+        if !byte.is_ascii_digit() {
+            return Some(0);
+        }
+        value = value.checked_mul(10)?.checked_add(u32::from(byte - b'0'))?;
+        if value > i32::MAX as u32 {
+            return None;
+        }
+    }
+    Some(value)
+}
+
+fn parse_sdk_page_range(input: &[u8], page_count: u32) -> Option<Vec<u32>> {
+    if input.iter().any(|byte| !matches!(*byte, b' ' | b'0'..=b'9' | b'-' | b',')) {
+        return Some(Vec::new());
+    }
+    let stripped: Vec<u8> = input.iter().copied().filter(|byte| *byte != b' ').collect();
+    let mut result = Vec::new();
+    for entry in stripped.split(|byte| *byte == b',') {
+        let mut args = entry.split(|byte| *byte == b'-');
+        let first = args.next().unwrap_or_default();
+        let second = args.next();
+        if args.next().is_some() {
+            return Some(Vec::new());
+        }
+        let first_number = parse_sdk_page_number(first)?;
+        match second {
+            None => {
+                if first_number == 0 || first_number > page_count {
+                    return Some(Vec::new());
+                }
+                result.push(first_number - 1);
+            }
+            Some(last) => {
+                let last_number = parse_sdk_page_number(last)?;
+                if first_number == 0
+                    || last_number == 0
+                    || first_number > last_number
+                    || last_number > page_count
+                {
+                    return Some(Vec::new());
+                }
+                result.extend((first_number..=last_number).map(|page| page - 1));
+            }
+        }
+    }
+    Some(result)
+}
+
+/// Parses the SDK page-range grammar and copies the zero-based page indices.
+///
+/// A null output with zero capacity performs the sizing pass. Decimal overflow
+/// rejects the boundary so C++ can preserve its platform `atoi()` oracle.
+///
+/// # Safety
+/// `input` and non-null `output` must identify readable/writable spans.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_sdk_parse_page_range(
+    input: *const u8,
+    input_len: usize,
+    page_count: u32,
+    output: *mut u32,
+    output_capacity: usize,
+    output_len: *mut usize,
+) -> bool {
+    let Some(output_len) = (unsafe { output_len.as_mut() }) else {
+        return false;
+    };
+    if input_len != 0 && input.is_null() {
+        return false;
+    }
+    let input =
+        if input_len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(input, input_len) } };
+    let Some(result) = parse_sdk_page_range(input, page_count) else {
+        return false;
+    };
+    *output_len = result.len();
+    if output_capacity == 0 {
+        return output.is_null();
+    }
+    if output.is_null() || output_capacity < result.len() {
+        return false;
+    }
+    unsafe { core::slice::from_raw_parts_mut(output, result.len()) }.copy_from_slice(&result);
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -3152,6 +3244,54 @@ mod tests {
             });
             assert_eq!(expected, output);
         }
+    }
+
+    #[test]
+    fn sdk_page_range_should_preserve_order_duplicates_and_invalid_results() {
+        for (input, page_count, expected) in [
+            ("1-4,3-6", 10, vec![0, 1, 2, 3, 2, 3, 4, 5]),
+            ("5  0, 1-2 ", 100, vec![49, 0, 1]),
+            ("1-2,,,,3-4", 10, vec![]),
+            ("clams", 10, vec![]),
+        ] {
+            let mut len = 0;
+            assert!(unsafe {
+                pdfium_rust_sdk_parse_page_range(
+                    input.as_ptr(),
+                    input.len(),
+                    page_count,
+                    core::ptr::null_mut(),
+                    0,
+                    &mut len,
+                )
+            });
+            let mut output = vec![0; len];
+            if len != 0 {
+                assert!(unsafe {
+                    pdfium_rust_sdk_parse_page_range(
+                        input.as_ptr(),
+                        input.len(),
+                        page_count,
+                        output.as_mut_ptr(),
+                        output.len(),
+                        &mut len,
+                    )
+                });
+            }
+            assert_eq!(expected, output);
+        }
+        let overflow = "999999999999999999999";
+        let mut len = 0;
+        assert!(!unsafe {
+            pdfium_rust_sdk_parse_page_range(
+                overflow.as_ptr(),
+                overflow.len(),
+                u32::MAX,
+                core::ptr::null_mut(),
+                0,
+                &mut len,
+            )
+        });
     }
 
     #[test]

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/compiler_specific.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -90,4 +91,26 @@ TEST(CPDFSDKHelpersTest, ParsePageRangeString) {
               ElementsAre(0, 1, 2, 3, 4, 5));
   EXPECT_THAT(ParsePageRangeString("1-4,3-6", 10),
               ElementsAre(0, 1, 2, 3, 2, 3, 4, 5));
+}
+
+TEST(CPDFSDKHelpersTest, RustPageRangeMatchesCppOracle) {
+  struct Case {
+    const char* input;
+    uint32_t page_count;
+  };
+  static constexpr Case kCases[] = {
+      {"", 1},      {"clams", 10},   {"1-4,3-6", 10}, {"5  0, 1-2 ", 100},
+      {"1-2-", 10}, {"50,1-2", 100},
+  };
+  for (const auto& test_case : kCases) {
+    std::vector<uint32_t> oracle;
+    {
+      pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+          false);
+      oracle = ParsePageRangeString(test_case.input, test_case.page_count);
+    }
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(true);
+    EXPECT_EQ(oracle,
+              ParsePageRangeString(test_case.input, test_case.page_count));
+  }
 }

@@ -17,6 +17,7 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fpdfapi/render/cpdf_renderoptions.h"
 #include "core/fpdfdoc/cpdf_annot.h"
 #include "core/fpdfdoc/cpdf_interactiveform.h"
@@ -29,7 +30,6 @@
 #include "core/fxcrt/stl_util.h"
 #include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
-
 
 namespace {
 
@@ -97,7 +97,6 @@ size_t FPDFWideStringLength(const unsigned short* str) {
   return len;
 }
 
-
 }  // namespace
 
 IPDF_Page* IPDFPageFromFPDFPage(FPDF_PAGE page) {
@@ -163,7 +162,6 @@ UNSAFE_BUFFER_USAGE pdfium::span<char> SpanFromFPDFApiArgs(
   // SAFETY: required from caller, enforced by UNSAFE_BUFFER_USAGE in header.
   return UNSAFE_BUFFERS(pdfium::span(static_cast<char*>(buffer), buflen));
 }
-
 
 RetainPtr<const CPDF_Array> GetQuadPointsArrayFromDictionary(
     const CPDF_Dictionary* dict) {
@@ -413,8 +411,10 @@ void SetColorFromScheme(const FPDF_COLORSCHEME* pColorScheme,
   pRenderOptions->SetColorScheme(color_scheme);
 }
 
-std::vector<uint32_t> ParsePageRangeString(const ByteString& bsPageRange,
-                                           uint32_t nCount) {
+namespace {
+
+std::vector<uint32_t> ParsePageRangeStringCpp(const ByteString& bsPageRange,
+                                              uint32_t nCount) {
   ByteStringView alphabet(" 0123456789-,");
   for (const auto& ch : bsPageRange) {
     if (!alphabet.Contains(ch)) {
@@ -452,4 +452,19 @@ std::vector<uint32_t> ParsePageRangeString(const ByteString& bsPageRange,
     }
   }
   return results;
+}
+
+}  // namespace
+
+std::vector<uint32_t> ParsePageRangeString(const ByteString& bsPageRange,
+                                           uint32_t nCount) {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    std::optional<std::vector<uint32_t>> result =
+        pdfium::rust::RustSdkParsePageRange(bsPageRange.unsigned_span(),
+                                            nCount);
+    if (result.has_value()) {
+      return std::move(*result);
+    }
+  }
+  return ParsePageRangeStringCpp(bsPageRange, nCount);
 }

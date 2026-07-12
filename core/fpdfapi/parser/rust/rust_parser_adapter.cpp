@@ -214,6 +214,12 @@ extern "C" bool pdfium_rust_document_find_page_index(
     pdfium::rust::RustDocumentPageFindDescribeCallback describe,
     pdfium::rust::RustDocumentPageFindChildCallback child,
     int32_t* output);
+extern "C" bool pdfium_rust_sdk_parse_page_range(const uint8_t* input,
+                                                 size_t input_len,
+                                                 uint32_t page_count,
+                                                 uint32_t* output,
+                                                 size_t output_capacity,
+                                                 size_t* output_len);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -765,9 +771,26 @@ std::optional<int> RustDocumentFindPageIndex(
     RustDocumentPageFindDescribeCallback describe,
     RustDocumentPageFindChildCallback child) {
   int32_t result = -1;
-  if (!pdfium_rust_document_find_page_index(
-          root_handle, target_object_number, initial_skip_count, context,
-          describe, child, &result)) {
+  if (!pdfium_rust_document_find_page_index(root_handle, target_object_number,
+                                            initial_skip_count, context,
+                                            describe, child, &result)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<std::vector<uint32_t>> RustSdkParsePageRange(
+    pdfium::span<const uint8_t> input,
+    uint32_t page_count) {
+  size_t output_len = 0;
+  if (!pdfium_rust_sdk_parse_page_range(input.data(), input.size(), page_count,
+                                        nullptr, 0, &output_len)) {
+    return std::nullopt;
+  }
+  std::vector<uint32_t> result(output_len);
+  if (output_len != 0 && !pdfium_rust_sdk_parse_page_range(
+                             input.data(), input.size(), page_count,
+                             result.data(), result.size(), &output_len)) {
     return std::nullopt;
   }
   return result;
