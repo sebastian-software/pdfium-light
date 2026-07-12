@@ -82,7 +82,8 @@ CPDF_Object* CPDF_IndirectObjectHolder::GetOrParseIndirectObjectInternal(
       return nullptr;
     }
     if (lookup->status == 2) {
-      return FilterInvalidObjNum(GetObjectForHandle(lookup->handle));
+      return const_cast<CPDF_Object*>(
+          FilterInvalidObjNum(GetObjectForHandle(lookup->handle)));
     }
 
     MarkIndirectObjectsViewDirty();
