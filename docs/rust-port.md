@@ -174,6 +174,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `7df1198ab` Phase 7 public-link-hit-test slice | 25,308 | 18,497 | 241 | 7,188 | 6,570 | 294,805 | 8.58% | 8.57% | Rust owns reverse z-order scanning, rectangle normalization, inclusive containment, topmost selection, and miss/error state; C++ retains the per-page link cache, dictionaries, rectangle extraction, selected handles, and the separately selected oracle loop |
 | `ee43436fc` Phase 7 document-name-tree-search slice | 25,708 | 18,897 | 241 | 7,253 | 6,570 | 295,385 | 8.70% | 8.73% | Rust owns name-tree limits pruning, sorted-name scanning, depth-first child order, the depth bound, and exact object-number cycle guarding; C++ retains dictionaries, arrays, decoded Unicode comparisons, values, synchronous borrowed callbacks, mutation paths, and the separately selected lookup oracle |
 | `94022a215` Phase 7 public-bookmark-color slice | 25,734 | 18,923 | 241 | 7,261 | 6,570 | 295,456 | 8.71% | 8.74% | Rust owns public bookmark color range validation, historical NaN admission, and success selection; C++ retains bookmark dictionaries, optional color extraction, public output pointers, writes, and the separately selected oracle predicate |
+| `fddb18d94` Phase 7 public-bookmark-destination slice | 25,758 | 18,947 | 241 | 7,268 | 6,570 | 295,521 | 8.72% | 8.75% | Rust owns direct-destination precedence, action-backed fallback, and missing-result selection for public bookmarks; C++ retains bookmark, destination, action, dictionary, document, and public-handle lifetimes plus the separately selected oracle branches |
 
 ## Toolchain
 
@@ -1954,6 +1955,18 @@ three output values, including untouched distinct sentinels on failure, across
 the six existing malformed and valid bookmark-color fixtures. Both focused
 public cases, all 58 parser-native tests, all 1,072 unit tests, and
 `pdfium_all` pass.
+
+The forty-ninth Phase 7 slice moves public bookmark destination-source routing
+into Rust. Rust owns direct-destination precedence, action-backed fallback, and
+missing-result selection. C++ retains bookmark, destination, action,
+dictionary, document, and public-handle lifetimes, performs the selected native
+lookup, and preserves the original branches as the separately selected oracle.
+
+The candidate remains O(1) in time and auxiliary storage. One parser-native
+test exhausts all four direct/action presence combinations. A same-process
+public differential compares exact destination handles for missing,
+action-backed, and direct bookmark fixtures. Both focused public cases, all 59
+parser-native tests, all 1,072 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
