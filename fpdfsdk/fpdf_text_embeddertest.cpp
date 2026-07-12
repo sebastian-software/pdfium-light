@@ -2836,6 +2836,46 @@ TEST_F(FPDFTextEmbedderTest, ActualTextRtl) {
               ElementsAreArray(kExpectedText));
 }
 
+TEST_F(FPDFTextEmbedderTest, RustMarkedContentMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("actual_text_rtl.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct CharacterSnapshot {
+    uint32_t unicode;
+    bool has_origin;
+    double origin_x;
+    double origin_y;
+    bool has_box;
+    double left;
+    double right;
+    double bottom;
+    double top;
+    bool operator==(const CharacterSnapshot&) const = default;
+  };
+  auto run = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    const int count = FPDFText_CountChars(text_page.get());
+    std::vector<CharacterSnapshot> characters;
+    characters.reserve(count);
+    for (int index = 0; index < count; ++index) {
+      CharacterSnapshot character = {};
+      character.unicode = FPDFText_GetUnicode(text_page.get(), index);
+      character.has_origin = FPDFText_GetCharOrigin(
+          text_page.get(), index, &character.origin_x, &character.origin_y);
+      character.has_box = FPDFText_GetCharBox(
+          text_page.get(), index, &character.left, &character.right,
+          &character.bottom, &character.top);
+      characters.push_back(character);
+    }
+    return characters;
+  };
+
+  EXPECT_EQ(run(false), run(true));
+}
+
 TEST_F(FPDFTextEmbedderTest, RustTextLineOrderingMatchesCppOracle) {
   ASSERT_TRUE(OpenDocument("actual_text_rtl.pdf"));
   ScopedPage page = LoadScopedPage(0);
