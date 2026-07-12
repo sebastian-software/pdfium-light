@@ -692,6 +692,24 @@ TEST_F(FPDFDocEmbedderTest, FindBookmarks) {
   EXPECT_FALSE(FPDFBookmark_Find(document(), bad_title.get()));
 }
 
+TEST_F(FPDFDocEmbedderTest, RustBookmarkSearchMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("bookmarks.pdf"));
+
+  auto find = [&](const wchar_t* title, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFWideString encoded_title = GetFPDFWideString(title);
+    return FPDFBookmark_Find(document(), encoded_title.get());
+  };
+
+  static constexpr std::array<const wchar_t*, 4> kTitles = {
+      L"A Good Beginning", L"a good beginning", L"Open Middle Descendant",
+      L"A BAD Beginning"};
+  for (const wchar_t* title : kTitles) {
+    EXPECT_EQ(find(title, false), find(title, true));
+  }
+}
+
 TEST_F(FPDFDocEmbedderTest, FindBookmarksWithColor) {
   ASSERT_TRUE(OpenDocument("bookmarks_color.pdf"));
 
@@ -755,7 +773,20 @@ TEST_F(FPDFDocEmbedderTest, FindBookmarksBug420) {
 
   // Try to find a title.
   ScopedFPDFWideString title = GetFPDFWideString(L"anything");
-  EXPECT_FALSE(FPDFBookmark_Find(document(), title.get()));
+  FPDF_BOOKMARK cpp_result;
+  {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        false);
+    cpp_result = FPDFBookmark_Find(document(), title.get());
+  }
+  FPDF_BOOKMARK rust_result;
+  {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        true);
+    rust_result = FPDFBookmark_Find(document(), title.get());
+  }
+  EXPECT_EQ(cpp_result, rust_result);
+  EXPECT_FALSE(rust_result);
 }
 
 TEST_F(FPDFDocEmbedderTest, DeletePage) {
