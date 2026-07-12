@@ -120,6 +120,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `30549ba0c` Phase 6 PDF-array-container slice | 17,744 | 10,933 | 241 | 4,344 | 6,570 | 280,423 | 6.33% | 5.35% | Rust owns ordered array slots and mutations; C++ retains object values in an opaque-handle registry and derives the legacy iterator view |
 | `d9bd92b8b` Phase 6 PDF-dictionary-container slice | 17,908 | 11,097 | 241 | 4,439 | 6,570 | 280,871 | 6.38% | 5.42% | Rust owns binary key bytes, sorted mapping, and mutations; C++ retains object values in an opaque-handle registry and derives the pooled legacy iterator view |
 | `91ad4cb4e` Phase 6 byte-string-pool foundation | 18,005 | 11,194 | 241 | 4,518 | 6,570 | 281,070 | 6.41% | 5.46% | Rust owns the binary string-to-handle interning index; C++ retains shared `ByteString` buffers in a handle registry so existing copy-on-write identity remains exact |
+| `71b66ee13` Phase 6 PDF-string-value slice | 18,097 | 11,286 | 241 | 4,570 | 6,570 | 281,334 | 6.43% | 5.50% | Rust owns binary string bytes and hex-mode state; C++ retains a checked `ByteString` ABI view so pool and clone buffer-sharing behavior remains exact |
 
 ## Toolchain
 
@@ -1013,6 +1014,25 @@ test covers distinct binary keys and stable existing-handle selection.
 The Rust pool test, the existing exact-sharing pool test, both array and
 dictionary differential regressions, all 1,063 unit tests, the retained parser
 fuzzer build, and `pdfium_all` pass in the full GN configuration.
+
+The twenty-fourth Phase 6 slice replaces `CPDF_String`'s canonical binary
+value and hex-output flag with Rust state. Rust owns construction bytes,
+embedded NULs, `SetString()` mutation, and the mode copied into clones. The
+retained C++ `ByteString` is an ABI and copy-on-write view: every candidate read
+checks it byte-for-byte against Rust before Unicode decoding, encryption,
+encoding, serialization, or return to native callers.
+
+Keeping that checked view preserves two resource contracts that a naive
+`Vec<u8>` return would lose: strings built through `ByteStringPool` retain the
+interned backing allocation, and clones share the original nonempty buffer.
+Neither the view nor the C++ hex flag selects candidate behavior; Rust supplies
+the authoritative hex mode and accepts every mutation first.
+
+The same-process scenario compares regular and hex strings, embedded NUL and
+arbitrary binary bytes, mutation, encoding, serialization, clone content, and
+exact clone buffer sharing. All 27 parser-native Rust tests, the string test,
+all 1,064 unit tests, the retained parser fuzzer build, and `pdfium_all` pass in
+the full GN configuration.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
