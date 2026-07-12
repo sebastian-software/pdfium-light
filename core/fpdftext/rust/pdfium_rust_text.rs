@@ -30,6 +30,61 @@ pub struct TextLinkExtractState {
     links: Vec<TextLink>,
 }
 
+pub struct TextIndexMapState {
+    segments: Vec<(i32, i32)>,
+}
+
+impl TextIndexMapState {
+    fn new(included: &[u8]) -> Option<Self> {
+        if included.len() > i32::MAX as usize {
+            return None;
+        }
+
+        let mut segments = Vec::new();
+        let mut current = (0, 0);
+        let mut skipped = false;
+        for (index, is_included) in included.iter().enumerate() {
+            if *is_included != 0 {
+                current.1 += 1;
+                skipped = true;
+            } else if skipped {
+                segments.push(current);
+                current = (index as i32 + 1, 0);
+                skipped = false;
+            } else {
+                current.0 = index as i32 + 1;
+            }
+        }
+        if !included.is_empty() {
+            segments.push(current);
+        }
+        Some(Self { segments })
+    }
+
+    fn character_from_text(&self, text_index: i32) -> i32 {
+        let mut count = 0;
+        for &(index, segment_count) in &self.segments {
+            count += segment_count;
+            if count > text_index {
+                return text_index - count + segment_count + index;
+            }
+        }
+        -1
+    }
+
+    fn text_from_character(&self, character_index: i32) -> i32 {
+        let mut count = 0;
+        for &(index, segment_count) in &self.segments {
+            let text_index = character_index - index;
+            if text_index < segment_count {
+                return if text_index >= 0 { text_index + count } else { -1 };
+            }
+            count += segment_count;
+        }
+        -1
+    }
+}
+
 fn is_ignored_space_character(character: u32) -> bool {
     !(character < 255
         || (0x0600..=0x06ff).contains(&character)
@@ -606,6 +661,55 @@ fn read_u32_span(data: *const u32, len: usize) -> Option<Vec<u32>> {
 }
 
 /// # Safety
+/// The inclusion span must remain readable for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_index_map_new(
+    included: *const u8,
+    included_len: usize,
+) -> *mut TextIndexMapState {
+    let included = if included_len == 0 {
+        &[]
+    } else if included.is_null() {
+        return core::ptr::null_mut();
+    } else {
+        unsafe { core::slice::from_raw_parts(included, included_len) }
+    };
+    let Some(state) = TextIndexMapState::new(included) else {
+        return core::ptr::null_mut();
+    };
+    Box::into_raw(Box::new(state))
+}
+
+/// # Safety
+/// `state` must be null or returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_index_map_free(state: *mut TextIndexMapState) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_index_map_character_from_text(
+    state: *const TextIndexMapState,
+    text_index: i32,
+) -> i32 {
+    unsafe { state.as_ref() }.map_or(-1, |state| state.character_from_text(text_index))
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_index_map_text_from_character(
+    state: *const TextIndexMapState,
+    character_index: i32,
+) -> i32 {
+    unsafe { state.as_ref() }.map_or(-1, |state| state.text_from_character(character_index))
+}
+
+/// # Safety
 /// Both code-point spans must remain readable for this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pdfium_rust_text_find_new(
@@ -821,6 +925,20 @@ mod tests {
         character: u32,
     ) -> bool {
         char::from_u32(character).is_some_and(char::is_alphanumeric)
+    }
+
+    #[test]
+    fn text_index_map_should_skip_excluded_character_runs() {
+        let state = TextIndexMapState::new(&[1, 1, 0, 1, 0, 0, 1])
+            .expect("the test input fits the index representation");
+        assert_eq!(
+            vec![0, 1, 3, 6, -1],
+            (0..=4).map(|index| state.character_from_text(index)).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            vec![0, 1, -1, 2, -1, -1, 3, -1],
+            (0..=7).map(|index| state.text_from_character(index)).collect::<Vec<_>>()
+        );
     }
 
     #[test]

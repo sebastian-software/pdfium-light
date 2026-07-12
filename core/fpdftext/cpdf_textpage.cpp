@@ -23,6 +23,8 @@
 #include "core/fpdfapi/page/cpdf_textobject.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
+#include "core/fpdftext/rust/rust_text_adapter.h"
 #include "core/fpdftext/unicodenormalizationdata.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/check_op.h"
@@ -371,7 +373,10 @@ CPDF_TextPage::CharInfo::CharInfo(const CharInfo&) = default;
 CPDF_TextPage::CharInfo::~CharInfo() = default;
 
 CPDF_TextPage::CPDF_TextPage(const CPDF_Page* page, bool rtl)
-    : page_(page), rtl_(rtl), display_matrix_(page_->GetDisplayMatrix()) {
+    : page_(page),
+      use_rust_(pdfium::rust::UseRustParserCandidate()),
+      rtl_(rtl),
+      display_matrix_(page_->GetDisplayMatrix()) {
   Init();
 }
 
@@ -382,6 +387,18 @@ void CPDF_TextPage::Init() {
   ProcessObject();
 
   const int count = CountChars();
+  if (use_rust_) {
+    std::vector<uint8_t> included(count);
+    for (int i = 0; i < count; ++i) {
+      const CharInfo& charinfo = char_list_[i];
+      included[i] = charinfo.char_type() == CharType::kGenerated ||
+                    IsNormalCharacter(charinfo);
+    }
+    rust_index_map_ =
+        std::make_unique<pdfium::rust::RustTextIndexMap>(included);
+    return;
+  }
+
   if (count) {
     char_indices_.push_back({0, 0});
   }
@@ -409,6 +426,10 @@ int CPDF_TextPage::CountChars() const {
 }
 
 int CPDF_TextPage::CharIndexFromTextIndex(int text_index) const {
+  if (use_rust_) {
+    return rust_index_map_->CharacterFromText(text_index);
+  }
+
   int count = 0;
   for (const auto& info : char_indices_) {
     count += info.count;
@@ -420,6 +441,10 @@ int CPDF_TextPage::CharIndexFromTextIndex(int text_index) const {
 }
 
 int CPDF_TextPage::TextIndexFromCharIndex(int char_index) const {
+  if (use_rust_) {
+    return rust_index_map_->TextFromCharacter(char_index);
+  }
+
   int count = 0;
   for (const auto& info : char_indices_) {
     int text_index = char_index - info.index;

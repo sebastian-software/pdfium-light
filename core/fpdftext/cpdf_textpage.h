@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -24,6 +25,10 @@
 class CPDF_FormObject;
 class CPDF_Page;
 class CPDF_TextObject;
+
+namespace pdfium::rust {
+class RustTextIndexMap;
+}
 
 struct TextPageCharSegment {
   int index;
@@ -180,6 +185,8 @@ class CPDF_TextPage {
       const std::function<bool(const CharInfo&)>& predicate) const;
 
   UnownedPtr<const CPDF_Page> const page_;
+  const bool use_rust_;
+  std::unique_ptr<pdfium::rust::RustTextIndexMap> rust_index_map_;
   DataVector<TextPageCharSegment> char_indices_;
   std::vector<CharInfo> char_list_;
   std::vector<CharInfo> temp_char_list_;

@@ -8,6 +8,15 @@
 
 #include "core/fxcrt/compiler_specific.h"
 
+extern "C" void* pdfium_rust_text_index_map_new(const uint8_t* included,
+                                                 size_t included_len);
+extern "C" void pdfium_rust_text_index_map_free(void* state);
+extern "C" int32_t pdfium_rust_text_index_map_character_from_text(
+    const void* state,
+    int32_t text_index);
+extern "C" int32_t pdfium_rust_text_index_map_text_from_character(
+    const void* state,
+    int32_t character_index);
 extern "C" void* pdfium_rust_text_find_new(const uint32_t* page_text,
                                            size_t page_text_len,
                                            const uint32_t* query,
@@ -64,6 +73,25 @@ std::vector<uint32_t> ToCodePoints(WideStringView value) {
 }
 
 }  // namespace
+
+RustTextIndexMap::RustTextIndexMap(pdfium::span<const uint8_t> included)
+    : state_(pdfium_rust_text_index_map_new(included.data(), included.size())) {}
+
+RustTextIndexMap::~RustTextIndexMap() {
+  pdfium_rust_text_index_map_free(state_);
+}
+
+int RustTextIndexMap::CharacterFromText(int text_index) const {
+  return state_ ? pdfium_rust_text_index_map_character_from_text(state_,
+                                                                 text_index)
+                : -1;
+}
+
+int RustTextIndexMap::TextFromCharacter(int character_index) const {
+  return state_ ? pdfium_rust_text_index_map_text_from_character(
+                      state_, character_index)
+                : -1;
+}
 
 RustTextPageFind::RustTextPageFind(WideStringView page_text,
                                    WideStringView query,

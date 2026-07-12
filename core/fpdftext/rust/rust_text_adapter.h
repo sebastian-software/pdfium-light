@@ -16,6 +16,21 @@
 
 namespace pdfium::rust {
 
+class RustTextIndexMap final {
+ public:
+  explicit RustTextIndexMap(pdfium::span<const uint8_t> included);
+  RustTextIndexMap(const RustTextIndexMap&) = delete;
+  RustTextIndexMap& operator=(const RustTextIndexMap&) = delete;
+  ~RustTextIndexMap();
+
+  bool valid() const { return state_ != nullptr; }
+  int CharacterFromText(int text_index) const;
+  int TextFromCharacter(int character_index) const;
+
+ private:
+  void* state_;
+};
+
 using RustTextIndexMapCallback = bool (*)(void* context,
                                           int32_t input,
                                           int32_t* output);
