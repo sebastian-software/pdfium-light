@@ -343,6 +343,24 @@ extern "C" bool pdfium_rust_find_next_link(
     pdfium::rust::RustLinkEnumerationCallback is_link,
     bool* found,
     size_t* index);
+extern "C" bool pdfium_rust_number_tree_lookup(
+    uintptr_t root,
+    int32_t number,
+    void* context,
+    pdfium::rust::RustNumberTreeDescribeCallback describe,
+    pdfium::rust::RustNumberTreeNumberCallback read_number,
+    pdfium::rust::RustNumberTreeKidCallback read_kid,
+    uintptr_t* output);
+extern "C" bool pdfium_rust_number_tree_lower_bound(
+    uintptr_t root,
+    int32_t number,
+    void* context,
+    pdfium::rust::RustNumberTreeDescribeCallback describe,
+    pdfium::rust::RustNumberTreeNumberCallback read_number,
+    pdfium::rust::RustNumberTreeKidCallback read_kid,
+    bool* found,
+    int32_t* key,
+    uintptr_t* value);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -1200,6 +1218,37 @@ std::optional<RustLinkEnumerationResult> RustFindNextLink(
   RustLinkEnumerationResult result = {};
   if (!pdfium_rust_find_next_link(start_position, annotation_count, context,
                                   is_link, &result.found, &result.index)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<uintptr_t> RustNumberTreeLookup(
+    uintptr_t root,
+    int32_t number,
+    void* context,
+    RustNumberTreeDescribeCallback describe,
+    RustNumberTreeNumberCallback read_number,
+    RustNumberTreeKidCallback read_kid) {
+  uintptr_t output = 0;
+  if (!pdfium_rust_number_tree_lookup(root, number, context, describe,
+                                      read_number, read_kid, &output)) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+std::optional<RustNumberTreeLowerBoundResult> RustNumberTreeLowerBound(
+    uintptr_t root,
+    int32_t number,
+    void* context,
+    RustNumberTreeDescribeCallback describe,
+    RustNumberTreeNumberCallback read_number,
+    RustNumberTreeKidCallback read_kid) {
+  RustNumberTreeLowerBoundResult result = {};
+  if (!pdfium_rust_number_tree_lower_bound(
+          root, number, context, describe, read_number, read_kid, &result.found,
+          &result.key, &result.value)) {
     return std::nullopt;
   }
   return result;

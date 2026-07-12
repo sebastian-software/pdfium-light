@@ -489,6 +489,42 @@ std::optional<RustLinkEnumerationResult> RustFindNextLink(
     size_t annotation_count,
     void* context,
     RustLinkEnumerationCallback is_link);
+using RustNumberTreeDescribeCallback = bool (*)(void* context,
+                                                uintptr_t node,
+                                                bool* has_limits,
+                                                int32_t* lower_limit,
+                                                int32_t* upper_limit,
+                                                bool* has_numbers,
+                                                size_t* number_count,
+                                                size_t* kid_count);
+using RustNumberTreeNumberCallback = bool (*)(void* context,
+                                              uintptr_t node,
+                                              size_t index,
+                                              int32_t* key,
+                                              uintptr_t* value);
+using RustNumberTreeKidCallback = bool (*)(void* context,
+                                           uintptr_t node,
+                                           size_t index,
+                                           uintptr_t* kid);
+struct RustNumberTreeLowerBoundResult {
+  bool found;
+  int32_t key;
+  uintptr_t value;
+};
+std::optional<uintptr_t> RustNumberTreeLookup(
+    uintptr_t root,
+    int32_t number,
+    void* context,
+    RustNumberTreeDescribeCallback describe,
+    RustNumberTreeNumberCallback read_number,
+    RustNumberTreeKidCallback read_kid);
+std::optional<RustNumberTreeLowerBoundResult> RustNumberTreeLowerBound(
+    uintptr_t root,
+    int32_t number,
+    void* context,
+    RustNumberTreeDescribeCallback describe,
+    RustNumberTreeNumberCallback read_number,
+    RustNumberTreeKidCallback read_kid);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,

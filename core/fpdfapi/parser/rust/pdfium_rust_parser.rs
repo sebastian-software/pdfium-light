@@ -282,6 +282,20 @@ type BookmarkNavigateCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut usize) -> bool;
 type LinkEnumerationCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool) -> bool;
+type NumberTreeDescribeCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    *mut bool,
+    *mut i32,
+    *mut i32,
+    *mut bool,
+    *mut usize,
+    *mut usize,
+) -> bool;
+type NumberTreeNumberCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut i32, *mut usize) -> bool;
+type NumberTreeKidCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut usize) -> bool;
 
 #[derive(Clone, Copy)]
 struct RedactionRect {
@@ -611,6 +625,102 @@ fn find_next_link(
     for index in start_position..annotation_count {
         if is_link(index)? {
             return Some(Some(index));
+        }
+    }
+    Some(None)
+}
+
+#[derive(Clone, Copy)]
+struct NumberTreeNode {
+    has_limits: bool,
+    lower_limit: i32,
+    upper_limit: i32,
+    has_numbers: bool,
+    number_count: usize,
+    kid_count: usize,
+}
+
+fn number_tree_lookup(
+    node: usize,
+    number: i32,
+    visited: &mut std::collections::BTreeSet<usize>,
+    describe: &mut impl FnMut(usize) -> Option<NumberTreeNode>,
+    read_number: &mut impl FnMut(usize, usize) -> Option<(i32, usize)>,
+    read_kid: &mut impl FnMut(usize, usize) -> Option<usize>,
+) -> Option<usize> {
+    if node == 0 || !visited.insert(node) {
+        return Some(0);
+    }
+    let description = describe(node)?;
+    if description.has_limits
+        && (number < description.lower_limit || number > description.upper_limit)
+    {
+        return Some(0);
+    }
+    if description.has_numbers {
+        for index in 0..description.number_count {
+            let (key, value) = read_number(node, index)?;
+            if number == key {
+                return Some(value);
+            }
+            if key > number {
+                break;
+            }
+        }
+        return Some(0);
+    }
+    for index in 0..description.kid_count {
+        let kid = read_kid(node, index)?;
+        let found = number_tree_lookup(kid, number, visited, describe, read_number, read_kid)?;
+        if found != 0 {
+            return Some(found);
+        }
+    }
+    Some(0)
+}
+
+fn number_tree_lower_bound(
+    node: usize,
+    number: i32,
+    visited: &mut std::collections::BTreeSet<usize>,
+    describe: &mut impl FnMut(usize) -> Option<NumberTreeNode>,
+    read_number: &mut impl FnMut(usize, usize) -> Option<(i32, usize)>,
+    read_kid: &mut impl FnMut(usize, usize) -> Option<usize>,
+) -> Option<Option<(i32, usize)>> {
+    if node == 0 || !visited.insert(node) {
+        return Some(None);
+    }
+    let description = describe(node)?;
+    if description.has_limits {
+        if number < description.lower_limit {
+            return Some(None);
+        }
+        if number >= description.upper_limit {
+            let value = number_tree_lookup(
+                node,
+                description.upper_limit,
+                &mut std::collections::BTreeSet::new(),
+                describe,
+                read_number,
+                read_kid,
+            )?;
+            return Some(Some((description.upper_limit, value)));
+        }
+    }
+    if description.has_numbers {
+        for index in (0..description.number_count).rev() {
+            let (key, value) = read_number(node, index)?;
+            if number >= key {
+                return Some(Some((key, value)));
+            }
+        }
+        return Some(None);
+    }
+    for index in (0..description.kid_count).rev() {
+        let kid = read_kid(node, index)?;
+        let found = number_tree_lower_bound(kid, number, visited, describe, read_number, read_kid)?;
+        if found.is_some() {
+            return Some(found);
         }
     }
     Some(None)
@@ -3560,6 +3670,124 @@ pub unsafe extern "C" fn pdfium_rust_find_next_link(
     true
 }
 
+fn number_tree_callbacks(
+    context: *mut core::ffi::c_void,
+    describe: NumberTreeDescribeCallback,
+    read_number: NumberTreeNumberCallback,
+    read_kid: NumberTreeKidCallback,
+) -> (
+    impl FnMut(usize) -> Option<NumberTreeNode>,
+    impl FnMut(usize, usize) -> Option<(i32, usize)>,
+    impl FnMut(usize, usize) -> Option<usize>,
+) {
+    let describe_node = move |node| {
+        let mut result = NumberTreeNode {
+            has_limits: false,
+            lower_limit: 0,
+            upper_limit: 0,
+            has_numbers: false,
+            number_count: 0,
+            kid_count: 0,
+        };
+        unsafe {
+            describe(
+                context,
+                node,
+                &mut result.has_limits,
+                &mut result.lower_limit,
+                &mut result.upper_limit,
+                &mut result.has_numbers,
+                &mut result.number_count,
+                &mut result.kid_count,
+            )
+        }
+        .then_some(result)
+    };
+    let read_number_entry = move |node, index| {
+        let mut key = 0;
+        let mut value = 0;
+        unsafe { read_number(context, node, index, &mut key, &mut value) }.then_some((key, value))
+    };
+    let read_kid_node = move |node, index| {
+        let mut kid = 0;
+        unsafe { read_kid(context, node, index, &mut kid) }.then_some(kid)
+    };
+    (describe_node, read_number_entry, read_kid_node)
+}
+
+/// Looks up an exact key in a borrowed PDF number tree.
+///
+/// # Safety
+/// Callbacks, context, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_number_tree_lookup(
+    root: usize,
+    number: i32,
+    context: *mut core::ffi::c_void,
+    describe: NumberTreeDescribeCallback,
+    read_number: NumberTreeNumberCallback,
+    read_kid: NumberTreeKidCallback,
+    output: *mut usize,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let (mut describe_node, mut read_number_entry, mut read_kid_node) =
+        number_tree_callbacks(context, describe, read_number, read_kid);
+    let Some(result) = number_tree_lookup(
+        root,
+        number,
+        &mut std::collections::BTreeSet::new(),
+        &mut describe_node,
+        &mut read_number_entry,
+        &mut read_kid_node,
+    ) else {
+        return false;
+    };
+    *output = result;
+    true
+}
+
+/// Finds the greatest borrowed PDF number-tree key not exceeding `number`.
+///
+/// # Safety
+/// Callbacks, context, and outputs must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_number_tree_lower_bound(
+    root: usize,
+    number: i32,
+    context: *mut core::ffi::c_void,
+    describe: NumberTreeDescribeCallback,
+    read_number: NumberTreeNumberCallback,
+    read_kid: NumberTreeKidCallback,
+    found: *mut bool,
+    key: *mut i32,
+    value: *mut usize,
+) -> bool {
+    let (Some(found), Some(key), Some(value)) =
+        (unsafe { found.as_mut() }, unsafe { key.as_mut() }, unsafe { value.as_mut() })
+    else {
+        return false;
+    };
+    let (mut describe_node, mut read_number_entry, mut read_kid_node) =
+        number_tree_callbacks(context, describe, read_number, read_kid);
+    let Some(result) = number_tree_lower_bound(
+        root,
+        number,
+        &mut std::collections::BTreeSet::new(),
+        &mut describe_node,
+        &mut read_number_entry,
+        &mut read_kid_node,
+    ) else {
+        return false;
+    };
+    *found = result.is_some();
+    let (result_key, result_value) = result.unwrap_or_default();
+    *key = result_key;
+    *value = result_value;
+    true
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -5356,5 +5584,120 @@ mod tests {
         assert_eq!(Some(None), find_next_link(-1, links.len(), &mut |_| Some(true)));
         assert_eq!(Some(None), find_next_link(4, links.len(), &mut |_| Some(true)));
         assert_eq!(None, find_next_link(0, 1, &mut |_| None));
+    }
+
+    #[test]
+    fn number_tree_should_preserve_limits_order_bounds_and_cycles() {
+        let mut describe = |node| {
+            Some(match node {
+                1 => NumberTreeNode {
+                    has_limits: false,
+                    lower_limit: 0,
+                    upper_limit: 0,
+                    has_numbers: false,
+                    number_count: 0,
+                    kid_count: 2,
+                },
+                2 => NumberTreeNode {
+                    has_limits: true,
+                    lower_limit: 0,
+                    upper_limit: 5,
+                    has_numbers: true,
+                    number_count: 2,
+                    kid_count: 0,
+                },
+                3 => NumberTreeNode {
+                    has_limits: true,
+                    lower_limit: 10,
+                    upper_limit: 20,
+                    has_numbers: true,
+                    number_count: 2,
+                    kid_count: 0,
+                },
+                _ => return None,
+            })
+        };
+        let mut read_number = |node, index| {
+            Some(match (node, index) {
+                (2, 0) => (0, 10),
+                (2, 1) => (5, 15),
+                (3, 0) => (10, 20),
+                (3, 1) => (20, 30),
+                _ => return None,
+            })
+        };
+        let mut read_kid = |node, index| {
+            Some(match (node, index) {
+                (1, 0) => 2,
+                (1, 1) => 3,
+                _ => return None,
+            })
+        };
+        assert_eq!(
+            Some(15),
+            number_tree_lookup(
+                1,
+                5,
+                &mut std::collections::BTreeSet::new(),
+                &mut describe,
+                &mut read_number,
+                &mut read_kid,
+            )
+        );
+        assert_eq!(
+            Some(0),
+            number_tree_lookup(
+                1,
+                7,
+                &mut std::collections::BTreeSet::new(),
+                &mut describe,
+                &mut read_number,
+                &mut read_kid,
+            )
+        );
+        assert_eq!(
+            Some(Some((10, 20))),
+            number_tree_lower_bound(
+                1,
+                17,
+                &mut std::collections::BTreeSet::new(),
+                &mut describe,
+                &mut read_number,
+                &mut read_kid,
+            )
+        );
+        assert_eq!(
+            Some(Some((20, 30))),
+            number_tree_lower_bound(
+                1,
+                25,
+                &mut std::collections::BTreeSet::new(),
+                &mut describe,
+                &mut read_number,
+                &mut read_kid,
+            )
+        );
+
+        let mut cycle_description = |_| {
+            Some(NumberTreeNode {
+                has_limits: false,
+                lower_limit: 0,
+                upper_limit: 0,
+                has_numbers: false,
+                number_count: 0,
+                kid_count: 1,
+            })
+        };
+        assert_eq!(
+            Some(0),
+            number_tree_lookup(
+                1,
+                5,
+                &mut std::collections::BTreeSet::new(),
+                &mut cycle_description,
+                &mut |_, _| None,
+                &mut |_, _| Some(1),
+            )
+        );
     }
 }
