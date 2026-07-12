@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -1319,6 +1320,47 @@ TEST_F(FPDFTextEmbedderTest, AnnotLinks) {
     ++link_count;
   }
   EXPECT_EQ(annot_subtype_link_count, link_count);
+}
+
+TEST_F(FPDFTextEmbedderTest, RustLinkEnumerationMatchesCppOracle) {
+  ASSERT_TRUE(OpenDocument("annots.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    std::vector<int> positions;
+    std::vector<FPDF_LINK> links;
+    int terminal_position;
+    FPDF_LINK terminal_link;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto enumerate = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    Snapshot result = {};
+    int position = 0;
+    FPDF_LINK link = nullptr;
+    while (FPDFLink_Enumerate(page.get(), &position, &link)) {
+      result.positions.push_back(position);
+      result.links.push_back(link);
+    }
+    result.terminal_position = position;
+    result.terminal_link = link;
+    return result;
+  };
+  auto enumerate_once = [&](int position, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    FPDF_LINK link = nullptr;
+    bool found = FPDFLink_Enumerate(page.get(), &position, &link);
+    return std::tuple(found, position, link);
+  };
+
+  Snapshot cpp = enumerate(false);
+  EXPECT_EQ(4u, cpp.links.size());
+  EXPECT_EQ(cpp, enumerate(true));
+  EXPECT_EQ(enumerate_once(-1, false), enumerate_once(-1, true));
+  EXPECT_EQ(enumerate_once(100, false), enumerate_once(100, true));
 }
 
 TEST_F(FPDFTextEmbedderTest, GetFontSize) {
