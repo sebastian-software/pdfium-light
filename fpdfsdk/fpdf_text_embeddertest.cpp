@@ -1539,6 +1539,34 @@ TEST_F(FPDFTextEmbedderTest, GetText) {
   ASSERT_EQ('\0', buffer[1]);
 }
 
+TEST_F(FPDFTextEmbedderTest, RustPageTextRangesMatchCppOracle) {
+  ASSERT_TRUE(OpenDocument("bug_1139.pdf"));
+  ScopedPage page = LoadScopedPage(0);
+  ASSERT_TRUE(page);
+
+  struct Snapshot {
+    int result;
+    std::array<unsigned short, 64> buffer;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto run = [&](bool use_rust, int start, int count) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page.get()));
+    Snapshot snapshot = {};
+    snapshot.buffer.fill(0xbdbd);
+    snapshot.result =
+        FPDFText_GetText(text_page.get(), start, count, snapshot.buffer.data());
+    return snapshot;
+  };
+
+  static constexpr std::pair<int, int> kCases[] = {
+      {-1, 5}, {0, 0}, {0, 1}, {0, 5}, {1, 30}, {29, 5}, {30, 1}};
+  for (const auto& [start, count] : kCases) {
+    EXPECT_EQ(run(false, start, count), run(true, start, count));
+  }
+}
+
 TEST_F(FPDFTextEmbedderTest, GetTextShouldNotGetInvisibleSpaces) {
   static constexpr int kExpectedPageObjectCount = 5;
   static constexpr std::array<std::wstring_view, kExpectedPageObjectCount>
