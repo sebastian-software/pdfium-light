@@ -108,6 +108,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `0c0f0c95b` Phase 6 simple-token boundary slice | 16,155 | 9,344 | 241 | 3,691 | 6,570 | 277,191 | 5.83% | 4.63% | Prior surfaces plus Rust-owned complete `CPDF_SimpleParser::GetWord()` token-range planning; C++ retains borrowed storage and `ByteStringView` ownership |
 | `1453d7000` Phase 6 object-snapshot baseline | 16,155 | 9,344 | 241 | 3,714 | 6,570 | 277,302 | 5.83% | 4.62% | Same-process C++/Rust parser selection and exact error, rebuild, trailer, and cross-reference object-map snapshots for valid and truncated streams |
 | `aae60a5ed` Phase 6 corpus/fuzzer baseline | 16,155 | 9,344 | 241 | 3,714 | 6,570 | 277,278 | 5.83% | 4.62% | Versioned normal, defaulted, unknown, and truncated cross-reference corpus plus retained token-differential and public document parser fuzzer |
+| `e24070b45` Phase 6 xref-mutation slice | 16,364 | 9,553 | 241 | 3,765 | 6,570 | 277,614 | 5.89% | 4.72% | Prior surfaces plus Rust-owned skip/free/normal/compressed mutation orchestration; C++ retains cross-reference map storage and object lifetimes |
 
 ## Toolchain
 
@@ -804,6 +805,19 @@ candidate without intermediate allocations, and then passes the same bytes to
 the production public in-memory document parser. `pdfium_all` compiles this
 retained target so later sanitizer/libFuzzer campaigns keep the active parser
 boundary covered.
+
+The twelfth Phase 6 slice moves cross-reference table mutation orchestration
+into Rust. Rust applies the existing generation, offset, and archive-object
+range policy, completes rejected entries without crossing the boundary, and
+invokes exactly one synchronous C++ callback for accepted free, normal, or
+compressed entries. C++ retains `CPDF_CrossRefTable` map storage and PDF object
+lifetimes; the complete C++ switch remains the boundary fallback.
+
+Eighteen native parser tests cover mutation command selection, exactly-once
+callback behavior, skip-without-callback, and invalid-boundary rejection. The
+four-case object snapshot corpus proves identical parse status, rebuild state,
+trailer number, and cross-reference entries; the complete 1,057-test unit suite
+passes in the full GN build.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
