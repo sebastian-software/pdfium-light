@@ -196,17 +196,24 @@ TEST(CPDFNameTreeTest, RustCountAndIndexMatchCppOracle) {
   struct Snapshot {
     size_t count;
     std::vector<Entry> entries;
+    std::vector<const CPDF_Object*> named_values;
     bool operator==(const Snapshot&) const = default;
   };
   auto snapshot = [&](bool use_rust) {
     pdfium::rust::ScopedRustParserImplementationForTesting implementation(
         use_rust);
-    Snapshot result = {name_tree->GetCount(), {}};
+    Snapshot result = {name_tree->GetCount(), {}, {}};
     for (size_t index = 0; index < 7; ++index) {
       WideString name = L"sentinel";
       RetainPtr<CPDF_Object> value =
           name_tree->LookupValueAndName(index, &name);
       result.entries.push_back({std::move(name), value.Get()});
+    }
+    static constexpr const wchar_t* kNames[] = {
+        L"0.txt", L"1.txt", L"2.txt", L"3.txt",
+        L"5.txt", L"6.txt", L"9.txt", L"99.txt"};
+    for (const wchar_t* name : kNames) {
+      result.named_values.push_back(name_tree->LookupValue(name).Get());
     }
     return result;
   };
