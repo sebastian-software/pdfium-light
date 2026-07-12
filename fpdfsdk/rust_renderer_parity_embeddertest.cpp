@@ -39,9 +39,9 @@ constexpr RenderCorpusCase kRenderCorpus[] = {
 pdfium::span<const uint8_t> BitmapBytes(FPDF_BITMAP bitmap) {
   FX_SAFE_SIZE_T byte_count = FPDFBitmap_GetStride(bitmap);
   byte_count *= FPDFBitmap_GetHeight(bitmap);
-  return UNSAFE_BUFFERS(pdfium::span(
-      static_cast<const uint8_t*>(FPDFBitmap_GetBuffer(bitmap)),
-      byte_count.ValueOrDie()));
+  return UNSAFE_BUFFERS(
+      pdfium::span(static_cast<const uint8_t*>(FPDFBitmap_GetBuffer(bitmap)),
+                   byte_count.ValueOrDie()));
 }
 
 void ExpectExactBitmapParity(FPDF_BITMAP reference, FPDF_BITMAP candidate) {
@@ -61,14 +61,14 @@ class RustRendererParityEmbedderTest
 TEST_P(RustRendererParityEmbedderTest, CandidateMatchesCppReferenceExactly) {
   const RenderCorpusCase& test_case = GetParam();
   ASSERT_TRUE(OpenDocument(std::string(test_case.fixture)));
-  ScopedPage page = LoadScopedPage(test_case.page_index);
-  ASSERT_TRUE(page);
 
   ScopedFPDFBitmap reference;
   std::vector<uint8_t> reference_trace;
   std::vector<uint8_t> reference_agg_trace;
   std::vector<uint8_t> reference_glyph_trace;
   {
+    ScopedPage page = LoadScopedPage(test_case.page_index);
+    ASSERT_TRUE(page);
     ScopedRenderImplementationForTesting implementation(
         RenderImplementationForTesting::kCppReference);
     pdfium::rust::ScopedRenderTraceForTesting trace(&reference_trace);
@@ -76,12 +76,16 @@ TEST_P(RustRendererParityEmbedderTest, CandidateMatchesCppReferenceExactly) {
     fxge::ScopedGlyphTraceForTesting glyph_trace(&reference_glyph_trace);
     reference = RenderLoadedPageWithFlags(page.get(), test_case.flags);
   }
+  CloseDocument();
+  ASSERT_TRUE(OpenDocument(std::string(test_case.fixture)));
 
   ScopedFPDFBitmap candidate;
   std::vector<uint8_t> candidate_trace;
   std::vector<uint8_t> candidate_agg_trace;
   std::vector<uint8_t> candidate_glyph_trace;
   {
+    ScopedPage page = LoadScopedPage(test_case.page_index);
+    ASSERT_TRUE(page);
     ScopedRenderImplementationForTesting implementation(
         RenderImplementationForTesting::kCandidate);
     pdfium::rust::ScopedRenderTraceForTesting trace(&candidate_trace);
