@@ -1526,6 +1526,22 @@ fn text_objects_are_same(
     )
 }
 
+fn generated_character_origin(
+    has_text_object: bool,
+    has_valid_character: bool,
+    previous_character_width: i32,
+    text_object_font_size: f32,
+    previous_box_height: f32,
+    previous_origin: [f32; 2],
+) -> [f32; 2] {
+    let width = if has_text_object && has_valid_character { previous_character_width } else { 0 };
+    let mut font_size = if has_text_object { text_object_font_size } else { previous_box_height };
+    if font_size == 0.0 {
+        font_size = 1.0;
+    }
+    [previous_origin[0] + width as f32 * font_size / 1000.0, previous_origin[1]]
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -1994,6 +2010,40 @@ pub unsafe extern "C" fn pdfium_rust_text_objects_are_same(
         return false;
     };
     *output = result;
+    true
+}
+
+/// Plans the origin of a generated character following existing text.
+///
+/// # Safety
+/// The output pointers must be valid for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_generated_character_origin(
+    has_text_object: bool,
+    has_valid_character: bool,
+    previous_character_width: i32,
+    text_object_font_size: f32,
+    previous_box_height: f32,
+    previous_origin_x: f32,
+    previous_origin_y: f32,
+    output_x: *mut f32,
+    output_y: *mut f32,
+) -> bool {
+    let (Some(output_x), Some(output_y)) =
+        (unsafe { output_x.as_mut() }, unsafe { output_y.as_mut() })
+    else {
+        return false;
+    };
+    let origin = generated_character_origin(
+        has_text_object,
+        has_valid_character,
+        previous_character_width,
+        text_object_font_size,
+        previous_box_height,
+        [previous_origin_x, previous_origin_y],
+    );
+    *output_x = origin[0];
+    *output_y = origin[1];
     true
 }
 
@@ -3160,6 +3210,22 @@ mod tests {
                 [0.0, 0.0],
                 600.0,
             )
+        );
+    }
+
+    #[test]
+    fn generated_character_origin_should_advance_or_use_native_fallbacks() {
+        assert_eq!(
+            [16.0, 20.0],
+            generated_character_origin(true, true, 600, 10.0, 30.0, [10.0, 20.0])
+        );
+        assert_eq!(
+            [10.0, 20.0],
+            generated_character_origin(true, false, 600, 10.0, 30.0, [10.0, 20.0])
+        );
+        assert_eq!(
+            [10.0, 20.0],
+            generated_character_origin(false, true, 600, 10.0, 0.0, [10.0, 20.0])
         );
     }
 

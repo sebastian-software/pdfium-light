@@ -236,6 +236,15 @@ std::optional<bool> RustTextObjectsAreSame(
     float difference_y,
     float last_character_width);
 
+std::optional<std::pair<float, float>> RustTextGeneratedCharacterOrigin(
+    bool has_text_object,
+    bool has_valid_character,
+    int32_t previous_character_width,
+    float text_object_font_size,
+    float previous_box_height,
+    float previous_origin_x,
+    float previous_origin_y);
+
 enum class RustTextMarkedContentState : uint8_t {
   kPass = 0,
   kDone = 1,

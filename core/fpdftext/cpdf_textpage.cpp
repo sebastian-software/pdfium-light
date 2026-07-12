@@ -2186,6 +2186,31 @@ std::optional<CPDF_TextPage::CharInfo> CPDF_TextPage::GenerateCharInfo(
     return std::nullopt;
   }
 
+  if (use_rust_) {
+    const bool has_text_object = !!prev_char_info->text_object();
+    const bool has_valid_character =
+        prev_char_info->char_code() != CPDF_Font::kInvalidCharCode;
+    int previous_character_width = 0;
+    if (has_text_object && has_valid_character) {
+      previous_character_width =
+          GetCharWidth(prev_char_info->char_code(),
+                       prev_char_info->text_object()->GetFont().Get());
+    }
+    const auto origin = pdfium::rust::RustTextGeneratedCharacterOrigin(
+        has_text_object, has_valid_character, previous_character_width,
+        has_text_object ? prev_char_info->text_object()->GetFontSize() : 0.0f,
+        prev_char_info->char_box().Height(), prev_char_info->origin().x,
+        prev_char_info->origin().y);
+    if (origin.has_value()) {
+      return CharInfo(
+          CharType::kGenerated, CPDF_Font::kInvalidCharCode, unicode,
+          CFX_PointF(origin->first, origin->second),
+          CFX_FloatRect(origin->first, origin->second, origin->first,
+                        origin->second),
+          form_matrix, /*text_object=*/nullptr);
+    }
+  }
+
   int pre_width = 0;
   if (prev_char_info->text_object() &&
       prev_char_info->char_code() != CPDF_Font::kInvalidCharCode) {

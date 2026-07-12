@@ -123,6 +123,16 @@ extern "C" bool pdfium_rust_text_objects_are_same(
     float difference_y,
     float last_character_width,
     bool* output);
+extern "C" bool pdfium_rust_text_generated_character_origin(
+    bool has_text_object,
+    bool has_valid_character,
+    int32_t previous_character_width,
+    float text_object_font_size,
+    float previous_box_height,
+    float previous_origin_x,
+    float previous_origin_y,
+    float* output_x,
+    float* output_y);
 extern "C" bool pdfium_rust_text_marked_content_state(
     bool has_actual_text,
     bool repeats_previous_mark,
@@ -529,6 +539,25 @@ std::optional<bool> RustTextObjectsAreSame(
     return std::nullopt;
   }
   return output;
+}
+
+std::optional<std::pair<float, float>> RustTextGeneratedCharacterOrigin(
+    bool has_text_object,
+    bool has_valid_character,
+    int32_t previous_character_width,
+    float text_object_font_size,
+    float previous_box_height,
+    float previous_origin_x,
+    float previous_origin_y) {
+  float output_x = 0.0f;
+  float output_y = 0.0f;
+  if (!pdfium_rust_text_generated_character_origin(
+          has_text_object, has_valid_character, previous_character_width,
+          text_object_font_size, previous_box_height, previous_origin_x,
+          previous_origin_y, &output_x, &output_y)) {
+    return std::nullopt;
+  }
+  return std::make_pair(output_x, output_y);
 }
 
 std::optional<RustTextMarkedContentState> RustTextSelectMarkedContentState(
