@@ -4,6 +4,7 @@
 
 #include "core/fpdfdoc/cpdf_nametree.h"
 
+#include <utility>
 #include <vector>
 
 #include "constants/catalog.h"
@@ -210,7 +211,9 @@ TEST(CPDFNameTreeTest, RustCountAndIndexMatchCppOracle) {
     return result;
   };
 
-  EXPECT_EQ(snapshot(false), snapshot(true));
+  Snapshot cpp = snapshot(false);
+  EXPECT_EQ(5u, cpp.count);
+  EXPECT_EQ(cpp, snapshot(true));
 }
 
 TEST(CPDFNameTreeTest, AddIntoNames) {
