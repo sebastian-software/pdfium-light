@@ -151,6 +151,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `77e63c362` Phase 7 generated-text-separator slice | 22,344 | 15,533 | 241 | 6,029 | 6,570 | 288,911 | 7.73% | 7.36% | Rust owns none/space/line-break/hyphen action selection, single-hyphen suppression, and trailing-space trim counts; C++ retains Unicode lookup, line closing, character construction, native buffer mutation, and the separately selected oracle |
 | `b3076bf2d` Phase 7 text-object-base-spacing slice | 22,439 | 15,628 | 241 | 6,078 | 6,570 | 289,068 | 7.76% | 7.40% | Rust owns per-object kerning scanning, minimum base spacing, negative/two-item suppression, and signed character-space adjustment; C++ retains text state, native matrix distance transforms, kerning storage, and the separately selected oracle |
 | `ec21cd640` Phase 7 marked-content slice | 22,693 | 15,882 | 241 | 6,217 | 6,570 | 289,558 | 7.84% | 7.50% | Rust owns ActualText pass/done/delay selection, printable filtering, control replacement, RTL/LTR box subdivision, and retained emissions; C++ retains marked-content dictionaries, object/matrix lifetimes, platform printability, native `CharInfo` construction, and the separately selected oracle |
+| `1c8ed33b2` Phase 7 text-space-threshold slice | 22,753 | 15,942 | 241 | 6,247 | 6,570 | 289,674 | 7.85% | 7.53% | Rust owns space-glyph threshold calculation, the one-third cap, halving, fallback-width request, and 300/500/700 normalization; C++ retains font character-code/width lookup, the synchronous fallback callback, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1545,6 +1546,21 @@ differential compares every character's Unicode, origin availability/value,
 and box availability/value on mixed ActualText RTL content. All seven
 search-extension tests, all 73 public text tests, all 1,069 unit tests, and
 `pdfium_all` pass.
+
+The twenty-sixth Phase 7 slice moves per-character generated-space threshold
+policy into Rust. Rust owns the optional space-glyph width calculation, the
+font-size one-third cap, accepted-width halving, lazy fallback-width request,
+300/500/700 normalization bands, and final font-size scaling. C++ retains font
+character-code and width lookup and supplies the fallback glyph width through a
+synchronous callback; the complete original helper remains the separately
+selected oracle.
+
+The candidate is O(1) in time and auxiliary storage and avoids the fallback
+font lookup when the space-glyph threshold is usable. Twenty native Rust text
+tests cover accepted space widths, capped widths, missing space glyphs, and
+normalized fallback bands. Existing whitespace and separator differentials
+cover the production path. All seven search-extension tests, all 73 public text
+tests, all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
