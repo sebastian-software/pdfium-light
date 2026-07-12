@@ -7,9 +7,16 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_BOOLEAN_H_
 #define CORE_FPDFAPI_PARSER_CPDF_BOOLEAN_H_
 
+#include <memory>
+#include <variant>
+
 #include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fxcrt/bytestring.h"
 #include "core/fxcrt/retain_ptr.h"
+
+namespace pdfium::rust {
+class RustPdfBoolean;
+}
 
 class CPDF_Boolean final : public CPDF_Object {
  public:
@@ -30,7 +37,9 @@ class CPDF_Boolean final : public CPDF_Object {
   explicit CPDF_Boolean(bool value);
   ~CPDF_Boolean() override;
 
-  bool value_ = false;
+  bool GetValue() const;
+
+  std::variant<bool, std::unique_ptr<pdfium::rust::RustPdfBoolean>> value_;
 };
 
 inline CPDF_Boolean* ToBoolean(CPDF_Object* obj) {

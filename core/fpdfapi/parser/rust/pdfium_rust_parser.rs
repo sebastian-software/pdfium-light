@@ -148,6 +148,10 @@ pub struct PdfNumberState {
     value: PdfNumberValue,
 }
 
+pub struct PdfBooleanState {
+    value: bool,
+}
+
 impl Default for PdfNumberState {
     fn default() -> Self {
         Self { value: PdfNumberValue::Unsigned(0) }
@@ -1206,6 +1210,65 @@ pub unsafe extern "C" fn pdfium_rust_pdf_number_set_string(
     true
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_pdf_boolean_new(value: bool) -> *mut PdfBooleanState {
+    Box::into_raw(Box::new(PdfBooleanState { value }))
+}
+
+/// # Safety
+///
+/// `state` must be null or a uniquely owned pointer returned by
+/// `pdfium_rust_pdf_boolean_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_boolean_destroy(state: *mut PdfBooleanState) {
+    if !state.is_null() {
+        // SAFETY: The caller transfers the unique allocation back to Rust.
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+///
+/// `state` and `output` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_boolean_get(
+    state: *const PdfBooleanState,
+    output: *mut bool,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The checked output points to one writable bool.
+    unsafe { *output = state.value };
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live value and nonempty input must identify `len`
+/// readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_boolean_set_string(
+    state: *mut PdfBooleanState,
+    data: *const u8,
+    len: usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    if len != 0 && data.is_null() {
+        return false;
+    }
+    let data = if len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { data };
+    // SAFETY: The caller guarantees a readable span when nonempty.
+    let input = unsafe { core::slice::from_raw_parts(data, len) };
+    state.value = input == b"true";
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -1769,6 +1832,24 @@ mod tests {
         assert_eq!(i32::MAX, positive.get_signed());
         assert_eq!(i32::MIN, negative.get_signed());
         assert_eq!(0, nan.get_signed());
+    }
+
+    #[test]
+    fn pdf_boolean_state_should_accept_only_the_true_keyword() {
+        for (input, expected) in [
+            (b"true".as_slice(), true),
+            (b"false".as_slice(), false),
+            (b"True".as_slice(), false),
+            (b"true\0".as_slice(), false),
+            (b"".as_slice(), false),
+        ] {
+            let mut state = PdfBooleanState { value: !expected };
+            // SAFETY: The state and borrowed input remain live for the call.
+            assert!(unsafe {
+                pdfium_rust_pdf_boolean_set_string(&mut state, input.as_ptr(), input.len())
+            });
+            assert_eq!(expected, state.value);
+        }
     }
 
     #[test]

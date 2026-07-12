@@ -99,6 +99,12 @@ extern "C" bool pdfium_rust_pdf_number_get_float(const void* state,
 extern "C" bool pdfium_rust_pdf_number_set_string(void* state,
                                                   const uint8_t* data,
                                                   size_t len);
+extern "C" void* pdfium_rust_pdf_boolean_new(bool value);
+extern "C" void pdfium_rust_pdf_boolean_destroy(void* state);
+extern "C" bool pdfium_rust_pdf_boolean_get(const void* state, bool* output);
+extern "C" bool pdfium_rust_pdf_boolean_set_string(void* state,
+                                                   const uint8_t* data,
+                                                   size_t len);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -377,6 +383,25 @@ float RustPdfNumber::GetFloat() const {
 
 bool RustPdfNumber::SetString(pdfium::span<const uint8_t> value) {
   return pdfium_rust_pdf_number_set_string(state_, value.data(), value.size());
+}
+
+RustPdfBoolean::RustPdfBoolean(bool value)
+    : state_(pdfium_rust_pdf_boolean_new(value)) {
+  CHECK(state_);
+}
+
+RustPdfBoolean::~RustPdfBoolean() {
+  pdfium_rust_pdf_boolean_destroy(state_);
+}
+
+bool RustPdfBoolean::Get() const {
+  bool result = false;
+  CHECK(pdfium_rust_pdf_boolean_get(state_, &result));
+  return result;
+}
+
+bool RustPdfBoolean::SetString(pdfium::span<const uint8_t> value) {
+  return pdfium_rust_pdf_boolean_set_string(state_, value.data(), value.size());
 }
 
 std::optional<uint32_t> RustReadBigEndianVarInt(
