@@ -24,6 +24,8 @@ type TextSelectionRectCallback = unsafe extern "C" fn(
     *mut f32,
     *mut f32,
 ) -> bool;
+type TextPredicateCharacterCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool, *mut u32, *mut f32) -> bool;
 
 #[derive(Clone)]
 pub struct TextFindState {
@@ -54,6 +56,10 @@ pub struct TextIndexMapState {
 
 pub struct TextSelectionRectState {
     rects: Vec<[f32; 4]>,
+}
+
+pub struct TextPredicateResultState {
+    text: Vec<u32>,
 }
 
 impl TextIndexMapState {
@@ -787,6 +793,43 @@ fn selection_rects(
     Some(rects)
 }
 
+fn text_by_predicate(
+    character_count: usize,
+    mut get_character: impl FnMut(usize) -> Option<(bool, u32, f32)>,
+) -> Option<Vec<u32>> {
+    let mut position_y = 0.0_f32;
+    let mut contains_previous_character = false;
+    let mut add_line_feed = false;
+    let mut text = Vec::new();
+    for index in 0..character_count {
+        let (included, unicode, origin_y) = get_character(index)?;
+        if included {
+            if (position_y - origin_y).abs() > 0.0 && !contains_previous_character && add_line_feed
+            {
+                position_y = origin_y;
+                if !text.is_empty() {
+                    text.extend([13, 10]);
+                }
+            }
+            contains_previous_character = true;
+            add_line_feed = false;
+            if unicode != 0 {
+                text.push(unicode);
+            }
+        } else if unicode == b' ' as u32 {
+            if contains_previous_character {
+                text.push(unicode);
+                contains_previous_character = false;
+                add_line_feed = false;
+            }
+        } else {
+            contains_previous_character = false;
+            add_line_feed = true;
+        }
+    }
+    Some(text)
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -954,6 +997,74 @@ pub unsafe extern "C" fn pdfium_rust_text_selection_rects_get(
     *bottom = rect[1];
     *right = rect[2];
     *top = rect[3];
+    true
+}
+
+/// Builds and owns text selected by a caller-provided character predicate.
+///
+/// # Safety
+/// The callback and context must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_predicate_result_new(
+    character_count: usize,
+    context: *mut core::ffi::c_void,
+    get_character: Option<TextPredicateCharacterCallback>,
+) -> *mut TextPredicateResultState {
+    let Some(get_character) = get_character else {
+        return core::ptr::null_mut();
+    };
+    let text = text_by_predicate(character_count, |index| {
+        let mut included = false;
+        let mut unicode = 0;
+        let mut origin_y = 0.0;
+        unsafe { get_character(context, index, &mut included, &mut unicode, &mut origin_y) }
+            .then_some((included, unicode, origin_y))
+    });
+    let Some(text) = text else {
+        return core::ptr::null_mut();
+    };
+    Box::into_raw(Box::new(TextPredicateResultState { text }))
+}
+
+/// # Safety
+/// `state` must be null or returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_predicate_result_free(
+    state: *mut TextPredicateResultState,
+) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_predicate_result_len(
+    state: *const TextPredicateResultState,
+) -> usize {
+    unsafe { state.as_ref() }.map_or(0, |state| state.text.len())
+}
+
+/// # Safety
+/// State and a sufficiently large output span must remain readable/writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_predicate_result_copy(
+    state: *const TextPredicateResultState,
+    output: *mut u32,
+    output_capacity: usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    if state.text.is_empty() {
+        return output_capacity == 0;
+    }
+    if output.is_null() || output_capacity < state.text.len() {
+        return false;
+    }
+    unsafe { core::slice::from_raw_parts_mut(output, state.text.len()) }
+        .copy_from_slice(&state.text);
     true
 }
 
@@ -1298,6 +1409,21 @@ mod tests {
         assert_eq!(
             Some(vec![[0.0, 0.0, 10.0, 10.0], [20.0, 0.0, 30.0, 10.0]]),
             selection_rects(characters.len(), 0, -1, |index| characters.get(index).copied())
+        );
+    }
+
+    #[test]
+    fn text_by_predicate_should_preserve_spaces_and_insert_line_breaks() {
+        let characters = [
+            (true, b'A' as u32, 10.0),
+            (false, b' ' as u32, 10.0),
+            (true, b'B' as u32, 10.0),
+            (false, b'X' as u32, 10.0),
+            (true, b'C' as u32, 20.0),
+        ];
+        assert_eq!(
+            Some(vec![b'A' as u32, b' ' as u32, b'B' as u32, 13, 10, b'C' as u32]),
+            text_by_predicate(characters.len(), |index| characters.get(index).copied())
         );
     }
 

@@ -124,6 +124,28 @@ class RustTextSelectionRects final {
   void* state_;
 };
 
+using RustTextPredicateCharacterCallback = bool (*)(void* context,
+                                                    size_t index,
+                                                    bool* included,
+                                                    uint32_t* unicode,
+                                                    float* origin_y);
+
+class RustTextPredicateResult final {
+ public:
+  RustTextPredicateResult(size_t character_count,
+                          void* context,
+                          RustTextPredicateCharacterCallback get_character);
+  RustTextPredicateResult(const RustTextPredicateResult&) = delete;
+  RustTextPredicateResult& operator=(const RustTextPredicateResult&) = delete;
+  ~RustTextPredicateResult();
+
+  bool valid() const { return state_ != nullptr; }
+  std::optional<WideString> GetText() const;
+
+ private:
+  void* state_;
+};
+
 class RustTextLinkExtract final {
  public:
   RustTextLinkExtract();

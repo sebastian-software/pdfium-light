@@ -47,6 +47,15 @@ extern "C" bool pdfium_rust_text_selection_rects_get(const void* state,
                                                       float* bottom,
                                                       float* right,
                                                       float* top);
+extern "C" void* pdfium_rust_text_predicate_result_new(
+    size_t character_count,
+    void* context,
+    pdfium::rust::RustTextPredicateCharacterCallback get_character);
+extern "C" void pdfium_rust_text_predicate_result_free(void* state);
+extern "C" size_t pdfium_rust_text_predicate_result_len(const void* state);
+extern "C" bool pdfium_rust_text_predicate_result_copy(const void* state,
+                                                        uint32_t* output,
+                                                        size_t output_capacity);
 extern "C" void* pdfium_rust_text_find_new(const uint32_t* page_text,
                                            size_t page_text_len,
                                            const uint32_t* query,
@@ -180,6 +189,35 @@ std::optional<RustTextRect> RustTextSelectionRects::GetRect(
     return std::nullopt;
   }
   return rect;
+}
+
+RustTextPredicateResult::RustTextPredicateResult(
+    size_t character_count,
+    void* context,
+    RustTextPredicateCharacterCallback get_character)
+    : state_(pdfium_rust_text_predicate_result_new(character_count, context,
+                                                   get_character)) {}
+
+RustTextPredicateResult::~RustTextPredicateResult() {
+  pdfium_rust_text_predicate_result_free(state_);
+}
+
+std::optional<WideString> RustTextPredicateResult::GetText() const {
+  if (!state_) {
+    return std::nullopt;
+  }
+  std::vector<uint32_t> code_points(
+      pdfium_rust_text_predicate_result_len(state_));
+  if (!pdfium_rust_text_predicate_result_copy(
+          state_, code_points.data(), code_points.size())) {
+    return std::nullopt;
+  }
+  std::vector<wchar_t> characters;
+  characters.reserve(code_points.size());
+  for (uint32_t code_point : code_points) {
+    characters.push_back(static_cast<wchar_t>(code_point));
+  }
+  return UNSAFE_BUFFERS(WideString(characters.data(), characters.size()));
 }
 
 RustTextPageFind::RustTextPageFind(WideStringView page_text,

@@ -609,6 +609,28 @@ int CPDF_TextPage::GetIndexAtPos(const CFX_PointF& point,
 
 WideString CPDF_TextPage::GetTextByPredicate(
     const std::function<bool(const CharInfo&)>& predicate) const {
+  if (use_rust_) {
+    struct PredicateContext {
+      const CPDF_TextPage* text_page;
+      const std::function<bool(const CharInfo&)>* predicate;
+    } context = {this, &predicate};
+    auto get_character = [](void* opaque_context, size_t index, bool* included,
+                            uint32_t* unicode, float* origin_y) {
+      const auto* context = static_cast<const PredicateContext*>(opaque_context);
+      if (index >= context->text_page->char_list_.size()) {
+        return false;
+      }
+      const CharInfo& info = context->text_page->char_list_[index];
+      *included = (*context->predicate)(info);
+      *unicode = static_cast<uint32_t>(info.unicode());
+      *origin_y = info.origin().y;
+      return true;
+    };
+    pdfium::rust::RustTextPredicateResult result(char_list_.size(), &context,
+                                                 get_character);
+    return result.GetText().value_or(WideString());
+  }
+
   float posy = 0;
   bool IsContainPreChar = false;
   bool IsAddLineFeed = false;
