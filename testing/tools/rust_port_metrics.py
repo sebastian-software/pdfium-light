@@ -134,6 +134,7 @@ ACTIVE_SURFACES = (
     "text-object line-end, width-threshold, and space-insertion geometry",
     "text hyphen joining, trailing-space scan, and piece fallback policy",
     "generated text-separator action, suppression, and trim planning",
+    "text-object base spacing, kerning minimum, and character-space adjustment",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",

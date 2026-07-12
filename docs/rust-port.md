@@ -149,6 +149,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `6fb298ba6` Phase 7 text-object-separator slice | 22,103 | 15,292 | 241 | 5,924 | 6,570 | 288,493 | 7.66% | 7.25% | Rust owns horizontal/vertical line-end geometry, ordered width-threshold normalization, and gap-based space insertion; C++ retains text/font access, matrix transforms, hyphen policy, native output mutation, and the separately selected oracle |
 | `dc960e660` Phase 7 text-hyphen-joining slice | 22,195 | 15,384 | 241 | 5,966 | 6,570 | 288,650 | 7.69% | 7.29% | Rust owns trailing-space backtracking, soft/ASCII hyphen recognition, word-continuation policy, and `CharType::kPiece` fallback; C++ retains native buffers, previous-character metadata, platform Unicode predicates, and the separately selected oracle |
 | `77e63c362` Phase 7 generated-text-separator slice | 22,344 | 15,533 | 241 | 6,029 | 6,570 | 288,911 | 7.73% | 7.36% | Rust owns none/space/line-break/hyphen action selection, single-hyphen suppression, and trailing-space trim counts; C++ retains Unicode lookup, line closing, character construction, native buffer mutation, and the separately selected oracle |
+| `b3076bf2d` Phase 7 text-object-base-spacing slice | 22,439 | 15,628 | 241 | 6,078 | 6,570 | 289,068 | 7.76% | 7.40% | Rust owns per-object kerning scanning, minimum base spacing, negative/two-item suppression, and signed character-space adjustment; C++ retains text state, native matrix distance transforms, kerning storage, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1508,6 +1509,21 @@ standalone-hyphen suppression, and multi-space trimming. The existing
 same-process separator/hyphen differential continues to compare every Unicode
 value, generated flag, and hyphen flag. All seven search-extension tests, all
 72 public text tests, all 1,069 unit tests, and `pdfium_all` pass.
+
+The twenty-fourth Phase 7 slice moves text-object base spacing into Rust. Rust
+owns the character-space/item-count gates, nonzero-kerning scan, transformed
+spacing minimum, negative-base suppression, two-item kerning special case, and
+positive/negative character-space adjustment. C++ retains text state, native
+matrix distance transforms, and borrowed kerning storage supplied through a
+synchronous callback; the complete original helpers remain the separately
+selected oracle.
+
+The candidate remains O(k) in the object's kerning count with O(1) auxiliary
+storage. Eighteen native Rust text tests cover positive and negative character
+space, kerning minima, the two-item special case, and adjustment composition.
+The same-process separator/hyphen differential and whitespace fixtures cover
+the production path. All seven search-extension tests, all 72 public text
+tests, all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
