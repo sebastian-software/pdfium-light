@@ -131,6 +131,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `fa444d71e` Phase 7 page-tree-count slice | 18,682 | 11,871 | 241 | 4,780 | 6,570 | 282,590 | 6.61% | 5.76% | Rust owns page-tree count traversal, active-path cycle guarding, malformed-type and count normalization, checked totals, and a bounded candidate depth; C++ retains borrowed dictionaries and the exact fallback traversal |
 | `53f150f66` Phase 7 page-index-traversal slice | 18,901 | 12,090 | 241 | 4,823 | 6,570 | 282,912 | 6.68% | 5.86% | Rust owns page-object-number lookup traversal, cached-prefix skipping, count shortcuts, direct-reference lookup, and the depth bound; C++ retains borrowed dictionaries and exact fallback traversal |
 | `0dfd10951` Phase 7 SDK-page-range slice | 19,041 | 12,230 | 241 | 4,851 | 6,570 | 283,118 | 6.73% | 5.92% | Rust validates and expands the public import-page range grammar with exact order and duplicates; C++ retains the public wrapper, document import, and overflow oracle fallback |
+| `1ff59c226` Phase 7 page-tree-mutation slice | 19,255 | 12,444 | 241 | 4,897 | 6,570 | 283,500 | 6.79% | 6.01% | Rust selects nested insertion/deletion paths, subtree skips, and active-path cycle rejection; C++ retains dictionaries, reference writes, count updates, and the bounded fallback oracle |
 
 ## Toolchain
 
@@ -1205,6 +1206,19 @@ domain reject the Rust boundary and run the retained platform oracle.
 The full legacy grammar corpus and an explicit same-process Oracle/Candidate
 matrix pass, as do the public import good/bad-range cases. All 34 parser-native
 tests, all three SDK-helper tests, all 1,068 unit tests, and `pdfium_all` pass.
+
+The sixth Phase 7 slice moves nested page-tree insertion/deletion path planning
+into Rust. Rust owns leaf selection, subtree `/Count` skipping, active-path
+cycle rejection, and the ordered child-index path. C++ retains dictionary and
+reference ownership, leaf insertion/removal, `/Parent` and ancestor `/Count`
+writes, traversal-cache reset, extension callbacks, and public wrappers.
+
+The candidate uses the same 1,024-level resource bound as page lookup; depth or
+checked-arithmetic rejection falls back to the unchanged recursive C++ oracle.
+The malformed-count regression proves `INT32_MIN` cannot panic across the FFI.
+The document create/move/delete Oracle/Candidate scenario, six public
+delete/save cases, the complete public move case, object-graph save/reload, all
+35 parser-native tests, all 1,068 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
