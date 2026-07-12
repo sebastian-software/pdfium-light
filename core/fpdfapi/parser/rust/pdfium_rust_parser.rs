@@ -273,6 +273,8 @@ type RedactionObjectCallback = unsafe extern "C" fn(
 ) -> bool;
 type PageObjectStreamCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut i32) -> bool;
+type PageObjectDescribeCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut usize, *mut i32) -> bool;
 
 #[derive(Clone, Copy)]
 struct RedactionRect {
@@ -373,6 +375,27 @@ fn page_object_insert_plan(
         }
     }
     Some(PageObjectInsertPlan { allowed: true, content_stream, mark_dirty: false })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PageObjectRemovePlan {
+    found: bool,
+    index: usize,
+    content_stream: i32,
+}
+
+fn page_object_remove_plan(
+    object_count: usize,
+    target_handle: usize,
+    mut describe: impl FnMut(usize) -> Option<(usize, i32)>,
+) -> Option<PageObjectRemovePlan> {
+    for index in 0..object_count {
+        let (handle, content_stream) = describe(index)?;
+        if handle == target_handle {
+            return Some(PageObjectRemovePlan { found: true, index, content_stream });
+        }
+    }
+    Some(PageObjectRemovePlan { found: false, index: 0, content_stream: -1 })
 }
 
 fn page_object_matrix_route(object_type: u8) -> Option<u8> {
@@ -2940,6 +2963,40 @@ pub unsafe extern "C" fn pdfium_rust_page_object_insert_plan(
     true
 }
 
+/// Plans page-object lookup and dirty-stream selection before native removal.
+///
+/// # Safety
+/// The callback, context, and outputs must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_page_object_remove_plan(
+    object_count: usize,
+    target_handle: usize,
+    context: *mut core::ffi::c_void,
+    describe: PageObjectDescribeCallback,
+    found: *mut bool,
+    index: *mut usize,
+    content_stream: *mut i32,
+) -> bool {
+    let (Some(found), Some(index), Some(content_stream)) =
+        (unsafe { found.as_mut() }, unsafe { index.as_mut() }, unsafe { content_stream.as_mut() })
+    else {
+        return false;
+    };
+    let Some(plan) = page_object_remove_plan(object_count, target_handle, |object_index| {
+        let mut handle = 0;
+        let mut stream = -1;
+        // SAFETY: The caller guarantees synchronous callback validity.
+        unsafe { describe(context, object_index, &mut handle, &mut stream) }
+            .then_some((handle, stream))
+    }) else {
+        return false;
+    };
+    *found = plan.found;
+    *index = plan.index;
+    *content_stream = plan.content_stream;
+    true
+}
+
 /// Selects the native matrix storage for a public page-object operation.
 ///
 /// # Safety
@@ -4609,6 +4666,24 @@ mod tests {
             Some(PageObjectInsertPlan { allowed: true, content_stream: 7, mark_dirty: false }),
             page_object_insert_plan(0, 2, 7, |_| None)
         );
+    }
+
+    #[test]
+    fn page_object_remove_plan_should_find_handle_and_stream() {
+        let objects = [(11, 0), (22, -1), (33, 4)];
+        assert_eq!(
+            Some(PageObjectRemovePlan { found: true, index: 2, content_stream: 4 }),
+            page_object_remove_plan(objects.len(), 33, |index| objects.get(index).copied())
+        );
+        assert_eq!(
+            Some(PageObjectRemovePlan { found: true, index: 1, content_stream: -1 }),
+            page_object_remove_plan(objects.len(), 22, |index| objects.get(index).copied())
+        );
+        assert_eq!(
+            Some(PageObjectRemovePlan { found: false, index: 0, content_stream: -1 }),
+            page_object_remove_plan(objects.len(), 44, |index| objects.get(index).copied())
+        );
+        assert_eq!(None, page_object_remove_plan(1, 11, |_| None));
     }
 
     #[test]

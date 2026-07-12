@@ -248,6 +248,36 @@ bool CPDF_PageObjectHolder::InsertPageObjectAtIndex(
 
 std::unique_ptr<CPDF_PageObject> CPDF_PageObjectHolder::RemovePageObject(
     CPDF_PageObject* pPageObj) {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    auto describe = [](void* context, size_t index, uintptr_t* handle,
+                       int32_t* content_stream) {
+      auto* holder = static_cast<CPDF_PageObjectHolder*>(context);
+      CPDF_PageObject* object = holder->GetPageObjectByIndex(index);
+      if (!object) {
+        return false;
+      }
+      *handle = reinterpret_cast<uintptr_t>(object);
+      *content_stream = object->GetContentStream();
+      return true;
+    };
+    const auto plan = pdfium::rust::RustPlanPageObjectRemove(
+        page_object_list_.size(), reinterpret_cast<uintptr_t>(pPageObj), this,
+        describe);
+    if (plan.has_value()) {
+      if (!plan->found) {
+        return nullptr;
+      }
+      if (plan->index < page_object_list_.size()) {
+        auto it = UNSAFE_TODO(page_object_list_.begin() + plan->index);
+        std::unique_ptr<CPDF_PageObject> result = std::move(*it);
+        page_object_list_.erase(it);
+        if (plan->content_stream >= 0) {
+          dirty_streams_.insert(plan->content_stream);
+        }
+        return result;
+      }
+    }
+  }
   auto it = std::ranges::find_if(page_object_list_,
                                  pdfium::MatchesUniquePtr(pPageObj));
   if (it == std::end(page_object_list_)) {

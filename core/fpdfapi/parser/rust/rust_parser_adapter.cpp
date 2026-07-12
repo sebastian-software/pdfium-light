@@ -271,6 +271,14 @@ extern "C" bool pdfium_rust_page_object_insert_plan(
     bool* allowed,
     int32_t* planned_content_stream,
     bool* mark_dirty);
+extern "C" bool pdfium_rust_page_object_remove_plan(
+    size_t object_count,
+    uintptr_t target_handle,
+    void* context,
+    pdfium::rust::RustPageObjectDescribeCallback describe,
+    bool* found,
+    size_t* index,
+    int32_t* content_stream);
 extern "C" bool pdfium_rust_page_object_matrix_route(uint8_t object_type,
                                                      uint8_t* output);
 extern "C" bool pdfium_rust_page_object_matrix_dirty(uint8_t object_type,
@@ -967,6 +975,20 @@ std::optional<RustPageObjectInsertPlan> RustPlanPageObjectInsert(
   if (!pdfium_rust_page_object_insert_plan(
           index, object_count, content_stream, context, get_neighbor_stream,
           &plan.allowed, &plan.content_stream, &plan.mark_dirty)) {
+    return std::nullopt;
+  }
+  return plan;
+}
+
+std::optional<RustPageObjectRemovePlan> RustPlanPageObjectRemove(
+    size_t object_count,
+    uintptr_t target_handle,
+    void* context,
+    RustPageObjectDescribeCallback describe) {
+  RustPageObjectRemovePlan plan = {};
+  if (!pdfium_rust_page_object_remove_plan(object_count, target_handle, context,
+                                           describe, &plan.found, &plan.index,
+                                           &plan.content_stream)) {
     return std::nullopt;
   }
   return plan;

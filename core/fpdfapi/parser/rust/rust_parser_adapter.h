@@ -395,6 +395,21 @@ std::optional<RustPageObjectInsertPlan> RustPlanPageObjectInsert(
     void* context,
     RustPageObjectStreamCallback get_neighbor_stream);
 
+using RustPageObjectDescribeCallback = bool (*)(void* context,
+                                                size_t index,
+                                                uintptr_t* handle,
+                                                int32_t* content_stream);
+struct RustPageObjectRemovePlan {
+  bool found;
+  size_t index;
+  int32_t content_stream;
+};
+std::optional<RustPageObjectRemovePlan> RustPlanPageObjectRemove(
+    size_t object_count,
+    uintptr_t target_handle,
+    void* context,
+    RustPageObjectDescribeCallback describe);
+
 struct RustPageObjectMatrix {
   std::array<float, 6> values;
 };
