@@ -592,7 +592,7 @@ fn public_destination_xyz_plan(
 
 fn find_bookmark(
     bookmark: usize,
-    visited: &mut std::collections::BTreeSet<usize>,
+    visited: &mut std::collections::HashSet<usize>,
     matches_title: &mut impl FnMut(usize) -> Option<bool>,
     first_child: &mut impl FnMut(usize) -> Option<usize>,
     next_sibling: &mut impl FnMut(usize) -> Option<usize>,
@@ -643,7 +643,7 @@ struct NumberTreeNode {
 fn number_tree_lookup(
     node: usize,
     number: i32,
-    visited: &mut std::collections::BTreeSet<usize>,
+    visited: &mut std::collections::HashSet<usize>,
     describe: &mut impl FnMut(usize) -> Option<NumberTreeNode>,
     read_number: &mut impl FnMut(usize, usize) -> Option<(i32, usize)>,
     read_kid: &mut impl FnMut(usize, usize) -> Option<usize>,
@@ -682,7 +682,7 @@ fn number_tree_lookup(
 fn number_tree_lower_bound(
     node: usize,
     number: i32,
-    visited: &mut std::collections::BTreeSet<usize>,
+    visited: &mut std::collections::HashSet<usize>,
     describe: &mut impl FnMut(usize) -> Option<NumberTreeNode>,
     read_number: &mut impl FnMut(usize, usize) -> Option<(i32, usize)>,
     read_kid: &mut impl FnMut(usize, usize) -> Option<usize>,
@@ -699,7 +699,7 @@ fn number_tree_lower_bound(
             let value = number_tree_lookup(
                 node,
                 description.upper_limit,
-                &mut std::collections::BTreeSet::new(),
+                &mut std::collections::HashSet::new(),
                 describe,
                 read_number,
                 read_kid,
@@ -3630,7 +3630,7 @@ pub unsafe extern "C" fn pdfium_rust_find_bookmark(
     };
     let Some(found) = find_bookmark(
         0,
-        &mut std::collections::BTreeSet::new(),
+        &mut std::collections::HashSet::new(),
         &mut matches,
         &mut first,
         &mut next,
@@ -3737,7 +3737,7 @@ pub unsafe extern "C" fn pdfium_rust_number_tree_lookup(
     let Some(result) = number_tree_lookup(
         root,
         number,
-        &mut std::collections::BTreeSet::new(),
+        &mut std::collections::HashSet::new(),
         &mut describe_node,
         &mut read_number_entry,
         &mut read_kid_node,
@@ -3774,7 +3774,7 @@ pub unsafe extern "C" fn pdfium_rust_number_tree_lower_bound(
     let Some(result) = number_tree_lower_bound(
         root,
         number,
-        &mut std::collections::BTreeSet::new(),
+        &mut std::collections::HashSet::new(),
         &mut describe_node,
         &mut read_number_entry,
         &mut read_kid_node,
@@ -5518,7 +5518,7 @@ mod tests {
         let mut compared = Vec::new();
         let found = find_bookmark(
             0,
-            &mut std::collections::BTreeSet::new(),
+            &mut std::collections::HashSet::new(),
             &mut |handle| {
                 compared.push(handle);
                 Some(handle == 3)
@@ -5538,7 +5538,7 @@ mod tests {
 
         let cycle_miss = find_bookmark(
             0,
-            &mut std::collections::BTreeSet::new(),
+            &mut std::collections::HashSet::new(),
             &mut |_| Some(false),
             &mut |handle| {
                 Some(match handle {
@@ -5555,7 +5555,7 @@ mod tests {
             None,
             find_bookmark(
                 0,
-                &mut std::collections::BTreeSet::new(),
+                &mut std::collections::HashSet::new(),
                 &mut |_| Some(false),
                 &mut |_| None,
                 &mut |_| Some(0),
@@ -5638,7 +5638,7 @@ mod tests {
             number_tree_lookup(
                 1,
                 5,
-                &mut std::collections::BTreeSet::new(),
+                &mut std::collections::HashSet::new(),
                 &mut describe,
                 &mut read_number,
                 &mut read_kid,
@@ -5649,7 +5649,7 @@ mod tests {
             number_tree_lookup(
                 1,
                 7,
-                &mut std::collections::BTreeSet::new(),
+                &mut std::collections::HashSet::new(),
                 &mut describe,
                 &mut read_number,
                 &mut read_kid,
@@ -5660,7 +5660,7 @@ mod tests {
             number_tree_lower_bound(
                 1,
                 17,
-                &mut std::collections::BTreeSet::new(),
+                &mut std::collections::HashSet::new(),
                 &mut describe,
                 &mut read_number,
                 &mut read_kid,
@@ -5671,7 +5671,7 @@ mod tests {
             number_tree_lower_bound(
                 1,
                 25,
-                &mut std::collections::BTreeSet::new(),
+                &mut std::collections::HashSet::new(),
                 &mut describe,
                 &mut read_number,
                 &mut read_kid,
@@ -5693,7 +5693,7 @@ mod tests {
             number_tree_lookup(
                 1,
                 5,
-                &mut std::collections::BTreeSet::new(),
+                &mut std::collections::HashSet::new(),
                 &mut cycle_description,
                 &mut |_, _| None,
                 &mut |_, _| Some(1),
