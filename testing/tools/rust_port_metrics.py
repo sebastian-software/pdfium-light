@@ -138,6 +138,7 @@ ACTIVE_SURFACES = (
     "ActualText marked-content state, filtering, geometry, and retained emissions",
     "per-character text space threshold, cap, fallback, and width normalization",
     "per-item text spacing state and generated-space decision",
+    "text-object duplicate geometry and character comparison",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
