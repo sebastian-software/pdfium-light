@@ -146,6 +146,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `048b8f8ee` Phase 7 character-normalization slice | 21,707 | 14,896 | 241 | 5,754 | 6,570 | 287,715 | 7.54% | 7.08% | Rust owns control/normal classification, mirror/normalization requests, ligature expansion emissions, text-append decisions, Unicode overrides, and `CharType::kPiece`; C++ retains mirror/normalization table lookup, native character values, buffer/list writes, and the separately selected oracle |
 | `a3368fe93` Phase 7 text-flow-orientation slice | 21,865 | 15,054 | 241 | 5,798 | 6,570 | 287,988 | 7.59% | 7.15% | Rust owns active text-object mask construction, page-bound clamping, occupied-span fill ratios, and horizontal/vertical flow selection; C++ retains page-object geometry, the synchronous callback, and the separately selected oracle |
 | `a23c711ec` Phase 7 text-object-writing-mode slice | 21,928 | 15,117 | 241 | 5,831 | 6,570 | 288,153 | 7.61% | 7.18% | Rust owns transformed-endpoint deltas, epsilon handling, vector normalization, axis thresholds, and fallback writing-mode selection; C++ retains text-object access, native matrix transforms, and the separately selected oracle |
+| `6fb298ba6` Phase 7 text-object-separator slice | 22,103 | 15,292 | 241 | 5,924 | 6,570 | 288,493 | 7.66% | 7.25% | Rust owns horizontal/vertical line-end geometry, ordered width-threshold normalization, and gap-based space insertion; C++ retains text/font access, matrix transforms, hyphen policy, native output mutation, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1457,6 +1458,21 @@ single-character, coincident-origin, and fallback cases. A same-process public
 differential compares every character's Unicode, angle, and origin on rotated
 text. All seven search-extension tests, all 71 public text tests, all 1,069 unit
 tests, and `pdfium_all` pass.
+
+The twenty-first Phase 7 slice moves adjacent text-object separator geometry
+into Rust. Rust owns horizontal and vertical line-end intersection rules,
+small-object/font-size guards, ordered character-width threshold bands, and the
+final gap-based space insertion decision. C++ retains text/font access, matrix
+and distance transforms, hyphen policy, and mutation of the native text and
+character buffers; the original numeric helpers remain the separately selected
+oracle.
+
+The candidate remains constant-space and O(1) per adjacent object pair.
+Fifteen native Rust text tests cover horizontal and vertical line endings,
+threshold bands, touching glyphs, and separated glyphs. A same-process public
+differential compares every Unicode value, generated flag, and hyphen flag on
+the multiline hyphen fixture. All seven search-extension tests, all 72 public
+text tests, all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

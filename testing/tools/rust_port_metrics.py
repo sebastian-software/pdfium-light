@@ -131,6 +131,7 @@ ACTIVE_SURFACES = (
     "text character control classification and Unicode normalization emission planning",
     "page text-line flow mask construction, fill ratios, and orientation selection",
     "text-object endpoint normalization and writing-mode selection",
+    "text-object line-end, width-threshold, and space-insertion geometry",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
