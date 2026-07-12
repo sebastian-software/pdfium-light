@@ -209,6 +209,7 @@ TEST_F(FPDFDocEmbedderTest, RustDestinationPolicyMatchesCppOracle) {
   ASSERT_TRUE(OpenDocument("named_dests.pdf"));
 
   struct Snapshot {
+    int page_index;
     unsigned long view;
     unsigned long parameter_count;
     std::array<float, 4> parameters;
@@ -217,10 +218,11 @@ TEST_F(FPDFDocEmbedderTest, RustDestinationPolicyMatchesCppOracle) {
     std::array<float, 3> location;
     bool operator==(const Snapshot&) const = default;
   };
-  auto snapshot = [](FPDF_DEST destination, bool use_rust) {
+  auto snapshot = [&](FPDF_DEST destination, bool use_rust) {
     pdfium::rust::ScopedRustParserImplementationForTesting implementation(
         use_rust);
     Snapshot result = {};
+    result.page_index = FPDFDest_GetDestPageIndex(document(), destination);
     result.parameter_count = 42;
     result.parameters.fill(42.4242f);
     result.view = FPDFDest_GetView(destination, &result.parameter_count,
