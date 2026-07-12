@@ -1483,11 +1483,12 @@ retains native buffer and previous-character storage and supplies the platform
 Unicode alpha/alphanumeric predicates through a synchronous callback; the
 complete original implementation remains the separately selected oracle.
 
-The candidate remains O(n) only in the trailing-space suffix and uses O(n)
-temporary code-point storage at the checked ABI boundary. Sixteen native Rust
-text tests cover skipped spaces, ordinary word continuation, and piece
-fallback. The existing same-process multiline hyphen differential compares
-every Unicode value, generated flag, and hyphen flag. All seven
+The candidate remains O(n) only in the trailing-space suffix and uses O(1)
+auxiliary storage; Rust reads required code points through a synchronous,
+checked index callback. Sixteen native Rust text tests cover skipped spaces,
+ordinary word continuation, and piece fallback. The existing same-process
+multiline hyphen differential compares every Unicode value, generated flag,
+and hyphen flag. All seven
 search-extension tests, all 72 public text tests, all 1,069 unit tests, and
 `pdfium_all` pass.
 
