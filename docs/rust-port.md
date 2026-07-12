@@ -162,6 +162,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `aa090f3b1` Phase 7 page-object-matrix slice | 23,860 | 17,049 | 241 | 6,687 | 6,570 | 291,971 | 8.17% | 7.98% | Rust owns supported-object routing for public matrix access, exact image dirty-state selection, and rotated text/image QuadPoints geometry; C++ retains page-object lifetimes, native matrix storage/setters, and the separately selected oracle |
 | `feacb5472` Phase 7 page-object-removal slice | 23,935 | 17,124 | 241 | 6,724 | 6,570 | 292,171 | 8.19% | 8.01% | Rust owns stable handle lookup, removal-index selection, non-member results, and dirty content-stream selection; C++ retains page-object lifetimes, unique ownership transfer, deque erasure, dirty-set mutation, and the separately selected oracle |
 | `c7e2eadb6` Phase 7 page-object-active-state slice | 24,008 | 17,197 | 241 | 6,771 | 6,570 | 292,373 | 8.21% | 8.04% | Rust owns active-state update and exact dirty decision plus active-object counting orchestration; C++ retains page-object storage/lifetimes, borrowed callbacks, and the separately selected oracle |
+| `4d64144fa` Phase 7 annotation-geometry slice | 24,084 | 17,273 | 241 | 6,794 | 6,570 | 292,547 | 8.23% | 8.07% | Rust owns public annotation rectangle corner transformation/reduction and signed page-rotation planning; C++ retains annotation/dictionary lifetimes, native writes, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1741,6 +1742,24 @@ public text character count under both implementations, then generates
 content, saves, reloads, and compares both pages again. The existing public
 active-state save/render regression also passes. All 44 parser-native tests,
 all 1,069 unit tests, and `pdfium_all` pass.
+
+The thirty-seventh Phase 7 slice moves public annotation rectangle geometry
+and page-rotation planning into Rust. Rust transforms all four rectangle
+corners, reduces them in the exact C++ point and comparison order (including
+first-point NaN propagation), and preserves signed `% 4` quarter-turn behavior
+before converting to dictionary degrees. C++ retains annotation and dictionary
+lifetimes, applies the returned rectangle/rotation, updates page dimensions,
+and preserves the complete original implementations as the separately
+selected oracle.
+
+Both calculations remain O(1) in time and auxiliary storage. One
+parser-native test covers a non-axis-aligned transform, positive, negative,
+and wrapped rotations, plus NaN reduction. A same-process public differential
+creates identical annotations on two pages, applies signed rotation and an
+affine transform under the C++ oracle and Rust candidate, compares rectangle
+and rotation exactly, then saves, reloads, and compares both pages again. The
+existing public rotation and annotation-transform regressions also pass. All
+45 parser-native tests, all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

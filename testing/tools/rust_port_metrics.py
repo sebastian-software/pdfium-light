@@ -147,6 +147,7 @@ ACTIVE_SURFACES = (
     "public page-object matrix routing, dirty-state, and rotated-bounds geometry",
     "page-object removal lookup and dirty-stream planning",
     "page-object active-state mutation and active-count orchestration",
+    "public annotation rectangle transformation and page-rotation planning",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
