@@ -155,6 +155,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `6d6566673` Phase 7 text-item-spacing slice | 22,866 | 16,055 | 241 | 6,298 | 6,570 | 289,902 | 7.89% | 7.58% | Rust owns per-item kerning/base-space composition, prior-text/space suppression, threshold request, and generated-space decision; C++ retains font and text buffers, native character creation, validated writes, and the separately selected oracle |
 | `f19b313b9` Phase 7 duplicate-text-object slice | 23,059 | 16,248 | 241 | 6,365 | 6,570 | 290,248 | 7.94% | 7.66% | Rust owns empty/overlap rectangle policy, width/font/item equality, character comparison, and position tolerances; C++ retains text-object/font access, the bounded prior-object scan, synchronous item callback, and the separately selected oracle |
 | `d822f622b` Phase 7 generated-character-origin slice | 23,125 | 16,314 | 241 | 6,403 | 6,570 | 290,377 | 7.96% | 7.69% | Rust owns prior-width admission, text-object/box font-size selection, zero-size fallback, and origin advancement; C++ retains prior-character/font access, matrix and native `CharInfo` construction, and the separately selected oracle |
+| `f0a4139db` Phase 7 duplicate-character slice | 23,243 | 16,432 | 241 | 6,455 | 6,570 | 290,615 | 8.00% | 7.73% | Rust owns the seven-character reverse scan, code/font/origin equality, threshold comparison, suppression, and first-item space-trim action; C++ retains character/font lifetimes, buffer mutation, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1609,6 +1610,22 @@ Rust text tests cover ordinary advancement, invalid characters, missing text
 objects, and the size fallback. The exact separator differential is sensitive
 to a one-unit candidate-origin perturbation. All seven search-extension tests,
 all 74 public text tests, all 1,069 unit tests, and `pdfium_all` pass.
+
+The thirtieth Phase 7 slice moves local duplicate-character suppression into
+Rust. Rust owns the reverse scan over at most seven emitted characters,
+character-code and font identity matching, origin-distance thresholds, and the
+first-item action that trims a preceding generated space. C++ retains native
+character/font lifetimes and applies the selected buffer mutation; the complete
+original scan remains the separately selected oracle.
+
+The candidate remains O(1) because the scan is bounded at seven characters and
+uses O(1) auxiliary storage. Twenty-five native Rust text tests cover matching,
+font mismatch, suppression, and space trim. A dedicated overlapping-`TJ`
+differential produces exactly one character under both implementations and
+compares Unicode, origin, and box values exactly. Twenty same-process
+repetitions pass, followed by the complete 82-case text/search matrix. All
+seven search-extension tests, all 75 public text tests, all 1,069 unit tests,
+and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
