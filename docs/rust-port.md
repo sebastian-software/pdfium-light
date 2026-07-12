@@ -148,6 +148,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `a23c711ec` Phase 7 text-object-writing-mode slice | 21,928 | 15,117 | 241 | 5,831 | 6,570 | 288,153 | 7.61% | 7.18% | Rust owns transformed-endpoint deltas, epsilon handling, vector normalization, axis thresholds, and fallback writing-mode selection; C++ retains text-object access, native matrix transforms, and the separately selected oracle |
 | `6fb298ba6` Phase 7 text-object-separator slice | 22,103 | 15,292 | 241 | 5,924 | 6,570 | 288,493 | 7.66% | 7.25% | Rust owns horizontal/vertical line-end geometry, ordered width-threshold normalization, and gap-based space insertion; C++ retains text/font access, matrix transforms, hyphen policy, native output mutation, and the separately selected oracle |
 | `dc960e660` Phase 7 text-hyphen-joining slice | 22,195 | 15,384 | 241 | 5,966 | 6,570 | 288,650 | 7.69% | 7.29% | Rust owns trailing-space backtracking, soft/ASCII hyphen recognition, word-continuation policy, and `CharType::kPiece` fallback; C++ retains native buffers, previous-character metadata, platform Unicode predicates, and the separately selected oracle |
+| `77e63c362` Phase 7 generated-text-separator slice | 22,344 | 15,533 | 241 | 6,029 | 6,570 | 288,911 | 7.73% | 7.36% | Rust owns none/space/line-break/hyphen action selection, single-hyphen suppression, and trailing-space trim counts; C++ retains Unicode lookup, line closing, character construction, native buffer mutation, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1491,6 +1492,22 @@ multiline hyphen differential compares every Unicode value, generated flag,
 and hyphen flag. All seven
 search-extension tests, all 72 public text tests, all 1,069 unit tests, and
 `pdfium_all` pass.
+
+The twenty-third Phase 7 slice moves generated inter-object character action
+planning into Rust. Rust maps the requested separator type to no-op, generated
+space, line close, or hyphen replacement; suppresses a standalone incoming
+ASCII/soft hyphen; and counts trailing spaces that must be removed before a
+hyphen replacement. C++ retains native font Unicode lookup, line closing,
+generated-character construction, and the requested buffer/list mutations;
+the complete original switch remains the separately selected oracle.
+
+The candidate scans only the trailing temporary-text suffix through a checked
+synchronous callback, uses O(1) auxiliary storage, and preserves the original
+mutation order. Seventeen native Rust text tests cover all action kinds,
+standalone-hyphen suppression, and multi-space trimming. The existing
+same-process separator/hyphen differential continues to compare every Unicode
+value, generated flag, and hyphen flag. All seven search-extension tests, all
+72 public text tests, all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
