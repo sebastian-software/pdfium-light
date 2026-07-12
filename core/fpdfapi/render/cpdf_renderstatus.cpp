@@ -943,13 +943,12 @@ bool CPDF_RenderStatus::ProcessText(CPDF_TextObject* textobj,
   bool is_fill = false;
   bool is_stroke = false;
   bool is_clip = false;
-  const auto rust_plan = pdfium::rust::UseRustRenderCandidate()
-                             ? pdfium::rust::BuildRustTextRenderPlan(
-                                   /*has_char_codes=*/true,
-                                   static_cast<int8_t>(text_render_mode),
-                                   pFont->IsType3Font(), !!clipping_path,
-                                   pFont->HasFace())
-                             : std::nullopt;
+  const auto rust_plan =
+      pdfium::rust::UseRustRenderCandidate()
+          ? pdfium::rust::BuildRustTextRenderPlan(
+                /*has_char_codes=*/true, static_cast<int8_t>(text_render_mode),
+                pFont->IsType3Font(), !!clipping_path, pFont->HasFace())
+          : std::nullopt;
   if (rust_plan.has_value()) {
     switch (rust_plan->action()) {
       case pdfium::rust::TextRenderAction::kSkip:
@@ -970,33 +969,33 @@ bool CPDF_RenderStatus::ProcessText(CPDF_TextObject* textobj,
       is_clip = true;
     } else {
       switch (text_render_mode) {
-      case TextRenderingMode::MODE_FILL:
-      case TextRenderingMode::MODE_FILL_CLIP:
-        is_fill = true;
-        break;
-      case TextRenderingMode::MODE_STROKE:
-      case TextRenderingMode::MODE_STROKE_CLIP:
-        if (pFont->HasFace()) {
-          is_stroke = true;
-        } else {
+        case TextRenderingMode::MODE_FILL:
+        case TextRenderingMode::MODE_FILL_CLIP:
           is_fill = true;
-        }
-        break;
-      case TextRenderingMode::MODE_FILL_STROKE:
-      case TextRenderingMode::MODE_FILL_STROKE_CLIP:
-        is_fill = true;
-        if (pFont->HasFace()) {
-          is_stroke = true;
-        }
-        break;
-      case TextRenderingMode::MODE_INVISIBLE:
-        // Already handled above, but the compiler is not smart enough to
-        // realize it.
-        NOTREACHED();
-      case TextRenderingMode::MODE_CLIP:
-        return true;
-      case TextRenderingMode::MODE_UNKNOWN:
-        NOTREACHED();
+          break;
+        case TextRenderingMode::MODE_STROKE:
+        case TextRenderingMode::MODE_STROKE_CLIP:
+          if (pFont->HasFace()) {
+            is_stroke = true;
+          } else {
+            is_fill = true;
+          }
+          break;
+        case TextRenderingMode::MODE_FILL_STROKE:
+        case TextRenderingMode::MODE_FILL_STROKE_CLIP:
+          is_fill = true;
+          if (pFont->HasFace()) {
+            is_stroke = true;
+          }
+          break;
+        case TextRenderingMode::MODE_INVISIBLE:
+          // Already handled above, but the compiler is not smart enough to
+          // realize it.
+          NOTREACHED();
+        case TextRenderingMode::MODE_CLIP:
+          return true;
+        case TextRenderingMode::MODE_UNKNOWN:
+          NOTREACHED();
       }
     }
   }
@@ -1006,12 +1005,13 @@ bool CPDF_RenderStatus::ProcessText(CPDF_TextObject* textobj,
       is_stroke && textobj->color_state().GetStrokeColor()->IsPattern();
   const bool fill_is_pattern =
       is_fill && textobj->color_state().GetFillColor()->IsPattern();
-  const auto rust_pattern = pdfium::rust::UseRustRenderCandidate()
-                                ? pdfium::rust::RustTextUsesPattern(
-                                      is_fill, is_stroke, fill_is_pattern,
-                                      stroke_is_pattern)
-                                : std::nullopt;
-  const bool bPattern = rust_pattern.value_or(stroke_is_pattern || fill_is_pattern);
+  const auto rust_pattern =
+      pdfium::rust::UseRustRenderCandidate()
+          ? pdfium::rust::RustTextUsesPattern(
+                is_fill, is_stroke, fill_is_pattern, stroke_is_pattern)
+          : std::nullopt;
+  const bool bPattern =
+      rust_pattern.value_or(stroke_is_pattern || fill_is_pattern);
   if (is_stroke) {
     if (!stroke_is_pattern) {
       stroke_argb = GetStrokeArgb(textobj);
@@ -1036,51 +1036,95 @@ bool CPDF_RenderStatus::ProcessText(CPDF_TextObject* textobj,
   }
 
   float font_size = textobj->text_state().GetFontSize();
-  if (bPattern) {
-    DrawTextPathWithPattern(textobj, mtObj2Device, pFont.Get(), font_size,
-                            text_matrix, is_fill, is_stroke);
-    return true;
-  }
-  const auto rust_uses_path_backend =
-      pdfium::rust::UseRustRenderCandidate()
-          ? pdfium::rust::RustTextUsesPathBackend(is_clip, is_stroke)
-          : std::nullopt;
-  if (rust_uses_path_backend.value_or(is_clip || is_stroke)) {
-    const CFX_Matrix* pDeviceMatrix = &mtObj2Device;
-    CFX_Matrix device_matrix;
-    if (is_stroke) {
-      pdfium::span<const float, 4> pCTM = textobj->text_state().GetCTM();
-      const auto rust_needs_adjustment =
-          pdfium::rust::UseRustRenderCandidate()
-              ? pdfium::rust::RustTextNeedsDeviceMatrixAdjustment(
-                    is_stroke, pCTM[0], pCTM[3])
-              : std::nullopt;
-      if (rust_needs_adjustment.value_or(pCTM[0] != 1.0f || pCTM[3] != 1.0f)) {
-        CFX_Matrix ctm(pCTM[0], pCTM[1], pCTM[2], pCTM[3], 0, 0);
-        text_matrix *= ctm.GetInverse();
-        device_matrix = ctm * mtObj2Device;
-        pDeviceMatrix = &device_matrix;
+  struct TextBackendContext {
+    CPDF_RenderStatus* render_status;
+    CPDF_TextObject* text_object;
+    const CFX_Matrix* object_to_device;
+    CPDF_Font* font;
+    float font_size;
+    CFX_Matrix* text_matrix;
+    bool is_fill;
+    bool is_stroke;
+    FX_ARGB fill_argb;
+    FX_ARGB stroke_argb;
+    CFX_Path* clipping_path;
+  } backend_context = {this,      textobj,      &mtObj2Device, pFont.Get(),
+                       font_size, &text_matrix, is_fill,       is_stroke,
+                       fill_argb, stroke_argb,  clipping_path};
+  const auto run_backend = [](void* raw_context, uint8_t raw_command) -> bool {
+    auto* context = static_cast<TextBackendContext*>(raw_context);
+    const auto command =
+        static_cast<pdfium::rust::TextBackendCommand>(raw_command);
+    pdfium::rust::RecordTextBackendCommandForTesting(command);
+    switch (command) {
+      case pdfium::rust::TextBackendCommand::kPattern:
+        context->render_status->DrawTextPathWithPattern(
+            context->text_object, *context->object_to_device, context->font,
+            context->font_size, *context->text_matrix, context->is_fill,
+            context->is_stroke);
+        return true;
+      case pdfium::rust::TextBackendCommand::kPath: {
+        const CFX_Matrix* device_matrix = context->object_to_device;
+        CFX_Matrix adjusted_device_matrix;
+        if (context->is_stroke) {
+          pdfium::span<const float, 4> ctm =
+              context->text_object->text_state().GetCTM();
+          const auto rust_needs_adjustment =
+              pdfium::rust::UseRustRenderCandidate()
+                  ? pdfium::rust::RustTextNeedsDeviceMatrixAdjustment(
+                        context->is_stroke, ctm[0], ctm[3])
+                  : std::nullopt;
+          if (rust_needs_adjustment.value_or(ctm[0] != 1.0f ||
+                                             ctm[3] != 1.0f)) {
+            CFX_Matrix ctm_matrix(ctm[0], ctm[1], ctm[2], ctm[3], 0, 0);
+            *context->text_matrix *= ctm_matrix.GetInverse();
+            adjusted_device_matrix = ctm_matrix * *context->object_to_device;
+            device_matrix = &adjusted_device_matrix;
+          }
+        }
+        const auto rust_fill_options =
+            pdfium::rust::UseRustRenderCandidate()
+                ? pdfium::rust::BuildRustTextPathFillOptions(
+                      context->is_stroke, context->is_fill,
+                      context->text_object->general_state().GetStrokeAdjust(),
+                      context->render_status->options_.GetOptions()
+                          .bNoTextSmooth)
+                : std::nullopt;
+        return CPDF_TextRenderer::DrawTextPath(
+            context->render_status->device_,
+            context->text_object->GetCharCodes(),
+            context->text_object->GetCharPositions(), context->font,
+            context->font_size, *context->text_matrix, device_matrix,
+            context->text_object->graph_state().GetObject(), context->fill_argb,
+            context->stroke_argb, context->clipping_path,
+            rust_fill_options.value_or(GetFillOptionsForDrawTextPath(
+                context->render_status->options_.GetOptions(),
+                context->text_object, context->is_stroke, context->is_fill)));
       }
+      case pdfium::rust::TextBackendCommand::kNormal:
+        context->text_matrix->Concat(*context->object_to_device);
+        return CPDF_TextRenderer::DrawNormalText(
+            context->render_status->device_,
+            context->text_object->GetCharCodes(),
+            context->text_object->GetCharPositions(), context->font,
+            context->font_size, *context->text_matrix, context->fill_argb,
+            context->render_status->options_);
     }
-    const auto rust_fill_options =
-        pdfium::rust::UseRustRenderCandidate()
-            ? pdfium::rust::BuildRustTextPathFillOptions(
-                  is_stroke, is_fill,
-                  textobj->general_state().GetStrokeAdjust(),
-                  options_.GetOptions().bNoTextSmooth)
-            : std::nullopt;
-    return CPDF_TextRenderer::DrawTextPath(
-        device_, textobj->GetCharCodes(), textobj->GetCharPositions(),
-        pFont.Get(), font_size, text_matrix, pDeviceMatrix,
-        textobj->graph_state().GetObject(), fill_argb, stroke_argb,
-        clipping_path,
-        rust_fill_options.value_or(GetFillOptionsForDrawTextPath(
-            options_.GetOptions(), textobj, is_stroke, is_fill)));
+    NOTREACHED();
+    return false;
+  };
+  if (pdfium::rust::UseRustRenderCandidate()) {
+    const auto result = pdfium::rust::RunRustTextBackend(
+        bPattern, is_clip, is_stroke, &backend_context, run_backend);
+    if (result.has_value()) {
+      return *result;
+    }
   }
-  text_matrix.Concat(mtObj2Device);
-  return CPDF_TextRenderer::DrawNormalText(
-      device_, textobj->GetCharCodes(), textobj->GetCharPositions(),
-      pFont.Get(), font_size, text_matrix, fill_argb, options_);
+  const auto command = bPattern ? pdfium::rust::TextBackendCommand::kPattern
+                       : (is_clip || is_stroke)
+                           ? pdfium::rust::TextBackendCommand::kPath
+                           : pdfium::rust::TextBackendCommand::kNormal;
+  return run_backend(&backend_context, static_cast<uint8_t>(command));
 }
 
 // TODO(npm): Font fallback for type 3 fonts? (Completely separate code!!)

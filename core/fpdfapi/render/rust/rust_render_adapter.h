@@ -97,6 +97,7 @@ class PathPaintPlan final {
 };
 
 enum class TextRenderAction : uint8_t { kSkip = 1, kType3, kNormal };
+enum class TextBackendCommand : uint8_t { kPattern = 1, kPath, kNormal };
 
 class TextRenderPlan final {
  public:
@@ -170,12 +171,11 @@ std::optional<CFX_FillRenderOptions> BuildRustPathFillOptions(
     bool stroke_adjust,
     bool stroke,
     bool type3_char);
-std::optional<TextRenderPlan> BuildRustTextRenderPlan(
-    bool has_char_codes,
-    int8_t text_mode,
-    bool is_type3,
-    bool has_clipping_path,
-    bool font_has_face);
+std::optional<TextRenderPlan> BuildRustTextRenderPlan(bool has_char_codes,
+                                                      int8_t text_mode,
+                                                      bool is_type3,
+                                                      bool has_clipping_path,
+                                                      bool font_has_face);
 std::optional<bool> RustTextUsesPattern(bool is_fill,
                                         bool is_stroke,
                                         bool fill_is_pattern,
@@ -189,6 +189,12 @@ std::optional<CFX_FillRenderOptions> BuildRustTextPathFillOptions(
     bool is_fill,
     bool stroke_adjust,
     bool no_text_smooth);
+using TextBackendCallback = bool (*)(void* context, uint8_t command);
+std::optional<bool> RunRustTextBackend(bool uses_pattern,
+                                       bool is_clip,
+                                       bool is_stroke,
+                                       void* context,
+                                       TextBackendCallback callback);
 
 class ScopedRenderTraceForTesting final {
  public:
@@ -210,6 +216,7 @@ void RecordRenderTraceForTesting(const PathPaintPlan& plan);
 void RecordPathMatrixAvailabilityForTesting(bool available);
 void RecordPathFillOptionsForTesting(const CFX_FillRenderOptions& options);
 void RecordTextRenderPlanForTesting(const TextRenderPlan& plan);
+void RecordTextBackendCommandForTesting(TextBackendCommand command);
 
 // Production defaults to the Rust candidate. The setter exists only so the
 // same-process differential harness can keep the retained C++ oracle isolated.

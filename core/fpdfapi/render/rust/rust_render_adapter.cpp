@@ -57,33 +57,37 @@ extern "C" bool pdfium_rust_build_path_fill_options(uint8_t fill_type,
                                                     bool stroke,
                                                     bool type3_char,
                                                     uint8_t* output);
-extern "C" bool pdfium_rust_build_text_render_plan(
-    bool has_char_codes,
-    int8_t text_mode,
-    bool is_type3,
-    bool has_clipping_path,
-    bool font_has_face,
-    uint8_t* output_action,
-    uint8_t* output_bits);
+extern "C" bool pdfium_rust_build_text_render_plan(bool has_char_codes,
+                                                   int8_t text_mode,
+                                                   bool is_type3,
+                                                   bool has_clipping_path,
+                                                   bool font_has_face,
+                                                   uint8_t* output_action,
+                                                   uint8_t* output_bits);
 extern "C" bool pdfium_rust_text_uses_pattern(bool is_fill,
-                                               bool is_stroke,
-                                               bool fill_is_pattern,
-                                               bool stroke_is_pattern,
-                                               bool* output);
+                                              bool is_stroke,
+                                              bool fill_is_pattern,
+                                              bool stroke_is_pattern,
+                                              bool* output);
 extern "C" bool pdfium_rust_text_uses_path_backend(bool is_clip,
-                                                    bool is_stroke,
-                                                    bool* output);
-extern "C" bool pdfium_rust_text_needs_device_matrix_adjustment(
+                                                   bool is_stroke,
+                                                   bool* output);
+extern "C" bool pdfium_rust_text_needs_device_matrix_adjustment(bool is_stroke,
+                                                                float ctm_a,
+                                                                float ctm_d,
+                                                                bool* output);
+extern "C" bool pdfium_rust_build_text_path_fill_options(bool is_stroke,
+                                                         bool is_fill,
+                                                         bool stroke_adjust,
+                                                         bool no_text_smooth,
+                                                         uint8_t* output);
+extern "C" bool pdfium_rust_run_text_backend(
+    bool uses_pattern,
+    bool is_clip,
     bool is_stroke,
-    float ctm_a,
-    float ctm_d,
-    bool* output);
-extern "C" bool pdfium_rust_build_text_path_fill_options(
-    bool is_stroke,
-    bool is_fill,
-    bool stroke_adjust,
-    bool no_text_smooth,
-    uint8_t* output);
+    void* context,
+    pdfium::rust::TextBackendCallback callback,
+    bool* output_result);
 
 thread_local bool g_use_rust_render_candidate = true;
 thread_local std::vector<uint8_t>* g_render_trace_for_testing = nullptr;
@@ -95,6 +99,7 @@ constexpr uint8_t kPathPaintPlanTraceBase = 0x40;
 constexpr uint8_t kPathMatrixAvailabilityTraceBase = 0x50;
 constexpr uint8_t kPathFillOptionsTrace = 0x60;
 constexpr uint8_t kTextRenderPlanTraceBase = 0x70;
+constexpr uint8_t kTextBackendCommandTraceBase = 0x90;
 
 constexpr uint8_t kPathPlanFillMask = 0x03;
 constexpr uint8_t kPathPlanStroke = 1u << 2;
@@ -319,17 +324,16 @@ std::optional<CFX_FillRenderOptions> BuildRustPathFillOptions(
   return options;
 }
 
-std::optional<TextRenderPlan> BuildRustTextRenderPlan(
-    bool has_char_codes,
-    int8_t text_mode,
-    bool is_type3,
-    bool has_clipping_path,
-    bool font_has_face) {
+std::optional<TextRenderPlan> BuildRustTextRenderPlan(bool has_char_codes,
+                                                      int8_t text_mode,
+                                                      bool is_type3,
+                                                      bool has_clipping_path,
+                                                      bool font_has_face) {
   uint8_t action = 0;
   uint8_t bits = 0;
-  if (!pdfium_rust_build_text_render_plan(
-          has_char_codes, text_mode, is_type3, has_clipping_path,
-          font_has_face, &action, &bits) ||
+  if (!pdfium_rust_build_text_render_plan(has_char_codes, text_mode, is_type3,
+                                          has_clipping_path, font_has_face,
+                                          &action, &bits) ||
       action < static_cast<uint8_t>(TextRenderAction::kSkip) ||
       action > static_cast<uint8_t>(TextRenderAction::kNormal) ||
       (bits & ~0x07u) != 0) {
@@ -363,8 +367,8 @@ std::optional<bool> RustTextNeedsDeviceMatrixAdjustment(bool is_stroke,
                                                         float ctm_a,
                                                         float ctm_d) {
   bool needs_adjustment = false;
-  if (!pdfium_rust_text_needs_device_matrix_adjustment(
-          is_stroke, ctm_a, ctm_d, &needs_adjustment)) {
+  if (!pdfium_rust_text_needs_device_matrix_adjustment(is_stroke, ctm_a, ctm_d,
+                                                       &needs_adjustment)) {
     return std::nullopt;
   }
   return needs_adjustment;
@@ -387,6 +391,20 @@ std::optional<CFX_FillRenderOptions> BuildRustTextPathFillOptions(
   options.adjust_stroke = bits & 4u;
   options.aliased_path = bits & 8u;
   return options;
+}
+
+std::optional<bool> RunRustTextBackend(bool uses_pattern,
+                                       bool is_clip,
+                                       bool is_stroke,
+                                       void* context,
+                                       TextBackendCallback callback) {
+  bool result = false;
+  if (!context || !callback ||
+      !pdfium_rust_run_text_backend(uses_pattern, is_clip, is_stroke, context,
+                                    callback, &result)) {
+    return std::nullopt;
+  }
+  return result;
 }
 
 ScopedRenderTraceForTesting::ScopedRenderTraceForTesting(
@@ -490,6 +508,13 @@ void RecordTextRenderPlanForTesting(const TextRenderPlan& plan) {
     bits |= static_cast<uint8_t>(plan.stroke()) << 1;
     bits |= static_cast<uint8_t>(plan.clip()) << 2;
     g_render_trace_for_testing->push_back(kTextRenderPlanTraceBase + bits);
+  }
+}
+
+void RecordTextBackendCommandForTesting(TextBackendCommand command) {
+  if (g_render_trace_for_testing) {
+    g_render_trace_for_testing->push_back(kTextBackendCommandTraceBase +
+                                          static_cast<uint8_t>(command));
   }
 }
 

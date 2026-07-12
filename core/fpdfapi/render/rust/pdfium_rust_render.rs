@@ -73,8 +73,12 @@ const TEXT_PATH_OPTION_STROKE: u8 = 1 << 0;
 const TEXT_PATH_OPTION_STROKE_TEXT_MODE: u8 = 1 << 1;
 const TEXT_PATH_OPTION_ADJUST_STROKE: u8 = 1 << 2;
 const TEXT_PATH_OPTION_ALIASED: u8 = 1 << 3;
+const TEXT_BACKEND_PATTERN: u8 = 1;
+const TEXT_BACKEND_PATH: u8 = 2;
+const TEXT_BACKEND_NORMAL: u8 = 3;
 
 type RenderLayerCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
+type TextBackendCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u8) -> bool;
 
 fn build_render_request_plan(flags: u32, has_color_scheme: bool, restore_device: bool) -> u32 {
     let mappings = [
@@ -307,6 +311,16 @@ fn build_text_path_fill_options(
         bits |= TEXT_PATH_OPTION_ALIASED;
     }
     bits
+}
+
+fn text_backend_command(uses_pattern: bool, is_clip: bool, is_stroke: bool) -> u8 {
+    if uses_pattern {
+        TEXT_BACKEND_PATTERN
+    } else if is_clip || is_stroke {
+        TEXT_BACKEND_PATH
+    } else {
+        TEXT_BACKEND_NORMAL
+    }
 }
 
 /// Builds a compact render request plan from the supported public flags.
@@ -678,6 +692,38 @@ pub unsafe extern "C" fn pdfium_rust_build_text_path_fill_options(
     true
 }
 
+/// Selects and invokes the existing C++ text backend exactly once.
+///
+/// # Safety
+///
+/// `context` and `callback` must remain valid for the synchronous call.
+/// `output_result` must point to one writable `bool` value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_run_text_backend(
+    uses_pattern: bool,
+    is_clip: bool,
+    is_stroke: bool,
+    context: *mut core::ffi::c_void,
+    callback: Option<TextBackendCallback>,
+    output_result: *mut bool,
+) -> bool {
+    if context.is_null() || output_result.is_null() {
+        return false;
+    }
+    let Some(callback) = callback else {
+        return false;
+    };
+    let command = text_backend_command(uses_pattern, is_clip, is_stroke);
+    // SAFETY: The caller guarantees a live context and synchronous callback
+    // for the duration of this single invocation.
+    let result = unsafe { callback(context, command) };
+    // SAFETY: The checked output pointer refers to one writable result.
+    unsafe {
+        *output_result = result;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -698,6 +744,20 @@ mod tests {
         state.visited[state.visited_count] = layer_index;
         state.visited_count += 1;
         state.stop_at == Some(layer_index)
+    }
+
+    struct TextBackendState {
+        command: u8,
+        result: bool,
+        calls: usize,
+    }
+
+    unsafe extern "C" fn record_text_backend(context: *mut core::ffi::c_void, command: u8) -> bool {
+        // SAFETY: The test passes one live `TextBackendState` for the call.
+        let state = unsafe { &mut *context.cast::<TextBackendState>() };
+        state.command = command;
+        state.calls += 1;
+        state.result
     }
 
     #[test]
@@ -1118,5 +1178,54 @@ mod tests {
             TEXT_PATH_OPTION_ADJUST_STROKE | TEXT_PATH_OPTION_ALIASED,
             build_text_path_fill_options(false, true, true, true)
         );
+    }
+
+    #[test]
+    fn text_backend_execution_should_preserve_priority_and_result() {
+        let cases = [
+            ((true, true, true), TEXT_BACKEND_PATTERN),
+            ((false, true, false), TEXT_BACKEND_PATH),
+            ((false, false, true), TEXT_BACKEND_PATH),
+            ((false, false, false), TEXT_BACKEND_NORMAL),
+        ];
+        for ((uses_pattern, is_clip, is_stroke), expected_command) in cases {
+            let mut state = TextBackendState { command: 0, result: false, calls: 0 };
+            let mut result = true;
+            // SAFETY: The context and output remain live for the synchronous
+            // callback, which records exactly one command.
+            assert!(unsafe {
+                pdfium_rust_run_text_backend(
+                    uses_pattern,
+                    is_clip,
+                    is_stroke,
+                    (&mut state as *mut TextBackendState).cast(),
+                    Some(record_text_backend),
+                    &mut result,
+                )
+            });
+            assert_eq!(expected_command, state.command);
+            assert_eq!(1, state.calls);
+            assert!(!result);
+        }
+    }
+
+    #[test]
+    fn text_backend_execution_should_reject_invalid_boundaries_without_mutation() {
+        let mut state = TextBackendState { command: 0, result: true, calls: 0 };
+        let mut result = true;
+        // SAFETY: A missing callback is rejected before the live context and
+        // output are read or written.
+        assert!(!unsafe {
+            pdfium_rust_run_text_backend(
+                false,
+                false,
+                false,
+                (&mut state as *mut TextBackendState).cast(),
+                None,
+                &mut result,
+            )
+        });
+        assert_eq!(0, state.calls);
+        assert!(result);
     }
 }
