@@ -2799,6 +2799,64 @@ TEST_F(FPDFEditEmbedderTest, RustIndexedObjectInsertionMatchesCppOracle) {
             snapshot(saved_candidate_page.get()));
 }
 
+TEST_F(FPDFEditEmbedderTest,
+       RustPageObjectRemovalMatchesCppOracleAndSavedContent) {
+  ASSERT_TRUE(OpenDocument("hello_world_2_pages_split_streams.pdf"));
+  ScopedPage oracle_page = LoadScopedPage(0);
+  ScopedPage candidate_page = LoadScopedPage(1);
+  ASSERT_TRUE(oracle_page);
+  ASSERT_TRUE(candidate_page);
+
+  struct Snapshot {
+    std::vector<int> object_types;
+    std::vector<int32_t> content_streams;
+    std::u16string text;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [](FPDF_PAGE page) {
+    Snapshot result;
+    CPDF_Page* cpdf_page = CPDFPageFromFPDFPage(page);
+    const int count = FPDFPage_CountObjects(page);
+    for (int i = 0; i < count; ++i) {
+      result.object_types.push_back(
+          FPDFPageObj_GetType(FPDFPage_GetObject(page, i)));
+      result.content_streams.push_back(
+          cpdf_page->GetPageObjectByIndex(i)->GetContentStream());
+    }
+    result.text = ExtractPageText(page);
+    return result;
+  };
+  auto remove = [](FPDF_PAGE page, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    FPDF_PAGEOBJECT object = FPDFPage_GetObject(page, 0);
+    const bool removed = FPDFPage_RemoveObject(page, object);
+    if (!removed) {
+      return false;
+    }
+    ScopedFPDFPageObject removed_owner(object);
+    EXPECT_FALSE(FPDFPage_RemoveObject(page, object));
+    return true;
+  };
+
+  EXPECT_EQ(snapshot(oracle_page.get()), snapshot(candidate_page.get()));
+  ASSERT_TRUE(remove(oracle_page.get(), false));
+  ASSERT_TRUE(remove(candidate_page.get(), true));
+  EXPECT_EQ(snapshot(oracle_page.get()), snapshot(candidate_page.get()));
+
+  ASSERT_TRUE(FPDFPage_GenerateContent(oracle_page.get()));
+  ASSERT_TRUE(FPDFPage_GenerateContent(candidate_page.get()));
+  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_document);
+  ScopedSavedPage saved_oracle_page = LoadScopedSavedPage(0);
+  ScopedSavedPage saved_candidate_page = LoadScopedSavedPage(1);
+  ASSERT_TRUE(saved_oracle_page);
+  ASSERT_TRUE(saved_candidate_page);
+  EXPECT_EQ(snapshot(saved_oracle_page.get()),
+            snapshot(saved_candidate_page.get()));
+}
+
 TEST_F(FPDFEditEmbedderTest, InsertAndRemoveLargeFile) {
   const int kOriginalObjectCount = 600;
 
