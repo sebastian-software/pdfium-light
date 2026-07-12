@@ -145,6 +145,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `7178d32c6` Phase 7 temporary-line-ordering slice | 21,466 | 14,655 | 241 | 5,643 | 6,570 | 287,282 | 7.47% | 6.98% | Rust owns duplicate-space normalization, Bidi direction carry, segment reversal/forward emission, source ordering, and RTL flags; C++ retains Unicode Bidi classification, character objects, normalization callbacks, and the separately selected oracle |
 | `048b8f8ee` Phase 7 character-normalization slice | 21,707 | 14,896 | 241 | 5,754 | 6,570 | 287,715 | 7.54% | 7.08% | Rust owns control/normal classification, mirror/normalization requests, ligature expansion emissions, text-append decisions, Unicode overrides, and `CharType::kPiece`; C++ retains mirror/normalization table lookup, native character values, buffer/list writes, and the separately selected oracle |
 | `a3368fe93` Phase 7 text-flow-orientation slice | 21,865 | 15,054 | 241 | 5,798 | 6,570 | 287,988 | 7.59% | 7.15% | Rust owns active text-object mask construction, page-bound clamping, occupied-span fill ratios, and horizontal/vertical flow selection; C++ retains page-object geometry, the synchronous callback, and the separately selected oracle |
+| `a23c711ec` Phase 7 text-object-writing-mode slice | 21,928 | 15,117 | 241 | 5,831 | 6,570 | 288,153 | 7.61% | 7.18% | Rust owns transformed-endpoint deltas, epsilon handling, vector normalization, axis thresholds, and fallback writing-mode selection; C++ retains text-object access, native matrix transforms, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1442,6 +1443,20 @@ behavior. Thirteen native Rust text tests include horizontal and vertical
 fixtures. A same-process public differential compares every character's
 Unicode, origin, and box on vertical text. All seven search-extension tests,
 all 70 public text tests, all 1,069 unit tests, and `pdfium_all` pass.
+
+The twentieth Phase 7 slice moves per-object writing-mode selection into Rust.
+C++ transforms the first and last character origins with the native text
+matrix, then Rust owns endpoint deltas, coincident-origin epsilon handling,
+vector normalization, horizontal/vertical axis thresholds, and fallback to the
+page flow direction. The complete original implementation remains the
+separately selected oracle.
+
+The boundary is constant-space and preserves the original O(1) decision after
+endpoint access. Fourteen native Rust text tests include horizontal, vertical,
+single-character, coincident-origin, and fallback cases. A same-process public
+differential compares every character's Unicode, angle, and origin on rotated
+text. All seven search-extension tests, all 71 public text tests, all 1,069 unit
+tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
