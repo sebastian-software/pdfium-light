@@ -92,6 +92,26 @@ class RustIndirectObjectIndex final {
   void* state_;
 };
 
+class RustPdfNumber final {
+ public:
+  RustPdfNumber();
+  explicit RustPdfNumber(int32_t value);
+  explicit RustPdfNumber(float value);
+  explicit RustPdfNumber(pdfium::span<const uint8_t> value);
+  RustPdfNumber(const RustPdfNumber&) = delete;
+  RustPdfNumber& operator=(const RustPdfNumber&) = delete;
+  ~RustPdfNumber();
+
+  bool IsInteger() const;
+  int32_t GetSigned() const;
+  float GetFloat() const;
+  bool SetString(pdfium::span<const uint8_t> value);
+
+ private:
+  explicit RustPdfNumber(void* state);
+  void* state_;
+};
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);

@@ -2,6 +2,8 @@
 
 #include <limits>
 
+#include "core/fxcrt/check.h"
+
 namespace {
 
 using RawCrossRefSnapshotCallback = bool (*)(void*,
@@ -82,6 +84,21 @@ extern "C" bool pdfium_rust_indirect_object_index_snapshot(
     const void* state,
     void* context,
     pdfium::rust::RustIndirectObjectSnapshotCallback callback);
+extern "C" void* pdfium_rust_pdf_number_new_default();
+extern "C" void* pdfium_rust_pdf_number_new_signed(int32_t value);
+extern "C" void* pdfium_rust_pdf_number_new_float(float value);
+extern "C" void* pdfium_rust_pdf_number_new_string(const uint8_t* data,
+                                                   size_t len);
+extern "C" void pdfium_rust_pdf_number_destroy(void* state);
+extern "C" bool pdfium_rust_pdf_number_is_integer(const void* state,
+                                                  bool* output);
+extern "C" bool pdfium_rust_pdf_number_get_signed(const void* state,
+                                                  int32_t* output);
+extern "C" bool pdfium_rust_pdf_number_get_float(const void* state,
+                                                 float* output);
+extern "C" bool pdfium_rust_pdf_number_set_string(void* state,
+                                                  const uint8_t* data,
+                                                  size_t len);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -317,6 +334,49 @@ bool RustIndirectObjectIndex::Snapshot(
     RustIndirectObjectSnapshotCallback callback) const {
   return context && callback &&
          pdfium_rust_indirect_object_index_snapshot(state_, context, callback);
+}
+
+RustPdfNumber::RustPdfNumber(void* state) : state_(state) {
+  CHECK(state_);
+}
+
+RustPdfNumber::RustPdfNumber()
+    : RustPdfNumber(pdfium_rust_pdf_number_new_default()) {}
+
+RustPdfNumber::RustPdfNumber(int32_t value)
+    : RustPdfNumber(pdfium_rust_pdf_number_new_signed(value)) {}
+
+RustPdfNumber::RustPdfNumber(float value)
+    : RustPdfNumber(pdfium_rust_pdf_number_new_float(value)) {}
+
+RustPdfNumber::RustPdfNumber(pdfium::span<const uint8_t> value)
+    : RustPdfNumber(
+          pdfium_rust_pdf_number_new_string(value.data(), value.size())) {}
+
+RustPdfNumber::~RustPdfNumber() {
+  pdfium_rust_pdf_number_destroy(state_);
+}
+
+bool RustPdfNumber::IsInteger() const {
+  bool result = false;
+  CHECK(pdfium_rust_pdf_number_is_integer(state_, &result));
+  return result;
+}
+
+int32_t RustPdfNumber::GetSigned() const {
+  int32_t result = 0;
+  CHECK(pdfium_rust_pdf_number_get_signed(state_, &result));
+  return result;
+}
+
+float RustPdfNumber::GetFloat() const {
+  float result = 0;
+  CHECK(pdfium_rust_pdf_number_get_float(state_, &result));
+  return result;
+}
+
+bool RustPdfNumber::SetString(pdfium::span<const uint8_t> value) {
+  return pdfium_rust_pdf_number_set_string(state_, value.data(), value.size());
 }
 
 std::optional<uint32_t> RustReadBigEndianVarInt(

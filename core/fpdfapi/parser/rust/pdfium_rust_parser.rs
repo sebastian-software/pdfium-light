@@ -137,6 +137,138 @@ pub struct IndirectObjectIndexState {
     objects: BTreeMap<u32, Option<usize>>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PdfNumberValue {
+    Unsigned(u32),
+    Signed(i32),
+    Float(f32),
+}
+
+pub struct PdfNumberState {
+    value: PdfNumberValue,
+}
+
+impl Default for PdfNumberState {
+    fn default() -> Self {
+        Self { value: PdfNumberValue::Unsigned(0) }
+    }
+}
+
+impl PdfNumberState {
+    fn from_bytes(input: &[u8]) -> Self {
+        if input.is_empty() {
+            return Self::default();
+        }
+        if input.contains(&b'.') {
+            return Self { value: PdfNumberValue::Float(parse_pdf_float(input)) };
+        }
+
+        let (signed, negative, digits) = match input[0] {
+            b'+' => (true, false, &input[1..]),
+            b'-' => (true, true, &input[1..]),
+            _ => (false, false, input),
+        };
+        let mut value = Some(0_u32);
+        for &byte in digits {
+            if !byte.is_ascii_digit() {
+                break;
+            }
+            value = value
+                .and_then(|value| value.checked_mul(10))
+                .and_then(|value| value.checked_add(u32::from(byte - b'0')));
+        }
+        let mut value = value.unwrap_or(0);
+        if !signed {
+            return Self { value: PdfNumberValue::Unsigned(value) };
+        }
+        let limit = i32::MAX as u32 + u32::from(negative);
+        if value > limit {
+            value = 0;
+        }
+        let signed_value = if negative {
+            if value == i32::MIN as u32 {
+                i32::MIN
+            } else {
+                -(value as i32)
+            }
+        } else {
+            value as i32
+        };
+        Self { value: PdfNumberValue::Signed(signed_value) }
+    }
+
+    fn is_integer(&self) -> bool {
+        !matches!(self.value, PdfNumberValue::Float(_))
+    }
+
+    fn get_signed(&self) -> i32 {
+        match self.value {
+            PdfNumberValue::Unsigned(value) => value as i32,
+            PdfNumberValue::Signed(value) => value,
+            PdfNumberValue::Float(value) => value as i32,
+        }
+    }
+
+    fn get_float(&self) -> f32 {
+        match self.value {
+            PdfNumberValue::Unsigned(value) => value as f32,
+            PdfNumberValue::Signed(value) => value as f32,
+            PdfNumberValue::Float(value) => value,
+        }
+    }
+}
+
+fn parse_pdf_float(input: &[u8]) -> f32 {
+    let mut start = 0;
+    while input.get(start).is_some_and(|byte| matches!(byte, b' ' | b'+' | b'-')) {
+        start += 1;
+    }
+    if start > 0 && input[start - 1] == b'-' {
+        start -= 1;
+    }
+    let input = &input[start..];
+    let mut end = usize::from(input.first().is_some_and(|byte| matches!(byte, b'+' | b'-')));
+    let mut digits = 0;
+    while input.get(end).is_some_and(u8::is_ascii_digit) {
+        end += 1;
+        digits += 1;
+    }
+    if input.get(end) == Some(&b'.') {
+        end += 1;
+        while input.get(end).is_some_and(u8::is_ascii_digit) {
+            end += 1;
+            digits += 1;
+        }
+    }
+    if digits == 0 {
+        return 0.0;
+    }
+    if matches!(input.get(end), Some(b'e' | b'E')) {
+        let exponent_start = end;
+        end += 1;
+        if matches!(input.get(end), Some(b'+' | b'-')) {
+            end += 1;
+        }
+        let exponent_digits = end;
+        while input.get(end).is_some_and(u8::is_ascii_digit) {
+            end += 1;
+        }
+        if end == exponent_digits {
+            end = exponent_start;
+        }
+    }
+    std::str::from_utf8(&input[..end])
+        .ok()
+        .and_then(|value| value.parse::<f32>().ok())
+        .unwrap_or_else(|| {
+            if input.first() == Some(&b'-') {
+                f32::NEG_INFINITY
+            } else {
+                f32::INFINITY
+            }
+        })
+}
+
 impl IndirectObjectIndexState {
     fn lookup(&self, object_number: u32) -> (u8, usize) {
         match self.objects.get(&object_number) {
@@ -950,6 +1082,130 @@ pub unsafe extern "C" fn pdfium_rust_indirect_object_index_snapshot(
     true
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_pdf_number_new_default() -> *mut PdfNumberState {
+    Box::into_raw(Box::new(PdfNumberState::default()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_pdf_number_new_signed(value: i32) -> *mut PdfNumberState {
+    Box::into_raw(Box::new(PdfNumberState { value: PdfNumberValue::Signed(value) }))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_pdf_number_new_float(value: f32) -> *mut PdfNumberState {
+    Box::into_raw(Box::new(PdfNumberState { value: PdfNumberValue::Float(value) }))
+}
+
+/// # Safety
+///
+/// A nonempty input must point to `len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_number_new_string(
+    data: *const u8,
+    len: usize,
+) -> *mut PdfNumberState {
+    if len != 0 && data.is_null() {
+        return core::ptr::null_mut();
+    }
+    let data = if len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { data };
+    // SAFETY: The caller guarantees a readable span when nonempty.
+    let input = unsafe { core::slice::from_raw_parts(data, len) };
+    Box::into_raw(Box::new(PdfNumberState::from_bytes(input)))
+}
+
+/// # Safety
+///
+/// `state` must be null or a uniquely owned pointer returned by a number
+/// constructor in this module.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_number_destroy(state: *mut PdfNumberState) {
+    if !state.is_null() {
+        // SAFETY: The caller transfers the unique allocation back to Rust.
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+///
+/// `state` and `output` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_number_is_integer(
+    state: *const PdfNumberState,
+    output: *mut bool,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The checked output points to one writable scalar.
+    unsafe { *output = state.is_integer() };
+    true
+}
+
+/// # Safety
+///
+/// `state` and `output` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_number_get_signed(
+    state: *const PdfNumberState,
+    output: *mut i32,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The checked output points to one writable scalar.
+    unsafe { *output = state.get_signed() };
+    true
+}
+
+/// # Safety
+///
+/// `state` and `output` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_number_get_float(
+    state: *const PdfNumberState,
+    output: *mut f32,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The checked output points to one writable scalar.
+    unsafe { *output = state.get_float() };
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live number and a nonempty input must point to
+/// `len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_number_set_string(
+    state: *mut PdfNumberState,
+    data: *const u8,
+    len: usize,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    if len != 0 && data.is_null() {
+        return false;
+    }
+    let data = if len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { data };
+    // SAFETY: The caller guarantees a readable span when nonempty.
+    let input = unsafe { core::slice::from_raw_parts(data, len) };
+    *state = PdfNumberState::from_bytes(input);
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -1481,6 +1737,38 @@ mod tests {
         index.last_object_number = u32::MAX;
         assert_eq!(Some((0, None)), index.add(500));
         assert_eq!(Some(500), index.objects[&0]);
+    }
+
+    #[test]
+    fn pdf_number_state_should_preserve_pdfium_scalar_semantics() {
+        let cases = [
+            (b"".as_slice(), true, 0, 0.0),
+            (b"123x".as_slice(), true, 123, 123.0),
+            (b"1e2".as_slice(), true, 1, 1.0),
+            (b"4294967295".as_slice(), true, -1, 4_294_967_296.0),
+            (b"4294967296".as_slice(), true, 0, 0.0),
+            (b"+2147483647".as_slice(), true, i32::MAX, i32::MAX as f32),
+            (b"-2147483648".as_slice(), true, i32::MIN, i32::MIN as f32),
+            (b"+2147483648".as_slice(), true, 0, 0.0),
+            (b"-2147483649".as_slice(), true, 0, 0.0),
+            (b"38.895285".as_slice(), false, 38, 38.89528656005859375),
+            (b"+-100.0".as_slice(), false, -100, -100.0),
+            (b"++100.0".as_slice(), false, 100, 100.0),
+            (b"invalid.".as_slice(), false, 0, 0.0),
+        ];
+        for (input, is_integer, signed, float) in cases {
+            let number = PdfNumberState::from_bytes(input);
+            assert_eq!(is_integer, number.is_integer(), "{input:?}");
+            assert_eq!(signed, number.get_signed(), "{input:?}");
+            assert_eq!(float, number.get_float(), "{input:?}");
+        }
+
+        let positive = PdfNumberState { value: PdfNumberValue::Float(f32::INFINITY) };
+        let negative = PdfNumberState { value: PdfNumberValue::Float(f32::NEG_INFINITY) };
+        let nan = PdfNumberState { value: PdfNumberValue::Float(f32::NAN) };
+        assert_eq!(i32::MAX, positive.get_signed());
+        assert_eq!(i32::MIN, negative.get_signed());
+        assert_eq!(0, nan.get_signed());
     }
 
     #[test]
