@@ -105,6 +105,12 @@ extern "C" bool pdfium_rust_pdf_boolean_get(const void* state, bool* output);
 extern "C" bool pdfium_rust_pdf_boolean_set_string(void* state,
                                                    const uint8_t* data,
                                                    size_t len);
+extern "C" void* pdfium_rust_pdf_reference_new(uint32_t object_number);
+extern "C" void pdfium_rust_pdf_reference_destroy(void* state);
+extern "C" bool pdfium_rust_pdf_reference_get(const void* state,
+                                              uint32_t* output);
+extern "C" bool pdfium_rust_pdf_reference_set(void* state,
+                                              uint32_t object_number);
 
 extern "C" bool pdfium_rust_read_big_endian_var_int(const uint8_t* data,
                                                     size_t len,
@@ -402,6 +408,25 @@ bool RustPdfBoolean::Get() const {
 
 bool RustPdfBoolean::SetString(pdfium::span<const uint8_t> value) {
   return pdfium_rust_pdf_boolean_set_string(state_, value.data(), value.size());
+}
+
+RustPdfReference::RustPdfReference(uint32_t object_number)
+    : state_(pdfium_rust_pdf_reference_new(object_number)) {
+  CHECK(state_);
+}
+
+RustPdfReference::~RustPdfReference() {
+  pdfium_rust_pdf_reference_destroy(state_);
+}
+
+uint32_t RustPdfReference::GetObjectNumber() const {
+  uint32_t result = 0;
+  CHECK(pdfium_rust_pdf_reference_get(state_, &result));
+  return result;
+}
+
+bool RustPdfReference::SetObjectNumber(uint32_t object_number) {
+  return pdfium_rust_pdf_reference_set(state_, object_number);
 }
 
 std::optional<uint32_t> RustReadBigEndianVarInt(

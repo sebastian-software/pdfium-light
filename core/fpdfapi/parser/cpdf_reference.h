@@ -7,13 +7,19 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_REFERENCE_H_
 #define CORE_FPDFAPI_PARSER_CPDF_REFERENCE_H_
 
+#include <memory>
 #include <set>
+#include <variant>
 
 #include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_IndirectObjectHolder;
+
+namespace pdfium::rust {
+class RustPdfReference;
+}
 
 class CPDF_Reference final : public CPDF_Object {
  public:
@@ -31,7 +37,7 @@ class CPDF_Reference final : public CPDF_Object {
   RetainPtr<CPDF_Reference> MakeReference(
       CPDF_IndirectObjectHolder* holder) const override;
 
-  uint32_t GetRefObjNum() const { return ref_obj_num_; }
+  uint32_t GetRefObjNum() const;
   bool HasIndirectObjectHolder() const { return !!obj_list_; }
   void SetRef(CPDF_IndirectObjectHolder* doc, uint32_t objnum);
 
@@ -50,7 +56,8 @@ class CPDF_Reference final : public CPDF_Object {
   const CPDF_Object* FastGetDirect() const;
 
   UnownedPtr<CPDF_IndirectObjectHolder> obj_list_;
-  uint32_t ref_obj_num_;
+  std::variant<uint32_t, std::unique_ptr<pdfium::rust::RustPdfReference>>
+      ref_obj_num_;
 };
 
 inline CPDF_Reference* ToReference(CPDF_Object* obj) {

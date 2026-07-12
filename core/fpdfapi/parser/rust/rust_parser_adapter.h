@@ -126,6 +126,20 @@ class RustPdfBoolean final {
   void* state_;
 };
 
+class RustPdfReference final {
+ public:
+  explicit RustPdfReference(uint32_t object_number);
+  RustPdfReference(const RustPdfReference&) = delete;
+  RustPdfReference& operator=(const RustPdfReference&) = delete;
+  ~RustPdfReference();
+
+  uint32_t GetObjectNumber() const;
+  bool SetObjectNumber(uint32_t object_number);
+
+ private:
+  void* state_;
+};
+
 std::optional<uint32_t> RustReadBigEndianVarInt(
     pdfium::span<const uint8_t> input);
 std::optional<uint8_t> RustCrossRefObjectType(uint32_t type_code);

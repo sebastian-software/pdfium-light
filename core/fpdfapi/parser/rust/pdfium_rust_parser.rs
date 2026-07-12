@@ -152,6 +152,10 @@ pub struct PdfBooleanState {
     value: bool,
 }
 
+pub struct PdfReferenceState {
+    object_number: u32,
+}
+
 impl Default for PdfNumberState {
     fn default() -> Self {
         Self { value: PdfNumberValue::Unsigned(0) }
@@ -1270,6 +1274,57 @@ pub unsafe extern "C" fn pdfium_rust_pdf_boolean_set_string(
     true
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_pdf_reference_new(object_number: u32) -> *mut PdfReferenceState {
+    Box::into_raw(Box::new(PdfReferenceState { object_number }))
+}
+
+/// # Safety
+///
+/// `state` must be null or a uniquely owned pointer returned by
+/// `pdfium_rust_pdf_reference_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_reference_destroy(state: *mut PdfReferenceState) {
+    if !state.is_null() {
+        // SAFETY: The caller transfers the unique allocation back to Rust.
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+///
+/// `state` and `output` must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_reference_get(
+    state: *const PdfReferenceState,
+    output: *mut u32,
+) -> bool {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return false;
+    };
+    if output.is_null() {
+        return false;
+    }
+    // SAFETY: The checked output points to one writable `u32`.
+    unsafe { *output = state.object_number };
+    true
+}
+
+/// # Safety
+///
+/// `state` must point to a live value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_pdf_reference_set(
+    state: *mut PdfReferenceState,
+    object_number: u32,
+) -> bool {
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return false;
+    };
+    state.object_number = object_number;
+    true
+}
+
 /// Validates and normalizes one `/Index` start/count pair.
 ///
 /// # Safety
@@ -1851,6 +1906,20 @@ mod tests {
                 pdfium_rust_pdf_boolean_set_string(&mut state, input.as_ptr(), input.len())
             });
             assert_eq!(expected, state.value);
+        }
+    }
+
+    #[test]
+    fn pdf_reference_state_should_preserve_all_object_numbers() {
+        for object_number in [0, 1, i32::MAX as u32, u32::MAX] {
+            let mut state = PdfReferenceState { object_number };
+            let mut output = 0;
+            assert!(unsafe { pdfium_rust_pdf_reference_get(&state, &mut output) });
+            assert_eq!(object_number, output);
+            assert!(unsafe {
+                pdfium_rust_pdf_reference_set(&mut state, object_number.wrapping_add(1))
+            });
+            assert_eq!(object_number.wrapping_add(1), state.object_number);
         }
     }
 
