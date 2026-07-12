@@ -118,6 +118,7 @@ ACTIVE_SURFACES = (
     "public SDK page-range validation, expansion, ordering, and duplication",
     "document page-tree insertion and deletion path planning",
     "public SDK byte-string length, complete-copy, and NUL termination",
+    "incremental document page-tree stack, cursor, caching, and depth state",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",

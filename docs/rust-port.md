@@ -133,6 +133,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `0dfd10951` Phase 7 SDK-page-range slice | 19,041 | 12,230 | 241 | 4,851 | 6,570 | 283,118 | 6.73% | 5.92% | Rust validates and expands the public import-page range grammar with exact order and duplicates; C++ retains the public wrapper, document import, and overflow oracle fallback |
 | `1ff59c226` Phase 7 page-tree-mutation slice | 19,255 | 12,444 | 241 | 4,897 | 6,570 | 283,500 | 6.79% | 6.01% | Rust selects nested insertion/deletion paths, subtree skips, and active-path cycle rejection; C++ retains dictionaries, reference writes, count updates, and the bounded fallback oracle |
 | `6c858cf2e` Phase 7 SDK-NUL-output slice | 19,322 | 12,511 | 241 | 4,915 | 6,570 | 283,613 | 6.81% | 6.04% | Rust owns required-length calculation and complete NUL-terminated byte-string copies for public SDK getters; C++ retains source strings, API wrappers, and checked public length conversion |
+| `44e5d54fb` Phase 7 incremental-page-traversal slice | 19,763 | 12,952 | 241 | 5,034 | 6,570 | 284,343 | 6.95% | 6.24% | Rust owns the persistent traversal stack, child cursors, next-page cursor, depth state, and cache scheduling; C++ retains dictionary access and one unordered `RetainPtr` lifetime token per active Rust stack entry |
 
 ## Toolchain
 
@@ -1233,6 +1234,23 @@ same-process Oracle/Candidate matrix compares every output byte for zero,
 undersized, and exact capacities. Six representative public getter cases, all
 four SDK-helper tests, all 36 parser-native tests, all 1,069 unit tests, and
 `pdfium_all` pass.
+
+The eighth Phase 7 slice replaces the production incremental page-tree
+traversal state with a Rust-owned stack. Rust owns active node handles and child
+indices, recursive continuation, the next-page cursor, maximum-depth state,
+null/self-child handling, page-cache scheduling, and reset/pop policy. C++
+retains synchronous dictionary/array access and an unordered lifetime registry
+containing exactly one `RetainPtr` token per active Rust stack occurrence; it
+does not retain child positions, order, cursor, or traversal policy.
+
+The original `PageTreeData` traversal remains only on the separately selected
+oracle and boundary-fallback path. The native state test walks three sequential
+pages through a nested tree, proves cache writes `(0,10)`, `(1,11)`, `(2,12)`,
+and verifies every lifetime token is released by clear. All 37 parser-native
+tests, all nine document tests, the public delete/move/save-reload cases, all
+1,069 unit tests, and `pdfium_all` pass. The full embedder gate remains 506/557
+with exactly the same 51 documented macOS AGG static-golden failures;
+`LargeImageDoesNotRenderBlank` passes after 189.6 seconds.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
