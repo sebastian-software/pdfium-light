@@ -375,6 +375,46 @@ fn page_object_insert_plan(
     Some(PageObjectInsertPlan { allowed: true, content_stream, mark_dirty: false })
 }
 
+fn page_object_matrix_route(object_type: u8) -> Option<u8> {
+    matches!(object_type, 1..=3 | 5).then_some(object_type)
+}
+
+fn page_object_matrix_dirty(
+    object_type: u8,
+    original: [f32; 6],
+    replacement: [f32; 6],
+) -> Option<bool> {
+    page_object_matrix_route(object_type)?;
+    Some(object_type != 3 || original != replacement)
+}
+
+fn page_object_rotated_bounds(
+    object_type: u8,
+    matrix: [f32; 6],
+    bounds: [f32; 4],
+) -> Option<[f32; 8]> {
+    if !matches!(object_type, 1 | 3) {
+        return None;
+    }
+    let transform = |x: f32, y: f32| {
+        [matrix[0] * x + matrix[2] * y + matrix[4], matrix[1] * x + matrix[3] * y + matrix[5]]
+    };
+    let bottom_left = transform(bounds[0], bounds[1]);
+    let bottom_right = transform(bounds[2], bounds[1]);
+    let top_right = transform(bounds[2], bounds[3]);
+    let top_left = transform(bounds[0], bounds[3]);
+    Some([
+        bottom_left[0],
+        bottom_left[1],
+        bottom_right[0],
+        bottom_right[1],
+        top_right[0],
+        top_right[1],
+        top_left[0],
+        top_left[1],
+    ])
+}
+
 impl Default for PdfNumberState {
     fn default() -> Self {
         Self { value: PdfNumberValue::Unsigned(0) }
@@ -2900,6 +2940,76 @@ pub unsafe extern "C" fn pdfium_rust_page_object_insert_plan(
     true
 }
 
+/// Selects the native matrix storage for a public page-object operation.
+///
+/// # Safety
+/// `output` must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_page_object_matrix_route(
+    object_type: u8,
+    output: *mut u8,
+) -> bool {
+    let (Some(route), Some(output)) =
+        (page_object_matrix_route(object_type), unsafe { output.as_mut() })
+    else {
+        return false;
+    };
+    *output = route;
+    true
+}
+
+/// Selects dirty-state behavior after a public matrix mutation.
+///
+/// # Safety
+/// The inputs contain six readable floats and `output` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_page_object_matrix_dirty(
+    object_type: u8,
+    original: *const f32,
+    replacement: *const f32,
+    output: *mut bool,
+) -> bool {
+    if original.is_null() || replacement.is_null() {
+        return false;
+    }
+    let (Some(dirty), Some(output)) = (
+        page_object_matrix_dirty(object_type, unsafe { *(original as *const [f32; 6]) }, unsafe {
+            *(replacement as *const [f32; 6])
+        }),
+        unsafe { output.as_mut() },
+    ) else {
+        return false;
+    };
+    *output = dirty;
+    true
+}
+
+/// Computes public rotated bounds in PDF QuadPoints order.
+///
+/// # Safety
+/// Inputs contain six and four readable floats; output contains eight writable
+/// floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_page_object_rotated_bounds(
+    object_type: u8,
+    matrix: *const f32,
+    bounds: *const f32,
+    output: *mut f32,
+) -> bool {
+    if matrix.is_null() || bounds.is_null() || output.is_null() {
+        return false;
+    }
+    let Some(quad) =
+        page_object_rotated_bounds(object_type, unsafe { *(matrix as *const [f32; 6]) }, unsafe {
+            *(bounds as *const [f32; 4])
+        })
+    else {
+        return false;
+    };
+    unsafe { *(output as *mut [f32; 8]) = quad };
+    true
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -4499,5 +4609,31 @@ mod tests {
             Some(PageObjectInsertPlan { allowed: true, content_stream: 7, mark_dirty: false }),
             page_object_insert_plan(0, 2, 7, |_| None)
         );
+    }
+
+    #[test]
+    fn page_object_matrix_policy_should_route_types_and_dirty_images_exactly() {
+        let identity = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+        let translated = [1.0, 0.0, 0.0, 1.0, 4.0, 5.0];
+        assert_eq!(Some(1), page_object_matrix_route(1));
+        assert_eq!(Some(5), page_object_matrix_route(5));
+        assert_eq!(None, page_object_matrix_route(4));
+        assert_eq!(Some(true), page_object_matrix_dirty(1, identity, identity));
+        assert_eq!(Some(false), page_object_matrix_dirty(3, identity, identity));
+        assert_eq!(Some(true), page_object_matrix_dirty(3, identity, translated));
+        assert_eq!(None, page_object_matrix_dirty(4, identity, translated));
+    }
+
+    #[test]
+    fn page_object_rotated_bounds_should_preserve_quadpoint_order() {
+        let quad = page_object_rotated_bounds(
+            1,
+            [2.0, 1.0, -1.0, 3.0, 5.0, 7.0],
+            [10.0, 20.0, 30.0, 40.0],
+        )
+        .expect("text objects have rotated bounds");
+        assert_eq!([5.0, 77.0, 45.0, 97.0, 25.0, 157.0, -15.0, 137.0], quad);
+        assert!(page_object_rotated_bounds(3, [1.0; 6], [0.0; 4]).is_some());
+        assert!(page_object_rotated_bounds(2, [1.0; 6], [0.0; 4]).is_none());
     }
 }

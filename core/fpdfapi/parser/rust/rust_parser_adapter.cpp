@@ -271,6 +271,16 @@ extern "C" bool pdfium_rust_page_object_insert_plan(
     bool* allowed,
     int32_t* planned_content_stream,
     bool* mark_dirty);
+extern "C" bool pdfium_rust_page_object_matrix_route(uint8_t object_type,
+                                                     uint8_t* output);
+extern "C" bool pdfium_rust_page_object_matrix_dirty(uint8_t object_type,
+                                                     const float* original,
+                                                     const float* replacement,
+                                                     bool* output);
+extern "C" bool pdfium_rust_page_object_rotated_bounds(uint8_t object_type,
+                                                       const float* matrix,
+                                                       const float* bounds,
+                                                       float* output);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -960,6 +970,39 @@ std::optional<RustPageObjectInsertPlan> RustPlanPageObjectInsert(
     return std::nullopt;
   }
   return plan;
+}
+
+std::optional<uint8_t> RustPageObjectMatrixRoute(uint8_t object_type) {
+  uint8_t output = 0;
+  if (!pdfium_rust_page_object_matrix_route(object_type, &output)) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+std::optional<bool> RustPageObjectMatrixDirty(
+    uint8_t object_type,
+    const RustPageObjectMatrix& original,
+    const RustPageObjectMatrix& replacement) {
+  bool output = false;
+  if (!pdfium_rust_page_object_matrix_dirty(object_type, original.values.data(),
+                                            replacement.values.data(),
+                                            &output)) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+std::optional<std::array<float, 8>> RustPageObjectRotatedBounds(
+    uint8_t object_type,
+    const RustPageObjectMatrix& matrix,
+    const std::array<float, 4>& bounds) {
+  std::array<float, 8> output = {};
+  if (!pdfium_rust_page_object_rotated_bounds(object_type, matrix.values.data(),
+                                              bounds.data(), output.data())) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 std::optional<std::vector<size_t>> RustDocumentPageMutationPath(

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include <array>
 #include <optional>
 #include <vector>
 
@@ -393,6 +394,19 @@ std::optional<RustPageObjectInsertPlan> RustPlanPageObjectInsert(
     int32_t content_stream,
     void* context,
     RustPageObjectStreamCallback get_neighbor_stream);
+
+struct RustPageObjectMatrix {
+  std::array<float, 6> values;
+};
+std::optional<uint8_t> RustPageObjectMatrixRoute(uint8_t object_type);
+std::optional<bool> RustPageObjectMatrixDirty(
+    uint8_t object_type,
+    const RustPageObjectMatrix& original,
+    const RustPageObjectMatrix& replacement);
+std::optional<std::array<float, 8>> RustPageObjectRotatedBounds(
+    uint8_t object_type,
+    const RustPageObjectMatrix& matrix,
+    const std::array<float, 4>& bounds);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,

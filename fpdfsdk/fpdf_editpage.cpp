@@ -173,6 +173,13 @@ bool IsSafelyRemovableForRedaction(const CPDF_PageObject& page_object) {
   return false;
 }
 
+pdfium::rust::RustPageObjectMatrix RustPageObjectMatrixFromCFXMatrix(
+    const CFX_Matrix& matrix) {
+  const FS_MATRIX public_matrix = FSMatrixFromCFXMatrix(matrix);
+  return {{public_matrix.a, public_matrix.b, public_matrix.c, public_matrix.d,
+           public_matrix.e, public_matrix.f}};
+}
+
 bool PageObjectContainsMark(CPDF_PageObject* pPageObj,
                             FPDF_PAGEOBJECTMARK mark) {
   const CPDF_ContentMarkItem* pMarkItem =
@@ -970,6 +977,27 @@ FPDFPageObj_GetMatrix(FPDF_PAGEOBJECT page_object, FS_MATRIX* matrix) {
     return false;
   }
 
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto route = pdfium::rust::RustPageObjectMatrixRoute(
+        static_cast<uint8_t>(pPageObj->GetType()));
+    if (route.has_value()) {
+      switch (*route) {
+        case 1:
+          *matrix = FSMatrixFromCFXMatrix(pPageObj->AsText()->GetTextMatrix());
+          return true;
+        case 2:
+          *matrix = FSMatrixFromCFXMatrix(pPageObj->AsPath()->matrix());
+          return true;
+        case 3:
+          *matrix = FSMatrixFromCFXMatrix(pPageObj->AsImage()->matrix());
+          return true;
+        case 5:
+          *matrix = FSMatrixFromCFXMatrix(pPageObj->AsForm()->form_matrix());
+          return true;
+      }
+    }
+  }
+
   switch (pPageObj->GetType()) {
     case CPDF_PageObject::Type::kText:
       *matrix = FSMatrixFromCFXMatrix(pPageObj->AsText()->GetTextMatrix());
@@ -996,6 +1024,48 @@ FPDFPageObj_SetMatrix(FPDF_PAGEOBJECT page_object, const FS_MATRIX* matrix) {
   }
 
   CFX_Matrix cmatrix = CFXMatrixFromFSMatrix(*matrix);
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const uint8_t object_type = static_cast<uint8_t>(pPageObj->GetType());
+    const auto route = pdfium::rust::RustPageObjectMatrixRoute(object_type);
+    if (route.has_value()) {
+      CFX_Matrix dirty_reference;
+      switch (*route) {
+        case 1:
+          dirty_reference = pPageObj->AsText()->GetTextMatrix();
+          break;
+        case 2:
+          dirty_reference = pPageObj->AsPath()->matrix();
+          break;
+        case 3:
+          dirty_reference = pPageObj->original_matrix();
+          break;
+        case 5:
+          dirty_reference = pPageObj->AsForm()->form_matrix();
+          break;
+      }
+      const auto dirty = pdfium::rust::RustPageObjectMatrixDirty(
+          object_type, RustPageObjectMatrixFromCFXMatrix(dirty_reference),
+          RustPageObjectMatrixFromCFXMatrix(cmatrix));
+      if (dirty.has_value()) {
+        switch (*route) {
+          case 1:
+            pPageObj->AsText()->SetTextMatrix(cmatrix);
+            break;
+          case 2:
+            pPageObj->AsPath()->SetPathMatrix(cmatrix);
+            break;
+          case 3:
+            pPageObj->AsImage()->SetImageMatrix(cmatrix);
+            break;
+          case 5:
+            pPageObj->AsForm()->SetFormMatrix(cmatrix);
+            break;
+        }
+        pPageObj->SetMatrixDirty(*dirty);
+        return true;
+      }
+    }
+  }
   switch (pPageObj->GetType()) {
     case CPDF_PageObject::Type::kText:
       pPageObj->AsText()->SetTextMatrix(cmatrix);
@@ -1163,6 +1233,23 @@ FPDFPageObj_GetRotatedBounds(FPDF_PAGEOBJECT page_object,
   }
 
   const CFX_FloatRect& bbox = cpage_object->GetOriginalRect();
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto quad = pdfium::rust::RustPageObjectRotatedBounds(
+        static_cast<uint8_t>(cpage_object->GetType()),
+        RustPageObjectMatrixFromCFXMatrix(matrix),
+        {bbox.left, bbox.bottom, bbox.right, bbox.top});
+    if (quad.has_value()) {
+      quad_points->x1 = (*quad)[0];
+      quad_points->y1 = (*quad)[1];
+      quad_points->x2 = (*quad)[2];
+      quad_points->y2 = (*quad)[3];
+      quad_points->x3 = (*quad)[4];
+      quad_points->y3 = (*quad)[5];
+      quad_points->x4 = (*quad)[6];
+      quad_points->y4 = (*quad)[7];
+      return true;
+    }
+  }
   const CFX_PointF bottom_left = matrix.Transform({bbox.left, bbox.bottom});
   const CFX_PointF bottom_right = matrix.Transform({bbox.right, bbox.bottom});
   const CFX_PointF top_right = matrix.Transform({bbox.right, bbox.top});
