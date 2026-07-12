@@ -304,6 +304,26 @@ extern "C" bool pdfium_rust_page_annotation_transform_rect(const float* matrix,
 extern "C" int32_t pdfium_rust_page_rotation_degrees(int32_t rotation);
 extern "C" uint8_t pdfium_rust_public_action_type(uint8_t internal_type);
 extern "C" uint8_t pdfium_rust_public_action_capabilities(uint8_t public_type);
+extern "C" uint8_t pdfium_rust_public_destination_zoom_mode(const uint8_t* mode,
+                                                            size_t mode_len);
+extern "C" size_t pdfium_rust_public_destination_num_params(uint8_t zoom_mode,
+                                                            size_t array_size);
+extern "C" bool pdfium_rust_public_destination_xyz_plan(bool array_present,
+                                                        size_t array_size,
+                                                        bool is_xyz,
+                                                        bool has_x_input,
+                                                        float x_input,
+                                                        bool has_y_input,
+                                                        float y_input,
+                                                        bool has_zoom_input,
+                                                        float zoom_input,
+                                                        bool* valid,
+                                                        bool* has_x,
+                                                        bool* has_y,
+                                                        bool* has_zoom,
+                                                        float* x,
+                                                        float* y,
+                                                        float* zoom);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -1094,6 +1114,32 @@ bool RustPublicActionAllowsFile(uint8_t public_type) {
 
 bool RustPublicActionAllowsUri(uint8_t public_type) {
   return pdfium_rust_public_action_capabilities(public_type) & 4;
+}
+
+uint8_t RustPublicDestinationZoomMode(pdfium::span<const uint8_t> mode) {
+  return pdfium_rust_public_destination_zoom_mode(mode.data(), mode.size());
+}
+
+size_t RustPublicDestinationNumParams(uint8_t zoom_mode, size_t array_size) {
+  return pdfium_rust_public_destination_num_params(zoom_mode, array_size);
+}
+
+std::optional<RustPublicDestinationXyzPlan> RustPlanPublicDestinationXyz(
+    bool array_present,
+    size_t array_size,
+    bool is_xyz,
+    std::optional<float> x,
+    std::optional<float> y,
+    std::optional<float> zoom) {
+  RustPublicDestinationXyzPlan plan = {};
+  if (!pdfium_rust_public_destination_xyz_plan(
+          array_present, array_size, is_xyz, x.has_value(), x.value_or(0.0f),
+          y.has_value(), y.value_or(0.0f), zoom.has_value(),
+          zoom.value_or(0.0f), &plan.valid, &plan.has_x, &plan.has_y,
+          &plan.has_zoom, &plan.x, &plan.y, &plan.zoom)) {
+    return std::nullopt;
+  }
+  return plan;
 }
 
 std::optional<std::vector<size_t>> RustDocumentPageMutationPath(

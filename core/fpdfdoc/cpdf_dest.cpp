@@ -9,12 +9,14 @@
 #include <algorithm>
 #include <array>
 #include <iterator>
+#include <optional>
 #include <utility>
 
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fpdfdoc/cpdf_nametree.h"
 
 namespace {
@@ -85,6 +87,16 @@ std::vector<float> CPDF_Dest::GetScrollPositionArray() const {
 }
 
 int CPDF_Dest::GetZoomMode() const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    ByteString mode;
+    if (array_) {
+      RetainPtr<const CPDF_Object> object = array_->GetDirectObjectAt(1);
+      if (object) {
+        mode = object->GetString();
+      }
+    }
+    return pdfium::rust::RustPublicDestinationZoomMode(mode.unsigned_span());
+  }
   if (!array_) {
     return 0;
   }
@@ -110,6 +122,43 @@ bool CPDF_Dest::GetXYZ(bool* pHasX,
   *pHasX = false;
   *pHasY = false;
   *pHasZoom = false;
+
+  if (pdfium::rust::UseRustParserCandidate()) {
+    RetainPtr<const CPDF_Name> xyz;
+    RetainPtr<const CPDF_Number> num_x;
+    RetainPtr<const CPDF_Number> num_y;
+    RetainPtr<const CPDF_Number> num_zoom;
+    if (array_ && array_->size() >= 5) {
+      xyz = ToName(array_->GetDirectObjectAt(1));
+      num_x = ToNumber(array_->GetDirectObjectAt(2));
+      num_y = ToNumber(array_->GetDirectObjectAt(3));
+      num_zoom = ToNumber(array_->GetDirectObjectAt(4));
+    }
+    const auto plan = pdfium::rust::RustPlanPublicDestinationXyz(
+        !!array_, array_ ? array_->size() : 0,
+        !!xyz && xyz->GetString() == "XYZ",
+        num_x ? std::optional<float>(num_x->GetNumber()) : std::nullopt,
+        num_y ? std::optional<float>(num_y->GetNumber()) : std::nullopt,
+        num_zoom ? std::optional<float>(num_zoom->GetNumber()) : std::nullopt);
+    if (plan.has_value()) {
+      if (!plan->valid) {
+        return false;
+      }
+      *pHasX = plan->has_x;
+      *pHasY = plan->has_y;
+      *pHasZoom = plan->has_zoom;
+      if (plan->has_x) {
+        *pX = plan->x;
+      }
+      if (plan->has_y) {
+        *pY = plan->y;
+      }
+      if (plan->has_zoom) {
+        *pZoom = plan->zoom;
+      }
+      return true;
+    }
+  }
 
   if (!array_) {
     return false;
@@ -154,6 +203,10 @@ bool CPDF_Dest::GetXYZ(bool* pHasX,
 }
 
 size_t CPDF_Dest::GetNumParams() const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    return pdfium::rust::RustPublicDestinationNumParams(
+        static_cast<uint8_t>(GetZoomMode()), array_ ? array_->size() : 0);
+  }
   if (!array_ || array_->size() < 2) {
     return 0;
   }

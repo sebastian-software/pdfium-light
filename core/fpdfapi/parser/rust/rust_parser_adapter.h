@@ -445,6 +445,24 @@ uint8_t RustPublicActionType(uint8_t internal_type);
 bool RustPublicActionAllowsDestination(uint8_t public_type);
 bool RustPublicActionAllowsFile(uint8_t public_type);
 bool RustPublicActionAllowsUri(uint8_t public_type);
+uint8_t RustPublicDestinationZoomMode(pdfium::span<const uint8_t> mode);
+size_t RustPublicDestinationNumParams(uint8_t zoom_mode, size_t array_size);
+struct RustPublicDestinationXyzPlan {
+  bool valid;
+  bool has_x;
+  bool has_y;
+  bool has_zoom;
+  float x;
+  float y;
+  float zoom;
+};
+std::optional<RustPublicDestinationXyzPlan> RustPlanPublicDestinationXyz(
+    bool array_present,
+    size_t array_size,
+    bool is_xyz,
+    std::optional<float> x,
+    std::optional<float> y,
+    std::optional<float> zoom);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,

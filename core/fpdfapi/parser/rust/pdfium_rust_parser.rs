@@ -508,6 +508,69 @@ fn public_action_capabilities(public_type: u8) -> u8 {
     }
 }
 
+fn public_destination_zoom_mode(mode: &[u8]) -> u8 {
+    match mode {
+        b"XYZ" => 1,
+        b"Fit" => 2,
+        b"FitH" => 3,
+        b"FitV" => 4,
+        b"FitR" => 5,
+        b"FitB" => 6,
+        b"FitBH" => 7,
+        b"FitBV" => 8,
+        _ => 0,
+    }
+}
+
+fn public_destination_num_params(zoom_mode: u8, array_size: usize) -> usize {
+    const MAX_PARAMS: [usize; 9] = [0, 3, 0, 1, 1, 4, 0, 1, 1];
+    let Some(max_params) = MAX_PARAMS.get(usize::from(zoom_mode)) else {
+        return 0;
+    };
+    (*max_params).min(array_size.saturating_sub(2))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PublicDestinationXyzPlan {
+    valid: bool,
+    has_x: bool,
+    has_y: bool,
+    has_zoom: bool,
+    x: f32,
+    y: f32,
+    zoom: f32,
+}
+
+fn public_destination_xyz_plan(
+    array_present: bool,
+    array_size: usize,
+    is_xyz: bool,
+    x: Option<f32>,
+    y: Option<f32>,
+    zoom: Option<f32>,
+) -> PublicDestinationXyzPlan {
+    if !array_present || array_size < 5 || !is_xyz {
+        return PublicDestinationXyzPlan {
+            valid: false,
+            has_x: false,
+            has_y: false,
+            has_zoom: false,
+            x: 0.0,
+            y: 0.0,
+            zoom: 0.0,
+        };
+    }
+    PublicDestinationXyzPlan {
+        valid: true,
+        has_x: x.is_some(),
+        has_y: y.is_some(),
+        has_zoom: zoom.is_some_and(|value| value != 0.0),
+        x: x.unwrap_or(0.0),
+        y: y.unwrap_or(0.0),
+        zoom: zoom.unwrap_or(0.0),
+    }
+}
+
 impl Default for PdfNumberState {
     fn default() -> Self {
         Self { value: PdfNumberValue::Unsigned(0) }
@@ -3222,6 +3285,84 @@ pub extern "C" fn pdfium_rust_public_action_capabilities(public_type: u8) -> u8 
     public_action_capabilities(public_type)
 }
 
+/// Maps a PDF destination mode name to the public zoom-mode constant.
+///
+/// # Safety
+/// `mode` must reference `mode_len` readable bytes when nonempty.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_public_destination_zoom_mode(
+    mode: *const u8,
+    mode_len: usize,
+) -> u8 {
+    if mode.is_null() && mode_len != 0 {
+        return 0;
+    }
+    let bytes =
+        if mode_len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(mode, mode_len) } };
+    public_destination_zoom_mode(bytes)
+}
+
+/// Bounds public destination parameters by zoom mode and array size.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfium_rust_public_destination_num_params(
+    zoom_mode: u8,
+    array_size: usize,
+) -> usize {
+    public_destination_num_params(zoom_mode, array_size)
+}
+
+/// Plans public XYZ presence flags and zero-zoom semantics.
+///
+/// # Safety
+/// Every output must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_public_destination_xyz_plan(
+    array_present: bool,
+    array_size: usize,
+    is_xyz: bool,
+    has_x_input: bool,
+    x_input: f32,
+    has_y_input: bool,
+    y_input: f32,
+    has_zoom_input: bool,
+    zoom_input: f32,
+    valid: *mut bool,
+    has_x: *mut bool,
+    has_y: *mut bool,
+    has_zoom: *mut bool,
+    x: *mut f32,
+    y: *mut f32,
+    zoom: *mut f32,
+) -> bool {
+    let (Some(valid), Some(has_x), Some(has_y), Some(has_zoom), Some(x), Some(y), Some(zoom)) = (
+        unsafe { valid.as_mut() },
+        unsafe { has_x.as_mut() },
+        unsafe { has_y.as_mut() },
+        unsafe { has_zoom.as_mut() },
+        unsafe { x.as_mut() },
+        unsafe { y.as_mut() },
+        unsafe { zoom.as_mut() },
+    ) else {
+        return false;
+    };
+    let plan = public_destination_xyz_plan(
+        array_present,
+        array_size,
+        is_xyz,
+        has_x_input.then_some(x_input),
+        has_y_input.then_some(y_input),
+        has_zoom_input.then_some(zoom_input),
+    );
+    *valid = plan.valid;
+    *has_x = plan.has_x;
+    *has_y = plan.has_y;
+    *has_zoom = plan.has_zoom;
+    *x = plan.x;
+    *y = plan.y;
+    *zoom = plan.zoom;
+    true
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -4918,5 +5059,32 @@ mod tests {
         assert_eq!(2, public_action_capabilities(4));
         assert_eq!(3, public_action_capabilities(5));
         assert_eq!(0, public_action_capabilities(0));
+    }
+
+    #[test]
+    fn public_destination_policy_should_map_modes_bounds_and_xyz_values() {
+        assert_eq!(1, public_destination_zoom_mode(b"XYZ"));
+        assert_eq!(5, public_destination_zoom_mode(b"FitR"));
+        assert_eq!(8, public_destination_zoom_mode(b"FitBV"));
+        assert_eq!(0, public_destination_zoom_mode(b"xyz"));
+        assert_eq!(3, public_destination_num_params(1, 9));
+        assert_eq!(2, public_destination_num_params(5, 4));
+        assert_eq!(0, public_destination_num_params(99, usize::MAX));
+
+        assert_eq!(
+            PublicDestinationXyzPlan {
+                valid: true,
+                has_x: true,
+                has_y: false,
+                has_zoom: false,
+                x: 12.0,
+                y: 0.0,
+                zoom: 0.0,
+            },
+            public_destination_xyz_plan(true, 5, true, Some(12.0), None, Some(0.0))
+        );
+        assert!(!public_destination_xyz_plan(false, 5, true, None, None, None).valid);
+        assert!(!public_destination_xyz_plan(true, 4, true, None, None, None).valid);
+        assert!(!public_destination_xyz_plan(true, 5, false, None, None, None).valid);
     }
 }
