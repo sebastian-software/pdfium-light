@@ -153,7 +153,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `ec21cd640` Phase 7 marked-content slice | 22,693 | 15,882 | 241 | 6,217 | 6,570 | 289,558 | 7.84% | 7.50% | Rust owns ActualText pass/done/delay selection, printable filtering, control replacement, RTL/LTR box subdivision, and retained emissions; C++ retains marked-content dictionaries, object/matrix lifetimes, platform printability, native `CharInfo` construction, and the separately selected oracle |
 | `1c8ed33b2` Phase 7 text-space-threshold slice | 22,753 | 15,942 | 241 | 6,247 | 6,570 | 289,674 | 7.85% | 7.53% | Rust owns space-glyph threshold calculation, the one-third cap, halving, fallback-width request, and 300/500/700 normalization; C++ retains font character-code/width lookup, the synchronous fallback callback, and the separately selected oracle |
 | `6d6566673` Phase 7 text-item-spacing slice | 22,866 | 16,055 | 241 | 6,298 | 6,570 | 289,902 | 7.89% | 7.58% | Rust owns per-item kerning/base-space composition, prior-text/space suppression, threshold request, and generated-space decision; C++ retains font and text buffers, native character creation, validated writes, and the separately selected oracle |
-| `753a5a3a2` Phase 7 duplicate-text-object slice | 23,059 | 16,248 | 241 | 6,365 | 6,570 | 290,208 | 7.95% | 7.66% | Rust owns empty/overlap rectangle policy, width/font/item equality, character comparison, and position tolerances; C++ retains text-object/font access, the bounded prior-object scan, synchronous item callback, and the separately selected oracle |
+| `f19b313b9` Phase 7 duplicate-text-object slice | 23,059 | 16,248 | 241 | 6,365 | 6,570 | 290,248 | 7.94% | 7.66% | Rust owns empty/overlap rectangle policy, width/font/item equality, character comparison, and position tolerances; C++ retains text-object/font access, the bounded prior-object scan, synchronous item callback, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1590,9 +1590,11 @@ oracle. Rust explicitly mirrors the native rectangle normalization and
 
 Each comparison remains O(n) in item count with O(1) auxiliary storage. Twenty-
 three native Rust text tests cover overlapping, disjoint, and empty geometry,
-item equality, and position tolerance. The exact separator differential covers
-the production sorting/suppression path, and all seven search-extension tests,
-all 73 public text tests, all 1,069 unit tests, and `pdfium_all` pass.
+item equality, and position tolerance. A synthetic same-process differential
+proves sensitivity by expanding from nine to nineteen characters when duplicate
+filtering is disabled, then compares the candidate's Unicode, origins, and
+character boxes exactly against the C++ oracle. All seven search-extension
+tests, all 74 public text tests, all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
