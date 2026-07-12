@@ -165,6 +165,7 @@ namespace {
 struct DocumentPageIndexSnapshot {
   int page_count;
   std::vector<int> page_numbers;
+  std::vector<int> resolved_indices;
   std::vector<uint32_t> object_numbers;
   std::vector<bool> loaded;
 
@@ -191,6 +192,12 @@ DocumentPageIndexSnapshot RunDocumentPageIndexScenario(
     result.page_numbers.push_back(page->GetIntegerFor("PageNumbering", -1));
     result.object_numbers.push_back(page->GetObjNum());
     result.loaded.push_back(document.IsPageLoaded(index));
+  }
+  for (int index = 0; index < result.page_count; ++index) {
+    document.SetPageObjNum(index, 0);
+  }
+  for (uint32_t object_number : result.object_numbers) {
+    result.resolved_indices.push_back(document.GetPageIndex(object_number));
   }
   return result;
 }
