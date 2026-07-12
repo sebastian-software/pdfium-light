@@ -76,6 +76,10 @@ fn is_pdf_whitespace(byte: u8) -> bool {
     matches!(byte, 0 | b'\t' | b'\n' | 0x0c | b'\r' | b' ' | 0x80 | 0xff)
 }
 
+fn is_pdf_delimiter(byte: u8) -> bool {
+    matches!(byte, b'%' | b'(' | b')' | b'/' | b'<' | b'>' | b'[' | b']' | b'{' | b'}')
+}
+
 fn skip_pdf_spaces_and_comments(input: &[u8], mut position: usize) -> (usize, Option<u8>) {
     loop {
         let Some(&first) = input.get(position) else {
@@ -105,6 +109,81 @@ fn skip_pdf_spaces_and_comments(input: &[u8], mut position: usize) -> (usize, Op
                 break;
             }
         }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct PdfTokenScan {
+    next_position: usize,
+    token_range: Option<(usize, usize)>,
+}
+
+fn scan_pdf_token(input: &[u8], position: usize) -> PdfTokenScan {
+    let (mut next_position, first) = skip_pdf_spaces_and_comments(input, position);
+    let Some(first) = first else {
+        return PdfTokenScan { next_position, token_range: None };
+    };
+    let start = next_position - 1;
+
+    if !is_pdf_delimiter(first) {
+        while let Some(&byte) = input.get(next_position) {
+            if is_pdf_delimiter(byte) || is_pdf_whitespace(byte) {
+                break;
+            }
+            next_position += 1;
+        }
+        return PdfTokenScan { next_position, token_range: Some((start, next_position - start)) };
+    }
+
+    match first {
+        b'/' => {
+            while let Some(&byte) = input.get(next_position) {
+                if is_pdf_delimiter(byte) || is_pdf_whitespace(byte) {
+                    return PdfTokenScan {
+                        next_position,
+                        token_range: Some((start, next_position - start)),
+                    };
+                }
+                next_position += 1;
+            }
+            PdfTokenScan { next_position, token_range: None }
+        }
+        b'<' => {
+            let Some(&mut_current) = input.get(next_position) else {
+                return PdfTokenScan {
+                    next_position,
+                    token_range: Some((start, next_position - start)),
+                };
+            };
+            let mut current = mut_current;
+            next_position += 1;
+            if current != b'<' {
+                while next_position < input.len() && current != b'>' {
+                    current = input[next_position];
+                    next_position += 1;
+                }
+            }
+            PdfTokenScan { next_position, token_range: Some((start, next_position - start)) }
+        }
+        b'>' => {
+            if input.get(next_position) == Some(&b'>') {
+                next_position += 1;
+            }
+            PdfTokenScan { next_position, token_range: Some((start, next_position - start)) }
+        }
+        b'(' => {
+            let mut level = 1_i32;
+            while next_position < input.len() && level > 0 {
+                match input[next_position] {
+                    b'(' => level += 1,
+                    b')' => level -= 1,
+                    _ => {}
+                }
+                next_position += 1;
+            }
+            PdfTokenScan { next_position, token_range: Some((start, next_position - start)) }
+        }
+        _ => PdfTokenScan { next_position, token_range: Some((start, next_position - start)) },
     }
 }
 
@@ -407,6 +486,62 @@ pub unsafe extern "C" fn pdfium_rust_skip_pdf_spaces_and_comments(
     true
 }
 
+/// Scans one complete token using `CPDF_SimpleParser` semantics.
+///
+/// A successful boundary call always writes the consumed position. `has_word`
+/// distinguishes an empty result from a token range. Name tokens that reach
+/// end-of-input intentionally return no word, matching the retained parser.
+///
+/// # Safety
+///
+/// When `len` is non-zero, `data` must point to `len` readable bytes. Every
+/// output pointer must point to one writable scalar.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_scan_pdf_token(
+    data: *const u8,
+    len: usize,
+    position: u32,
+    output_position: *mut u32,
+    output_has_word: *mut bool,
+    output_start: *mut u32,
+    output_len: *mut u32,
+) -> bool {
+    if output_position.is_null()
+        || output_has_word.is_null()
+        || output_start.is_null()
+        || output_len.is_null()
+        || (len != 0 && data.is_null())
+    {
+        return false;
+    }
+    let data = if len == 0 { core::ptr::NonNull::<u8>::dangling().as_ptr() } else { data };
+    // SAFETY: The caller guarantees a readable input span whenever non-empty;
+    // empty spans use a non-null dangling pointer and are never dereferenced.
+    let input = unsafe { core::slice::from_raw_parts(data, len) };
+    let result = scan_pdf_token(input, position as usize);
+    let Ok(next_position) = u32::try_from(result.next_position) else {
+        return false;
+    };
+    let (has_word, start, token_len) = match result.token_range {
+        Some((start, token_len)) => {
+            let (Ok(start), Ok(token_len)) = (u32::try_from(start), u32::try_from(token_len))
+            else {
+                return false;
+            };
+            (true, start, token_len)
+        }
+        None => (false, 0, 0),
+    };
+    // SAFETY: All checked output pointers refer to writable scalar results.
+    unsafe {
+        *output_position = next_position;
+        *output_has_word = has_word;
+        *output_start = start;
+        *output_len = token_len;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -584,5 +719,52 @@ mod tests {
         });
         assert_eq!(input.len() as u32, output_position);
         assert_eq!(0xa5, output_byte);
+    }
+
+    #[test]
+    fn token_scan_should_preserve_simple_parser_token_shapes() {
+        assert_eq!(PdfTokenScan { next_position: 0, token_range: None }, scan_pdf_token(b"", 0));
+        assert_eq!(PdfTokenScan { next_position: 3, token_range: None }, scan_pdf_token(b"/99", 0));
+        assert_eq!(
+            PdfTokenScan { next_position: 3, token_range: Some((0, 3)) },
+            scan_pdf_token(b"/99}", 0)
+        );
+        assert_eq!(
+            PdfTokenScan { next_position: 13, token_range: Some((1, 12)) },
+            scan_pdf_token(b" (nice (day))!", 0)
+        );
+        assert_eq!(
+            PdfTokenScan { next_position: 2, token_range: Some((0, 2)) },
+            scan_pdf_token(b"<< /Name", 0)
+        );
+        assert_eq!(
+            PdfTokenScan { next_position: 6, token_range: Some((1, 5)) },
+            scan_pdf_token(b" apple pear", 0)
+        );
+    }
+
+    #[test]
+    fn token_scan_ffi_should_reject_null_input_without_output_mutation() {
+        let mut position = 0xa1a1_a1a1_u32;
+        let mut has_word = true;
+        let mut start = 0xb2b2_b2b2_u32;
+        let mut len = 0xc3c3_c3c3_u32;
+        // SAFETY: The nonzero length with a null input is rejected before the
+        // live outputs are written.
+        assert!(!unsafe {
+            pdfium_rust_scan_pdf_token(
+                core::ptr::null(),
+                1,
+                0,
+                &mut position,
+                &mut has_word,
+                &mut start,
+                &mut len,
+            )
+        });
+        assert_eq!(0xa1a1_a1a1, position);
+        assert!(has_word);
+        assert_eq!(0xb2b2_b2b2, start);
+        assert_eq!(0xc3c3_c3c3, len);
     }
 }

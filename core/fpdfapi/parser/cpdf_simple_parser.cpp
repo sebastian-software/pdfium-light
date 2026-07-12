@@ -20,6 +20,18 @@ CPDF_SimpleParser::CPDF_SimpleParser(pdfium::span<const uint8_t> input)
 CPDF_SimpleParser::~CPDF_SimpleParser() = default;
 
 ByteStringView CPDF_SimpleParser::GetWord() {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    const auto rust_token =
+        pdfium::rust::RustScanPdfToken(data_, cur_position_);
+    if (rust_token.has_value()) {
+      cur_position_ = rust_token->position;
+      return rust_token->has_word
+                 ? ByteStringView(
+                       data_.subspan(rust_token->start, rust_token->len))
+                 : ByteStringView();
+    }
+  }
+
   std::optional<uint8_t> start_char = SkipSpacesAndComments();
   if (!start_char.has_value()) {
     return ByteStringView();

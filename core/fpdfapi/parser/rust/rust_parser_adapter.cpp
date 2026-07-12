@@ -50,6 +50,13 @@ extern "C" bool pdfium_rust_skip_pdf_spaces_and_comments(
     uint32_t position,
     uint32_t* output_position,
     uint8_t* output_byte);
+extern "C" bool pdfium_rust_scan_pdf_token(const uint8_t* data,
+                                             size_t len,
+                                             uint32_t position,
+                                             uint32_t* output_position,
+                                             bool* output_has_word,
+                                             uint32_t* output_start,
+                                             uint32_t* output_len);
 
 thread_local bool g_use_rust_parser_candidate = true;
 
@@ -173,6 +180,20 @@ std::optional<uint8_t> RustSkipPdfSpacesAndComments(
     return std::nullopt;
   }
   return byte;
+}
+
+std::optional<PdfTokenScan> RustScanPdfToken(
+    pdfium::span<const uint8_t> input,
+    uint32_t position) {
+  PdfTokenScan result = {};
+  if (!pdfium_rust_scan_pdf_token(
+          input.data(), input.size(), position, &result.position,
+          &result.has_word, &result.start, &result.len) ||
+      (result.has_word &&
+       (result.start > input.size() || result.len > input.size() - result.start))) {
+    return std::nullopt;
+  }
+  return result;
 }
 
 bool UseRustParserCandidate() {

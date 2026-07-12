@@ -51,6 +51,15 @@ std::optional<CrossRefEntryFields> RustReadCrossRefEntry(
 std::optional<uint8_t> RustSkipPdfSpacesAndComments(
     pdfium::span<const uint8_t> input,
     uint32_t* position);
+struct PdfTokenScan {
+  uint32_t position;
+  bool has_word;
+  uint32_t start;
+  uint32_t len;
+};
+std::optional<PdfTokenScan> RustScanPdfToken(
+    pdfium::span<const uint8_t> input,
+    uint32_t position);
 
 bool UseRustParserCandidate();
 bool SetUseRustParserCandidateForTesting(bool use_candidate);
