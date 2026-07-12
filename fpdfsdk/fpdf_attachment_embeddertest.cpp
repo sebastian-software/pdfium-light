@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "public/fpdf_attachment.h"
 #include "public/fpdf_save.h"
 #include "public/fpdfview.h"
@@ -27,6 +28,48 @@ static constexpr char kFacturXXml[] =
 class FPDFAttachmentEmbedderTest : public EmbedderTest {};
 
 namespace {
+
+struct AttachmentSnapshot {
+  int count = 0;
+  bool valid = true;
+  std::vector<std::wstring> names;
+  std::vector<std::string> contents;
+  bool operator==(const AttachmentSnapshot&) const = default;
+};
+
+AttachmentSnapshot SnapshotAttachments(FPDF_DOCUMENT document) {
+  AttachmentSnapshot result;
+  result.count = FPDFDoc_GetAttachmentCount(document);
+  for (int index = 0; index < result.count; ++index) {
+    FPDF_ATTACHMENT attachment = FPDFDoc_GetAttachment(document, index);
+    if (!attachment) {
+      result.valid = false;
+      continue;
+    }
+    unsigned long length = FPDFAttachment_GetName(attachment, nullptr, 0);
+    std::vector<FPDF_WCHAR> name = GetFPDFWideStringBuffer(length);
+    if (FPDFAttachment_GetName(attachment, name.data(), length) != length) {
+      result.valid = false;
+      continue;
+    }
+    result.names.push_back(GetPlatformWString(name.data()));
+
+    if (!FPDFAttachment_GetFile(attachment, nullptr, 0, &length)) {
+      result.valid = false;
+      continue;
+    }
+    std::vector<char> content(length);
+    unsigned long actual_length = 0;
+    if (!FPDFAttachment_GetFile(attachment, content.data(), length,
+                                &actual_length) ||
+        actual_length != length) {
+      result.valid = false;
+      continue;
+    }
+    result.contents.emplace_back(content.data(), actual_length);
+  }
+  return result;
+}
 
 void ExpectFacturXAttachment(FPDF_DOCUMENT document) {
   ASSERT_EQ(1, FPDFDoc_GetAttachmentCount(document));
@@ -252,6 +295,73 @@ TEST_F(FPDFAttachmentEmbedderTest, AddAttachments) {
                                      length_bytes, &actual_length_bytes));
   ASSERT_EQ(6u, actual_length_bytes);
   EXPECT_EQ(std::string(kContents2), std::string(content_buf.data(), 6));
+}
+
+TEST_F(FPDFAttachmentEmbedderTest,
+       RustNameTreeInsertionMatchesCppAcrossSaveReload) {
+  struct MutationSnapshot {
+    bool duplicate_rejected = false;
+    bool prepended = false;
+    bool appended = false;
+    bool prepended_file_set = false;
+    bool appended_file_set = false;
+    bool saved = false;
+    AttachmentSnapshot before_save;
+    AttachmentSnapshot after_reload;
+    bool operator==(const MutationSnapshot&) const = default;
+  };
+  auto mutate = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    MutationSnapshot result;
+    if (!OpenDocument("embedded_attachments.pdf")) {
+      return result;
+    }
+
+    ScopedFPDFWideString existing_name = GetFPDFWideString(L"1.txt");
+    result.duplicate_rejected =
+        !FPDFDoc_AddAttachment(document(), existing_name.get());
+
+    ScopedFPDFWideString first_name = GetFPDFWideString(L"0.txt");
+    FPDF_ATTACHMENT first =
+        FPDFDoc_AddAttachment(document(), first_name.get());
+    result.prepended = !!first;
+    static constexpr char kFirstContents[] = "First";
+    result.prepended_file_set =
+        first && FPDFAttachment_SetFile(first, document(), kFirstContents,
+                                        strlen(kFirstContents));
+
+    ScopedFPDFWideString last_name = GetFPDFWideString(L"z.txt");
+    FPDF_ATTACHMENT last = FPDFDoc_AddAttachment(document(), last_name.get());
+    result.appended = !!last;
+    static constexpr char kLastContents[] = "Last";
+    result.appended_file_set =
+        last && FPDFAttachment_SetFile(last, document(), kLastContents,
+                                       strlen(kLastContents));
+    result.before_save = SnapshotAttachments(document());
+    result.saved = !!FPDF_SaveAsCopy(document(), this, 0);
+    if (result.saved) {
+      ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+      if (saved_document) {
+        result.after_reload = SnapshotAttachments(saved_document.get());
+      }
+    }
+    CloseDocument();
+    return result;
+  };
+
+  MutationSnapshot cpp = mutate(false);
+  MutationSnapshot rust = mutate(true);
+  EXPECT_TRUE(cpp.duplicate_rejected);
+  EXPECT_TRUE(cpp.prepended);
+  EXPECT_TRUE(cpp.appended);
+  EXPECT_TRUE(cpp.prepended_file_set);
+  EXPECT_TRUE(cpp.appended_file_set);
+  EXPECT_TRUE(cpp.saved);
+  EXPECT_TRUE(cpp.before_save.valid);
+  EXPECT_TRUE(cpp.after_reload.valid);
+  EXPECT_EQ(cpp.before_save, cpp.after_reload);
+  EXPECT_EQ(cpp, rust);
 }
 
 TEST_F(FPDFAttachmentEmbedderTest, AddAttachmentsWithParams) {
