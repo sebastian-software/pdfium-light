@@ -124,6 +124,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `6717f6c26` Phase 6 PDF-name-value slice | 18,097 | 11,286 | 241 | 4,570 | 6,570 | 281,423 | 6.43% | 5.50% | Rust owns binary name bytes and mutation through the shared string-state boundary; C++ retains a checked pooled `ByteString` ABI view for native encoding and clone sharing |
 | `7abc76905` Phase 6 PDF-stream-memory slice | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,637 | 6.45% | 5.52% | Rust owns complete in-memory stream bytes and size; C++ retains file-backed stream and dictionary lifetime adapters plus encode/encrypt/archive orchestration |
 | `76017a44f` Phase 6 public object-graph fuzzer gate | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,637 | 6.45% | 5.52% | Versioned inputs execute token and public document Oracle/Candidate comparisons for exact errors, metadata, page bounds, and boundary-page geometry in normal and ASan corpus runners |
+| `5525cc9a3` Phase 6 object-graph save/reload gate | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,637 | 6.45% | 5.52% | Catalog/page key order, types, MediaBox, filtered content bytes, text, and rendering remain exact after public save/reload; all six Rust codec/object-graph embedder cases pass |
 
 ## Toolchain
 
@@ -1084,6 +1085,18 @@ only that its source compiles. The normal light runner and a separate
 `is_asan=true` build with leak detection and immediate failure both complete
 without a mismatch or sanitizer finding. Inputs remain capped at 1 MiB and
 only the first and last pages are loaded, bounding per-input page work.
+
+The Phase 6 save/reload gate opens `hello_world.pdf` through the production
+Rust parser/object graph, captures sorted catalog and page keys, catalog/page
+types, MediaBox coordinates, and the concatenated fully filtered content-stream
+bytes, then saves and reloads through the public API. The complete semantic
+snapshot, 30 extracted characters, and rendered page all remain identical.
+
+All six `RustCodecEmbedderTest` save/reload cases pass. The full embedder run
+passes 506 of 557 tests; its 51 failures are the same static macOS AGG golden
+class already recorded by the renderer phases. The new object-graph test adds
+one passing case and does not add a failure. The render-intensive
+`LargeImageDoesNotRenderBlank` case also passes after 181.8 seconds.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
