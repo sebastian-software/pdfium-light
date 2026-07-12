@@ -115,6 +115,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `00020e5e2` Phase 6 xref-storage slice | 16,767 | 9,956 | 241 | 3,898 | 6,570 | 278,243 | 6.03% | 4.91% | Rust `BTreeMap` is the production source of truth for cross-reference entries, mutation, sizing, and overlay; C++ retains the oracle map, a lazy derived view, trailers, and PDF object lifetimes |
 | `ae4185d3d` Phase 6 indirect-object-index slice | 17,133 | 10,322 | 241 | 4,099 | 6,570 | 279,067 | 6.14% | 5.07% | Rust owns indirect-object numbers, recursive parse placeholders, handle indexing, replacement, deletion, last-number state, and ordered iteration; C++ retains object values through a non-object-number-keyed `RetainPtr` registry and lazy view |
 | `38e8aea3e` Phase 6 PDF-number-value slice | 17,421 | 10,610 | 241 | 4,179 | 6,570 | 279,540 | 6.23% | 5.21% | Rust owns PDF number signed/unsigned/float representation, parsing, conversion, mutation, and clone state; C++ retains exact float-to-PDF text formatting and archive writes |
+| `65738ff47` Phase 6 PDF-boolean-value slice | 17,504 | 10,693 | 241 | 4,218 | 6,570 | 279,758 | 6.26% | 5.24% | Rust owns PDF boolean storage, keyword mutation, and clone state; C++ retains static text selection and archive writes |
 
 ## Toolchain
 
@@ -919,6 +920,21 @@ overflow, boundary, exponent-like, precision, multiple-sign, and infinity
 inputs. The focused Rust suite has 22 tests, all three `CPDFNumber` tests pass,
 all 1,059 unit tests pass, the parser fuzzer source builds, and `pdfium_all`
 builds in the full GN configuration.
+
+The nineteenth Phase 6 slice replaces `CPDF_Boolean`'s production inline bool
+with a Rust-owned value. Rust owns construction, `SetString()` keyword
+interpretation, integer conversion, and clone state. The retained C++ oracle
+remains separately selected per object; C++ only selects the static `true` or
+`false` output bytes and writes them to the archive stream.
+
+The initial differential run exposed PDFium's historical `ByteString ==
+"true"` behavior for embedded NUL bytes: `true\0...` is accepted because the
+comparison observes the C-string terminator. Rust preserves that behavior, and
+the native test covers exact, false, case-mismatched, empty, and NUL-terminated
+inputs. The same-process test compares integer, string, clone, and serialized
+output. All 23 native Rust tests, the boolean and three number tests, all 1,060
+unit tests, the retained parser fuzzer build, and `pdfium_all` pass in the full
+GN configuration.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
