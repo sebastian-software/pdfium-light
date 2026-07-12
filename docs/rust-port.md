@@ -128,6 +128,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `75380056e` Phase 6 object-slot-lifetime slice | 18,194 | 11,383 | 241 | 4,627 | 6,570 | 281,778 | 6.46% | 5.54% | Rust array, dictionary, and indirect-object states decide whether removed or replaced handles still occupy any slot; C++ retains one intrusive-pointer ABI handle without a duplicate reference-count policy |
 | `0b3f209ba` Phase 7 document-page-index slice | 18,341 | 11,530 | 241 | 4,708 | 6,570 | 282,125 | 6.50% | 5.60% | Rust owns the document page object-number cache, unloaded slots, lookup, resize, insertion, removal, and membership; C++ retains page-tree traversal and tree-dictionary mutation |
 | `3eac0d9c0` Phase 7 page-move-planning slice | 18,414 | 11,603 | 241 | 4,732 | 6,570 | 282,204 | 6.53% | 5.64% | Rust validates public page-move cardinality, ranges, destination, and uniqueness and produces descending deletion order; C++ retains page dictionaries, extension callbacks, and tree mutation |
+| `fa444d71e` Phase 7 page-tree-count slice | 18,682 | 11,871 | 241 | 4,780 | 6,570 | 282,590 | 6.61% | 5.76% | Rust owns page-tree count traversal, active-path cycle guarding, malformed-type and count normalization, checked totals, and a bounded candidate depth; C++ retains borrowed dictionaries and the exact fallback traversal |
 
 ## Toolchain
 
@@ -725,6 +726,11 @@ render so glyph and font caches cannot leak from the first run into the second.
 All 19 renderer cases match bitmap dimensions, format, stride, bytes, and every
 core/AGG/glyph/backend trace; `pdfium_all` builds and all 1,057 unit tests pass.
 
+This completes the Phase 5 boundary. The retained C++ text objects, fonts,
+matrices, colors, device state, and concrete AGG/FreeType backend calls are the
+designated native backends, not parallel planning state. Exact bitmap and trace
+parity covers every activated route before the ledger advances to Phase 6.
+
 ## Phase 6 parser and PDF object graph
 
 The first Phase 6 slice moves variable-width big-endian cross-reference stream
@@ -1156,6 +1162,24 @@ The existing public 44-case move corpus passes unchanged, including expected
 success/failure results and rendered/save behavior. All 30 parser-native Rust
 tests, the document Oracle/Candidate create-move-delete scenario, all 1,067
 unit tests, and `pdfium_all` pass in the full light build.
+
+The third Phase 7 slice moves recursive page-tree counting into Rust. Rust owns
+`/Count` hint acceptance, child traversal, active-recursion-path cycle guards,
+malformed `/Type` inference, corrected `/Type` and `/Count` writes, checked page
+totals, and the existing page maximum. C++ exposes borrowed dictionaries only
+for the synchronous call and retains the original `CountPages()` fallback.
+
+The candidate traversal adds a 1,024-level resource bound matching the existing
+page-tree lookup bound. If that bound or any callback contract is rejected, the
+unchanged C++ traversal runs, so the public result and repair behavior remain
+available. A regression case proves that a shared subtree is counted once per
+appearance while cycles are guarded only along the active path, matching the
+oracle rather than globally deduplicating dictionaries.
+
+All 32 parser-native Rust tests, all nine `DocumentTest` cases (including bad
+counts and missing kids), six public delete/save cases, the complete public
+page-move case, the object-graph save/reload case, all 1,067 unit tests, and
+`pdfium_all` pass in the full light build.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
