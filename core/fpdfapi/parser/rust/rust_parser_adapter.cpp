@@ -383,6 +383,15 @@ extern "C" bool pdfium_rust_name_tree_find_index(
     bool* found,
     uintptr_t* node,
     size_t* pair_index);
+extern "C" bool pdfium_rust_name_tree_lookup(
+    uintptr_t root,
+    void* context,
+    pdfium::rust::RustNameTreeSearchDescribeCallback describe,
+    pdfium::rust::RustNameTreeSearchTokenCallback read_token,
+    pdfium::rust::RustNameTreeSearchLimitsCallback compare_limits,
+    pdfium::rust::RustNameTreeSearchNameCallback read_name,
+    pdfium::rust::RustNameTreeSearchKidCallback read_kid,
+    uintptr_t* output);
 extern "C" bool pdfium_rust_find_link_at_point(
     size_t link_count,
     float x,
@@ -1325,6 +1334,23 @@ std::optional<RustNameTreeIndexResult> RustNameTreeFindIndex(
     return std::nullopt;
   }
   return result;
+}
+
+std::optional<uintptr_t> RustNameTreeLookup(
+    uintptr_t root,
+    void* context,
+    RustNameTreeSearchDescribeCallback describe,
+    RustNameTreeSearchTokenCallback read_token,
+    RustNameTreeSearchLimitsCallback compare_limits,
+    RustNameTreeSearchNameCallback read_name,
+    RustNameTreeSearchKidCallback read_kid) {
+  uintptr_t output = 0;
+  if (!pdfium_rust_name_tree_lookup(root, context, describe, read_token,
+                                    compare_limits, read_name, read_kid,
+                                    &output)) {
+    return std::nullopt;
+  }
+  return output;
 }
 
 std::optional<RustLinkEnumerationResult> RustFindLinkAtPoint(

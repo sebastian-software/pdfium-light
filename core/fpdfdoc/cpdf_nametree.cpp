@@ -86,6 +86,102 @@ void TrimNodeLimits(CPDF_Array* limits) {
   }
 }
 
+struct NameTreeSearchContext {
+  const WideString* query;
+};
+
+bool DescribeNameTreeSearchNode(void*,
+                                uintptr_t node,
+                                bool* has_limits,
+                                uint32_t* limits_token,
+                                size_t* limits_item_count,
+                                bool* has_names,
+                                uint32_t* names_token,
+                                size_t* names_item_count,
+                                size_t* name_count,
+                                uint32_t* kids_token,
+                                size_t* kid_count) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> limits = dictionary->GetMutableArrayFor("Limits");
+  *has_limits = !!limits;
+  *limits_token = limits ? limits->GetObjNum() : 0;
+  *limits_item_count = limits ? limits->size() : 0;
+  RetainPtr<CPDF_Array> names = dictionary->GetMutableArrayFor("Names");
+  *has_names = !!names;
+  *names_token = names ? names->GetObjNum() : 0;
+  *names_item_count = names ? names->size() : 0;
+  *name_count = names ? names->size() / 2 : 0;
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  *kids_token = kids ? kids->GetObjNum() : 0;
+  *kid_count = kids ? kids->size() : 0;
+  return true;
+}
+
+bool ReadNameTreeSearchToken(void*,
+                             uintptr_t node,
+                             uint8_t array_kind,
+                             size_t index,
+                             uint32_t* token) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> array = dictionary->GetMutableArrayFor(
+      array_kind == 0 ? "Limits" : "Names");
+  if (!array || index >= array->size()) {
+    return false;
+  }
+  RetainPtr<const CPDF_Object> object = array->GetObjectAt(index);
+  *token = object ? object->GetObjNum() : 0;
+  return true;
+}
+
+bool CompareNameTreeSearchLimits(void* opaque,
+                                 uintptr_t node,
+                                 int32_t* query_to_lower,
+                                 int32_t* query_to_upper) {
+  auto* context = static_cast<NameTreeSearchContext*>(opaque);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> limits = dictionary->GetMutableArrayFor("Limits");
+  if (!limits) {
+    return false;
+  }
+  auto [left, right] = GetNodeLimits(limits.Get());
+  *query_to_lower = context->query->Compare(left);
+  *query_to_upper = context->query->Compare(right);
+  return true;
+}
+
+bool ReadNameTreeSearchName(void* opaque,
+                            uintptr_t node,
+                            size_t index,
+                            int32_t* name_to_query,
+                            uintptr_t* value) {
+  auto* context = static_cast<NameTreeSearchContext*>(opaque);
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> names = dictionary->GetMutableArrayFor("Names");
+  if (!names || index >= names->size() / 2) {
+    return false;
+  }
+  *name_to_query = names->GetUnicodeTextAt(index * 2).Compare(*context->query);
+  *value = reinterpret_cast<uintptr_t>(
+      names->GetDirectObjectAt(index * 2 + 1).Get());
+  return true;
+}
+
+bool ReadNameTreeSearchKid(void*,
+                           uintptr_t node,
+                           size_t index,
+                           uintptr_t* kid,
+                           uint32_t* token) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids || index >= kids->size()) {
+    return false;
+  }
+  RetainPtr<CPDF_Dictionary> child = kids->GetMutableDictAt(index);
+  *kid = reinterpret_cast<uintptr_t>(child.Get());
+  *token = child ? child->GetObjNum() : 0;
+  return true;
+}
+
 // Get the limit arrays that leaf array |pFind| is under in the tree with root
 // |pNode|. |pLimits| will hold all the limit arrays from the leaf up to before
 // the root. Return true if successful.
@@ -720,6 +816,18 @@ RetainPtr<CPDF_Object> CPDF_NameTree::LookupValueAndName(
 
 RetainPtr<const CPDF_Object> CPDF_NameTree::LookupValue(
     const WideString& csName) const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    NameTreeSearchContext context = {&csName};
+    std::optional<uintptr_t> result = pdfium::rust::RustNameTreeLookup(
+        reinterpret_cast<uintptr_t>(root_.Get()), &context,
+        DescribeNameTreeSearchNode, ReadNameTreeSearchToken,
+        CompareNameTreeSearchLimits, ReadNameTreeSearchName,
+        ReadNameTreeSearchKid);
+    if (result.has_value()) {
+      return pdfium::WrapRetain(
+          reinterpret_cast<const CPDF_Object*>(result.value()));
+    }
+  }
   return SearchNameNodeByName(root_, csName, nullptr);
 }
 

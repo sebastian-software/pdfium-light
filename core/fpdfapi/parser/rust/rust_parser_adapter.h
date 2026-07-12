@@ -559,6 +559,45 @@ std::optional<RustNameTreeIndexResult> RustNameTreeFindIndex(
     void* context,
     RustNameTreeDescribeCallback describe,
     RustNameTreeKidCallback read_kid);
+using RustNameTreeSearchDescribeCallback = bool (*)(
+    void* context,
+    uintptr_t node,
+    bool* has_limits,
+    uint32_t* limits_token,
+    size_t* limits_item_count,
+    bool* has_names,
+    uint32_t* names_token,
+    size_t* names_item_count,
+    size_t* name_count,
+    uint32_t* kids_token,
+    size_t* kid_count);
+using RustNameTreeSearchTokenCallback = bool (*)(void* context,
+                                                 uintptr_t node,
+                                                 uint8_t array_kind,
+                                                 size_t index,
+                                                 uint32_t* token);
+using RustNameTreeSearchLimitsCallback = bool (*)(void* context,
+                                                  uintptr_t node,
+                                                  int32_t* query_to_lower,
+                                                  int32_t* query_to_upper);
+using RustNameTreeSearchNameCallback = bool (*)(void* context,
+                                                uintptr_t node,
+                                                size_t index,
+                                                int32_t* name_to_query,
+                                                uintptr_t* value);
+using RustNameTreeSearchKidCallback = bool (*)(void* context,
+                                               uintptr_t node,
+                                               size_t index,
+                                               uintptr_t* kid,
+                                               uint32_t* token);
+std::optional<uintptr_t> RustNameTreeLookup(
+    uintptr_t root,
+    void* context,
+    RustNameTreeSearchDescribeCallback describe,
+    RustNameTreeSearchTokenCallback read_token,
+    RustNameTreeSearchLimitsCallback compare_limits,
+    RustNameTreeSearchNameCallback read_name,
+    RustNameTreeSearchKidCallback read_kid);
 using RustLinkRectCallback = bool (*)(void* context,
                                       size_t index,
                                       bool* present,

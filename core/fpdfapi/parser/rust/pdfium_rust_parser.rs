@@ -301,6 +301,27 @@ type NameTreeDescribeCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool, *mut usize, *mut usize) -> bool;
 type NameTreeKidCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut usize) -> bool;
+type NameTreeSearchDescribeCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    *mut bool,
+    *mut u32,
+    *mut usize,
+    *mut bool,
+    *mut u32,
+    *mut usize,
+    *mut usize,
+    *mut u32,
+    *mut usize,
+) -> bool;
+type NameTreeSearchTokenCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, u8, usize, *mut u32) -> bool;
+type NameTreeSearchLimitsCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut i32, *mut i32) -> bool;
+type NameTreeSearchNameCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut i32, *mut usize) -> bool;
+type NameTreeSearchKidCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut usize, *mut u32) -> bool;
 type LinkRectCallback = unsafe extern "C" fn(
     *mut core::ffi::c_void,
     usize,
@@ -810,6 +831,122 @@ fn name_tree_find_index(
         }
     }
     Some(None)
+}
+
+#[derive(Clone, Copy)]
+struct NameTreeSearchNode {
+    has_limits: bool,
+    limits_token: u32,
+    limits_item_count: usize,
+    has_names: bool,
+    names_token: u32,
+    names_item_count: usize,
+    name_count: usize,
+    kids_token: u32,
+    kid_count: usize,
+}
+
+fn name_tree_admit_array(
+    node: usize,
+    array_kind: u8,
+    token: u32,
+    item_count: usize,
+    visited: &mut std::collections::HashSet<u32>,
+    read_token: &mut impl FnMut(usize, u8, usize) -> Option<u32>,
+) -> Option<bool> {
+    if token != 0 && !visited.insert(token) {
+        return Some(false);
+    }
+    for index in 0..item_count {
+        let item_token = read_token(node, array_kind, index)?;
+        if item_token != 0 && !visited.insert(item_token) {
+            return Some(false);
+        }
+    }
+    Some(true)
+}
+
+fn name_tree_lookup(
+    node: usize,
+    depth: usize,
+    visited: &mut std::collections::HashSet<u32>,
+    describe: &mut impl FnMut(usize) -> Option<NameTreeSearchNode>,
+    read_token: &mut impl FnMut(usize, u8, usize) -> Option<u32>,
+    compare_limits: &mut impl FnMut(usize) -> Option<(i32, i32)>,
+    read_name: &mut impl FnMut(usize, usize) -> Option<(i32, usize)>,
+    read_kid: &mut impl FnMut(usize, usize) -> Option<(usize, u32)>,
+) -> Option<usize> {
+    if node == 0 || depth > 32 {
+        return Some(0);
+    }
+    let mut description = describe(node)?;
+    if description.has_names
+        && !name_tree_admit_array(
+            node,
+            1,
+            description.names_token,
+            description.names_item_count,
+            visited,
+            read_token,
+        )?
+    {
+        description.has_names = false;
+    }
+    if description.has_limits
+        && !name_tree_admit_array(
+            node,
+            0,
+            description.limits_token,
+            description.limits_item_count,
+            visited,
+            read_token,
+        )?
+    {
+        description.has_limits = false;
+    }
+    if description.has_limits {
+        let (query_to_lower, query_to_upper) = compare_limits(node)?;
+        if query_to_lower < 0 || query_to_upper > 0 {
+            return Some(0);
+        }
+    }
+    if description.has_names {
+        for index in 0..description.name_count {
+            let (name_to_query, value) = read_name(node, index)?;
+            if name_to_query > 0 {
+                break;
+            }
+            if name_to_query == 0 {
+                return Some(value);
+            }
+        }
+        return Some(0);
+    }
+    if description.kid_count == 0
+        || (description.kids_token != 0 && !visited.insert(description.kids_token))
+    {
+        return Some(0);
+    }
+    for index in 0..description.kid_count {
+        let (kid, token) = read_kid(node, index)?;
+        if kid == 0 || (token != 0 && !visited.insert(token)) {
+            continue;
+        }
+        let found = name_tree_lookup(
+            kid,
+            depth + 1,
+            visited,
+            describe,
+            read_token,
+            compare_limits,
+            read_name,
+            read_kid,
+        )?;
+        if found != 0 {
+            return Some(found);
+        }
+    }
+    Some(0)
 }
 
 fn find_link_at_point(
@@ -4016,6 +4153,89 @@ pub unsafe extern "C" fn pdfium_rust_name_tree_find_index(
     true
 }
 
+/// Looks up a decoded name in a borrowed PDF name tree.
+///
+/// # Safety
+/// Callbacks, context, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_name_tree_lookup(
+    root: usize,
+    context: *mut core::ffi::c_void,
+    describe: NameTreeSearchDescribeCallback,
+    read_token: NameTreeSearchTokenCallback,
+    compare_limits: NameTreeSearchLimitsCallback,
+    read_name: NameTreeSearchNameCallback,
+    read_kid: NameTreeSearchKidCallback,
+    output: *mut usize,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let mut describe_node = |node| {
+        let mut result = NameTreeSearchNode {
+            has_limits: false,
+            limits_token: 0,
+            limits_item_count: 0,
+            has_names: false,
+            names_token: 0,
+            names_item_count: 0,
+            name_count: 0,
+            kids_token: 0,
+            kid_count: 0,
+        };
+        unsafe {
+            describe(
+                context,
+                node,
+                &mut result.has_limits,
+                &mut result.limits_token,
+                &mut result.limits_item_count,
+                &mut result.has_names,
+                &mut result.names_token,
+                &mut result.names_item_count,
+                &mut result.name_count,
+                &mut result.kids_token,
+                &mut result.kid_count,
+            )
+        }
+        .then_some(result)
+    };
+    let mut read_object_token = |node, array_kind, index| {
+        let mut token = 0;
+        unsafe { read_token(context, node, array_kind, index, &mut token) }.then_some(token)
+    };
+    let mut compare_node_limits = |node| {
+        let mut lower = 0;
+        let mut upper = 0;
+        unsafe { compare_limits(context, node, &mut lower, &mut upper) }.then_some((lower, upper))
+    };
+    let mut read_name_entry = |node, index| {
+        let mut comparison = 0;
+        let mut value = 0;
+        unsafe { read_name(context, node, index, &mut comparison, &mut value) }
+            .then_some((comparison, value))
+    };
+    let mut read_kid_node = |node, index| {
+        let mut kid = 0;
+        let mut token = 0;
+        unsafe { read_kid(context, node, index, &mut kid, &mut token) }.then_some((kid, token))
+    };
+    let Some(result) = name_tree_lookup(
+        root,
+        0,
+        &mut std::collections::HashSet::new(),
+        &mut describe_node,
+        &mut read_object_token,
+        &mut compare_node_limits,
+        &mut read_name_entry,
+        &mut read_kid_node,
+    ) else {
+        return false;
+    };
+    *output = result;
+    true
+}
+
 /// Finds the topmost link rectangle containing a public point.
 ///
 /// # Safety
@@ -6058,6 +6278,113 @@ mod tests {
     }
 
     #[test]
+    fn name_tree_lookup_should_preserve_limits_order_and_object_cycles() {
+        let mut describe = |node| {
+            Some(match node {
+                1 => NameTreeSearchNode {
+                    has_limits: false,
+                    limits_token: 0,
+                    limits_item_count: 0,
+                    has_names: false,
+                    names_token: 0,
+                    names_item_count: 0,
+                    name_count: 0,
+                    kids_token: 10,
+                    kid_count: 2,
+                },
+                2 | 3 => NameTreeSearchNode {
+                    has_limits: true,
+                    limits_token: 0,
+                    limits_item_count: 0,
+                    has_names: true,
+                    names_token: 0,
+                    names_item_count: 0,
+                    name_count: 2,
+                    kids_token: 0,
+                    kid_count: 0,
+                },
+                _ => return None,
+            })
+        };
+        let mut read_kid = |_, index| Some(if index == 0 { (2, 20) } else { (3, 30) });
+        assert_eq!(
+            Some(22),
+            name_tree_lookup(
+                1,
+                0,
+                &mut std::collections::HashSet::new(),
+                &mut describe,
+                &mut |_, _, _| Some(0),
+                &mut |_| Some((0, 0)),
+                &mut |node, index| {
+                    Some(if node == 2 {
+                        if index == 0 {
+                            (-1, 21)
+                        } else {
+                            (0, 22)
+                        }
+                    } else {
+                        (1, 31)
+                    })
+                },
+                &mut read_kid,
+            )
+        );
+        assert_eq!(
+            Some(0),
+            name_tree_lookup(
+                2,
+                0,
+                &mut std::collections::HashSet::new(),
+                &mut describe,
+                &mut |_, _, _| Some(0),
+                &mut |_| Some((-1, 0)),
+                &mut |_, _| Some((0, 22)),
+                &mut read_kid,
+            )
+        );
+        let mut cycle_description = |_| {
+            Some(NameTreeSearchNode {
+                has_limits: false,
+                limits_token: 0,
+                limits_item_count: 0,
+                has_names: false,
+                names_token: 0,
+                names_item_count: 0,
+                name_count: 0,
+                kids_token: 10,
+                kid_count: 1,
+            })
+        };
+        assert_eq!(
+            Some(0),
+            name_tree_lookup(
+                1,
+                0,
+                &mut std::collections::HashSet::new(),
+                &mut cycle_description,
+                &mut |_, _, _| Some(0),
+                &mut |_| Some((0, 0)),
+                &mut |_, _| Some((0, 1)),
+                &mut |_, _| Some((1, 1)),
+            )
+        );
+        assert_eq!(
+            None,
+            name_tree_lookup(
+                1,
+                0,
+                &mut std::collections::HashSet::new(),
+                &mut |_| None,
+                &mut |_, _, _| Some(0),
+                &mut |_| Some((0, 0)),
+                &mut |_, _| Some((0, 1)),
+                &mut |_, _| Some((0, 0)),
+            )
+        );
+    }
+
+    #[test]
     fn link_hit_test_should_normalize_rectangles_and_prefer_topmost_links() {
         let rectangles = [Some((0.0, 0.0, 10.0, 10.0)), Some((8.0, 8.0, 2.0, 2.0)), None];
         assert_eq!(
@@ -6083,5 +6410,78 @@ mod tests {
             find_link_at_point(1, 0.0, 0.0, &mut |_| { Some(Some((f32::NAN, 0.0, 1.0, 1.0))) })
         );
         assert_eq!(None, find_link_at_point(1, 0.0, 0.0, &mut |_| None));
+    }
+
+    #[test]
+    fn name_tree_lookup_should_preserve_limits_order_tokens_and_depth() {
+        let describe = |node| {
+            Some(match node {
+                1 => NameTreeSearchNode {
+                    has_limits: false,
+                    limits_token: 0,
+                    limits_item_count: 0,
+                    has_names: false,
+                    names_token: 0,
+                    names_item_count: 0,
+                    name_count: 0,
+                    kids_token: 10,
+                    kid_count: 1,
+                },
+                2 => NameTreeSearchNode {
+                    has_limits: true,
+                    limits_token: 20,
+                    limits_item_count: 2,
+                    has_names: true,
+                    names_token: 30,
+                    names_item_count: 4,
+                    name_count: 2,
+                    kids_token: 0,
+                    kid_count: 0,
+                },
+                _ => return None,
+            })
+        };
+        let read_token = |_, kind, index| Some(100 + u32::from(kind) * 10 + index as u32);
+        let read_name = |_, index| Some(if index == 0 { (-1, 40) } else { (0, 41) });
+        let read_kid = |_, _| Some((2, 11));
+        assert_eq!(
+            Some(41),
+            name_tree_lookup(
+                1,
+                0,
+                &mut std::collections::HashSet::new(),
+                &mut { describe },
+                &mut { read_token },
+                &mut |_| Some((0, 0)),
+                &mut { read_name },
+                &mut { read_kid },
+            )
+        );
+        assert_eq!(
+            Some(0),
+            name_tree_lookup(
+                1,
+                0,
+                &mut std::collections::HashSet::new(),
+                &mut { describe },
+                &mut { read_token },
+                &mut |_| Some((-1, 0)),
+                &mut { read_name },
+                &mut { read_kid },
+            )
+        );
+        assert_eq!(
+            Some(0),
+            name_tree_lookup(
+                1,
+                33,
+                &mut std::collections::HashSet::new(),
+                &mut { describe },
+                &mut { read_token },
+                &mut |_| Some((0, 0)),
+                &mut { read_name },
+                &mut { read_kid },
+            )
+        );
     }
 }
