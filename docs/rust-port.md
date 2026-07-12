@@ -116,6 +116,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `ae4185d3d` Phase 6 indirect-object-index slice | 17,133 | 10,322 | 241 | 4,099 | 6,570 | 279,067 | 6.14% | 5.07% | Rust owns indirect-object numbers, recursive parse placeholders, handle indexing, replacement, deletion, last-number state, and ordered iteration; C++ retains object values through a non-object-number-keyed `RetainPtr` registry and lazy view |
 | `38e8aea3e` Phase 6 PDF-number-value slice | 17,421 | 10,610 | 241 | 4,179 | 6,570 | 279,540 | 6.23% | 5.21% | Rust owns PDF number signed/unsigned/float representation, parsing, conversion, mutation, and clone state; C++ retains exact float-to-PDF text formatting and archive writes |
 | `65738ff47` Phase 6 PDF-boolean-value slice | 17,504 | 10,693 | 241 | 4,218 | 6,570 | 279,758 | 6.26% | 5.24% | Rust owns PDF boolean storage, keyword mutation, and clone state; C++ retains static text selection and archive writes |
+| `545ff9e45` Phase 6 PDF-reference-value slice | 17,573 | 10,762 | 241 | 4,257 | 6,570 | 279,977 | 6.28% | 5.27% | Rust owns referenced object-number storage, mutation, and clone state; C++ retains the non-owning holder pointer and object/archive adapters |
 
 ## Toolchain
 
@@ -935,6 +936,22 @@ inputs. The same-process test compares integer, string, clone, and serialized
 output. All 23 native Rust tests, the boolean and three number tests, all 1,060
 unit tests, the retained parser fuzzer build, and `pdfium_all` pass in the full
 GN configuration.
+
+The twentieth Phase 6 slice replaces `CPDF_Reference`'s production object
+number with a Rust-owned value. Rust owns construction, all unsigned object
+number values, `SetRef()` number mutation, lookup input, serialization input,
+and the value copied into clones and references-to-references. Each reference
+contains either the retained C++ oracle number or the Rust state, never two
+synchronized numbers.
+
+The holder remains a C++ `UnownedPtr`: this slice deliberately does not claim
+ownership of, retain, or extend the `CPDF_IndirectObjectHolder` lifetime. C++
+also retains direct-object resolution and archive writes. The same-process
+scenario compares null and live holders, direct number resolution, zero,
+missing, ordinary, and maximum object numbers, mutation, cloning, string and
+numeric forwarding, and serialized output. All 24 native Rust tests, the
+reference, boolean, and three number tests, all 1,061 unit tests, the retained
+parser fuzzer build, and `pdfium_all` pass in the full GN configuration.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
