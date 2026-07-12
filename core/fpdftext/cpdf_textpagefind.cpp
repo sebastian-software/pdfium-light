@@ -360,7 +360,8 @@ bool CPDF_TextPageFind::FindPrev() {
     return false;
   }
 
-  CPDF_TextPageFind find_engine(text_page_, find_what_array_, options_, 0);
+  CPDF_TextPageFind find_engine(text_page_, WideString(), find_what_array_,
+                                options_, 0);
   if (!find_engine.FindFirst()) {
     return false;
   }
