@@ -201,6 +201,23 @@ std::optional<float> RustTextSpaceThreshold(
     void* context,
     RustTextWidthCallback get_fallback_width);
 
+struct RustTextItemSpacePlan {
+  float spacing;
+  bool generate_space;
+};
+
+std::optional<RustTextItemSpacePlan> RustTextPlanItemSpace(
+    size_t item_index,
+    float kerning,
+    bool previous_text_exists,
+    bool previous_is_space,
+    float font_size_h,
+    float base_space,
+    bool has_space_character,
+    int32_t space_character_width,
+    void* context,
+    RustTextWidthCallback get_fallback_width);
+
 enum class RustTextMarkedContentState : uint8_t {
   kPass = 0,
   kDone = 1,

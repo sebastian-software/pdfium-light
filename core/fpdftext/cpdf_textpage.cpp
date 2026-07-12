@@ -1890,59 +1890,103 @@ void CPDF_TextPage::ProcessTextObjectItems(CPDF_TextObject* text_object,
   float spacing = 0;
   for (size_t i = 0; i < nItems; ++i) {
     CPDF_TextObject::Item item = text_object->GetItemInfo(i);
-    if (i > 0 && kernings[i - 1] != 0) {
+    bool used_rust_space_plan = false;
+    if (use_rust_) {
       WideStringView str = temp_text_buf_.AsStringView();
       if (str.IsEmpty()) {
         str = text_buf_.AsStringView();
       }
-      if (!str.IsEmpty() && str.Back() != L' ') {
-        float fontsize_h = text_object->text_state().GetFontSizeH();
-        spacing = -fontsize_h * kernings[i - 1] / 1000;
+      const uint32_t space_char_code = font->CharCodeFromUnicode(' ');
+      const bool has_space_character =
+          space_char_code != CPDF_Font::kInvalidCharCode;
+      const int32_t space_character_width =
+          has_space_character ? font->GetCharWidth(space_char_code) : 0;
+      struct WidthContext {
+        CPDF_Font* font;
+        uint32_t char_code;
+      } context = {font.Get(), item.char_code_};
+      auto get_fallback_width = [](void* context, int32_t* width) {
+        auto* width_context = static_cast<WidthContext*>(context);
+        *width = GetCharWidth(width_context->char_code, width_context->font);
+        return true;
+      };
+      const auto plan = pdfium::rust::RustTextPlanItemSpace(
+          i, i > 0 ? kernings[i - 1] : 0.0f, !str.IsEmpty(),
+          !str.IsEmpty() && str.Back() == L' ',
+          text_object->text_state().GetFontSizeH(), base_space,
+          has_space_character, space_character_width, &context,
+          get_fallback_width);
+      if (plan.has_value()) {
+        used_rust_space_plan = true;
+        spacing = plan->spacing;
+        if (plan->generate_space) {
+          temp_text_buf_.AppendChar(L' ');
+          CFX_PointF origin = matrix.Transform(item.origin_);
+          temp_char_list_.push_back(CharInfo(
+              CharType::kGenerated, CPDF_Font::kInvalidCharCode, L' ', origin,
+              CFX_FloatRect(origin.x, origin.y, origin.x, origin.y),
+              form_matrix, text_object));
+        }
+        spacing = 0;
       }
     }
 
-    spacing -= base_space;
+    if (!used_rust_space_plan) {
+      if (i > 0 && kernings[i - 1] != 0) {
+        WideStringView str = temp_text_buf_.AsStringView();
+        if (str.IsEmpty()) {
+          str = text_buf_.AsStringView();
+        }
+        if (!str.IsEmpty() && str.Back() != L' ') {
+          float fontsize_h = text_object->text_state().GetFontSizeH();
+          spacing = -fontsize_h * kernings[i - 1] / 1000;
+        }
+      }
 
-    if (spacing && i > 0) {
-      float threshold = 0.0f;
-      if (use_rust_) {
-        const uint32_t space_char_code = font->CharCodeFromUnicode(' ');
-        const bool has_space_character =
-            space_char_code != CPDF_Font::kInvalidCharCode;
-        const int32_t space_character_width =
-            has_space_character ? font->GetCharWidth(space_char_code) : 0;
-        struct WidthContext {
-          CPDF_Font* font;
-          uint32_t char_code;
-        } context = {font.Get(), item.char_code_};
-        auto get_fallback_width = [](void* context, int32_t* width) {
-          auto* width_context = static_cast<WidthContext*>(context);
-          *width = GetCharWidth(width_context->char_code, width_context->font);
-          return true;
-        };
-        const auto rust_threshold = pdfium::rust::RustTextSpaceThreshold(
-            text_object->text_state().GetFontSizeH(), has_space_character,
-            space_character_width, &context, get_fallback_width);
-        threshold = rust_threshold.has_value()
-                        ? *rust_threshold
-                        : CalculateSpaceThreshold(
-                              font, text_object->text_state().GetFontSizeH(),
-                              item.char_code_);
-      } else {
-        threshold = CalculateSpaceThreshold(
-            font, text_object->text_state().GetFontSizeH(), item.char_code_);
+      spacing -= base_space;
+
+      if (spacing && i > 0) {
+        float threshold = 0.0f;
+        if (use_rust_) {
+          const uint32_t space_char_code = font->CharCodeFromUnicode(' ');
+          const bool has_space_character =
+              space_char_code != CPDF_Font::kInvalidCharCode;
+          const int32_t space_character_width =
+              has_space_character ? font->GetCharWidth(space_char_code) : 0;
+          struct WidthContext {
+            CPDF_Font* font;
+            uint32_t char_code;
+          } context = {font.Get(), item.char_code_};
+          auto get_fallback_width = [](void* context, int32_t* width) {
+            auto* width_context = static_cast<WidthContext*>(context);
+            *width =
+                GetCharWidth(width_context->char_code, width_context->font);
+            return true;
+          };
+          const auto rust_threshold = pdfium::rust::RustTextSpaceThreshold(
+              text_object->text_state().GetFontSizeH(), has_space_character,
+              space_character_width, &context, get_fallback_width);
+          threshold = rust_threshold.has_value()
+                          ? *rust_threshold
+                          : CalculateSpaceThreshold(
+                                font, text_object->text_state().GetFontSizeH(),
+                                item.char_code_);
+        } else {
+          threshold = CalculateSpaceThreshold(
+              font, text_object->text_state().GetFontSizeH(), item.char_code_);
+        }
+        if (threshold && spacing && spacing >= threshold) {
+          temp_text_buf_.AppendChar(L' ');
+          CFX_PointF origin = matrix.Transform(item.origin_);
+          temp_char_list_.push_back(CharInfo(
+              CharType::kGenerated, CPDF_Font::kInvalidCharCode, L' ', origin,
+              CFX_FloatRect(origin.x, origin.y, origin.x, origin.y),
+              form_matrix, text_object));
+        }
       }
-      if (threshold && spacing && spacing >= threshold) {
-        temp_text_buf_.AppendChar(L' ');
-        CFX_PointF origin = matrix.Transform(item.origin_);
-        temp_char_list_.push_back(CharInfo(
-            CharType::kGenerated, CPDF_Font::kInvalidCharCode, L' ', origin,
-            CFX_FloatRect(origin.x, origin.y, origin.x, origin.y), form_matrix,
-            text_object));
-      }
+
+      spacing = 0;
     }
-
-    spacing = 0;
     WideString unicode = font->UnicodeFromCharCode(item.char_code_);
     CharType char_type = CharType::kNormal;
     if (unicode.IsEmpty() && item.char_code_) {

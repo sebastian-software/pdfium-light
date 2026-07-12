@@ -89,6 +89,19 @@ extern "C" bool pdfium_rust_text_space_threshold(
     void* context,
     pdfium::rust::RustTextWidthCallback get_fallback_width,
     float* output);
+extern "C" bool pdfium_rust_text_item_space_plan(
+    size_t item_index,
+    float kerning,
+    bool previous_text_exists,
+    bool previous_is_space,
+    float font_size_h,
+    float base_space,
+    bool has_space_character,
+    int32_t space_character_width,
+    void* context,
+    pdfium::rust::RustTextWidthCallback get_fallback_width,
+    float* spacing,
+    bool* generate_space);
 extern "C" bool pdfium_rust_text_marked_content_state(
     bool has_actual_text,
     bool repeats_previous_mark,
@@ -440,12 +453,33 @@ std::optional<float> RustTextSpaceThreshold(
     void* context,
     RustTextWidthCallback get_fallback_width) {
   float output = 0.0f;
-  if (!pdfium_rust_text_space_threshold(
-          font_size_h, has_space_character, space_character_width, context,
-          get_fallback_width, &output)) {
+  if (!pdfium_rust_text_space_threshold(font_size_h, has_space_character,
+                                        space_character_width, context,
+                                        get_fallback_width, &output)) {
     return std::nullopt;
   }
   return output;
+}
+
+std::optional<RustTextItemSpacePlan> RustTextPlanItemSpace(
+    size_t item_index,
+    float kerning,
+    bool previous_text_exists,
+    bool previous_is_space,
+    float font_size_h,
+    float base_space,
+    bool has_space_character,
+    int32_t space_character_width,
+    void* context,
+    RustTextWidthCallback get_fallback_width) {
+  RustTextItemSpacePlan plan = {};
+  if (!pdfium_rust_text_item_space_plan(
+          item_index, kerning, previous_text_exists, previous_is_space,
+          font_size_h, base_space, has_space_character, space_character_width,
+          context, get_fallback_width, &plan.spacing, &plan.generate_space)) {
+    return std::nullopt;
+  }
+  return plan;
 }
 
 std::optional<RustTextMarkedContentState> RustTextSelectMarkedContentState(

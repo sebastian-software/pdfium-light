@@ -1402,6 +1402,43 @@ fn text_space_threshold(
     Some(threshold)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TextItemSpacePlan {
+    spacing: f32,
+    generate_space: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn text_item_space_plan(
+    item_index: usize,
+    kerning: f32,
+    previous_text_exists: bool,
+    previous_is_space: bool,
+    font_size_h: f32,
+    base_space: f32,
+    has_space_character: bool,
+    space_character_width: i32,
+    get_fallback_width: impl FnMut() -> Option<i32>,
+) -> Option<TextItemSpacePlan> {
+    let mut spacing = 0.0;
+    if item_index > 0 && kerning != 0.0 && previous_text_exists && !previous_is_space {
+        spacing = -font_size_h * kerning / 1000.0;
+    }
+    spacing -= base_space;
+    let generate_space = if spacing != 0.0 && item_index > 0 {
+        let threshold = text_space_threshold(
+            font_size_h,
+            has_space_character,
+            space_character_width,
+            get_fallback_width,
+        )?;
+        threshold != 0.0 && spacing >= threshold
+    } else {
+        false
+    };
+    Some(TextItemSpacePlan { spacing, generate_space })
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -1767,6 +1804,53 @@ pub unsafe extern "C" fn pdfium_rust_text_space_threshold(
         return false;
     };
     *output = result;
+    true
+}
+
+/// Plans the spacing decision for one text-object item.
+///
+/// # Safety
+/// The callback, context, and output pointers must remain valid for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_item_space_plan(
+    item_index: usize,
+    kerning: f32,
+    previous_text_exists: bool,
+    previous_is_space: bool,
+    font_size_h: f32,
+    base_space: f32,
+    has_space_character: bool,
+    space_character_width: i32,
+    context: *mut core::ffi::c_void,
+    get_fallback_width: TextWidthCallback,
+    spacing: *mut f32,
+    generate_space: *mut bool,
+) -> bool {
+    let (Some(spacing), Some(generate_space)) =
+        (unsafe { spacing.as_mut() }, unsafe { generate_space.as_mut() })
+    else {
+        return false;
+    };
+    let Some(plan) = text_item_space_plan(
+        item_index,
+        kerning,
+        previous_text_exists,
+        previous_is_space,
+        font_size_h,
+        base_space,
+        has_space_character,
+        space_character_width,
+        || {
+            let mut width = 0;
+            // SAFETY: The caller guarantees that the callback and context
+            // remain valid for this synchronous call.
+            unsafe { get_fallback_width(context, &mut width) }.then_some(width)
+        },
+    ) else {
+        return false;
+    };
+    *spacing = plan.spacing;
+    *generate_space = plan.generate_space;
     true
 }
 
@@ -2855,6 +2939,35 @@ mod tests {
         assert_eq!(Some(1.5), text_space_threshold(12.0, true, 250, || None));
         assert_eq!(Some(1.44), text_space_threshold(12.0, true, 500, || Some(600)));
         assert_eq!(Some(1.2), text_space_threshold(12.0, false, 0, || Some(200)));
+    }
+
+    #[test]
+    fn text_item_space_plan_should_own_kerning_and_base_space_state() {
+        assert_eq!(
+            Some(TextItemSpacePlan { spacing: -2.0, generate_space: false }),
+            text_item_space_plan(0, 0.0, false, false, 10.0, 2.0, true, 250, || None)
+        );
+        assert_eq!(
+            Some(TextItemSpacePlan { spacing: 3.0, generate_space: true }),
+            text_item_space_plan(1, -500.0, true, false, 10.0, 2.0, true, 250, || None)
+        );
+        assert_eq!(
+            Some(TextItemSpacePlan { spacing: -2.0, generate_space: false }),
+            text_item_space_plan(1, -500.0, true, true, 10.0, 2.0, true, 250, || None)
+        );
+    }
+
+    #[test]
+    fn text_item_space_plan_should_request_fallback_width_lazily() {
+        let mut calls = 0;
+        assert_eq!(
+            Some(TextItemSpacePlan { spacing: 3.0, generate_space: true }),
+            text_item_space_plan(1, -500.0, true, false, 10.0, 2.0, false, 0, || {
+                calls += 1;
+                Some(200)
+            })
+        );
+        assert_eq!(1, calls);
     }
 
     #[test]
