@@ -127,6 +127,7 @@ ACTIVE_SURFACES = (
     "public text selection-rectangle grouping, union, and result ownership",
     "public visible-text range planning across non-printing characters",
     "bounded and object-selected text assembly with space and line-break policy",
+    "temporary text-line space collapse and Bidi segment emission ordering",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",

@@ -142,6 +142,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `244e6f130` Phase 7 text-selection-rectangle slice | 21,087 | 14,276 | 241 | 5,456 | 6,570 | 286,525 | 7.36% | 6.82% | Rust owns selected-rectangle grouping, normalization, union, range handling, and retained public result state; C++ retains character metadata, the synchronous callback, public wrappers, and the separately selected oracle |
 | `9216b82ed` Phase 7 visible-text-range slice | 21,155 | 14,344 | 241 | 5,480 | 6,570 | 286,654 | 7.38% | 6.85% | Rust owns printable range-edge scanning and visible-buffer range calculation; C++ retains the text buffer, final substring copy, public wrapper, and the separately selected oracle |
 | `f9b2e8c81` Phase 7 predicate-text-assembly slice | 21,281 | 14,470 | 241 | 5,540 | 6,570 | 286,897 | 7.42% | 6.90% | Rust owns bounded/object-selected character assembly, intervening spaces, line-transition state, and CRLF insertion; C++ retains predicate evaluation, character metadata, final `WideString` conversion, public wrappers, and the separately selected oracle |
+| `7178d32c6` Phase 7 temporary-line-ordering slice | 21,466 | 14,655 | 241 | 5,643 | 6,570 | 287,282 | 7.47% | 6.98% | Rust owns duplicate-space normalization, Bidi direction carry, segment reversal/forward emission, source ordering, and RTL flags; C++ retains Unicode Bidi classification, character objects, normalization callbacks, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1385,6 +1386,24 @@ matrix compares required lengths, copied lengths, every UTF-16 code unit, and
 untouched buffer capacity for partial, full-page, and empty rectangles. All
 seven search-extension tests, all 67 public text tests, all 1,069 unit tests,
 and `pdfium_all` pass.
+
+The seventeenth Phase 7 slice moves temporary text-line normalization and Bidi
+emission planning into Rust. Rust owns duplicate-space keep indices, carried
+segment direction, neutral-after-RTL handling, reverse/forward segment order,
+source-character indices, and per-character RTL flags. C++ retains the native
+`CFX_BidiString` Unicode classifier, borrowed `CharInfo` values, mirror/
+normalization application in `AddCharInfo()`, and the separately selected
+erase/iteration oracle.
+
+The candidate replaces repeated middle erases (worst-case O(n²)) with linear
+keep-index construction and linear emission planning. It remains O(n) in
+auxiliary memory for the collapsed line, keep indices, native segments, and
+validated emissions; this resource change is intentional and measured here.
+Eleven native Rust text tests cover duplicate spaces, mixed LTR/RTL segments,
+reversal, and RTL flags. The same-process public differential compares count,
+return length, NUL termination, every UTF-16 code unit, and untouched capacity
+on mixed `ActualText` RTL content. All seven search-extension tests, all 68
+public text tests, all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
