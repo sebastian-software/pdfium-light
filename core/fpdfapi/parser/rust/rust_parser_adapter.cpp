@@ -56,22 +56,6 @@ extern "C" bool pdfium_rust_run_cross_ref_entry_mutation(
     bool archive_object_valid,
     void* context,
     pdfium::rust::CrossRefMutationCallback callback);
-extern "C" bool pdfium_rust_run_cross_ref_map_size(
-    uint32_t size,
-    void* context,
-    pdfium::rust::CrossRefMapSizeCallback callback);
-extern "C" bool pdfium_rust_cross_ref_merge_action(
-    bool has_new,
-    uint8_t current_type,
-    bool current_is_object_stream,
-    uint8_t new_type,
-    uint8_t* output);
-extern "C" bool pdfium_rust_cross_ref_table_add_action(
-    uint8_t object_type,
-    uint16_t current_generation,
-    bool current_is_object_stream,
-    uint16_t new_generation,
-    uint8_t* output);
 extern "C" bool pdfium_rust_cross_ref_index_pair(int32_t start,
                                                  int32_t count,
                                                  uint32_t* output_start,
@@ -232,40 +216,6 @@ bool RunRustCrossRefEntryMutation(uint8_t type_code,
          pdfium_rust_run_cross_ref_entry_mutation(
              type_code, normal_offset_fits, generation, archive_object_valid,
              context, callback);
-}
-
-bool RunRustCrossRefMapSize(uint32_t size,
-                            void* context,
-                            CrossRefMapSizeCallback callback) {
-  return context && callback &&
-         pdfium_rust_run_cross_ref_map_size(size, context, callback);
-}
-
-std::optional<uint8_t> RustCrossRefMergeAction(bool has_new,
-                                               uint8_t current_type,
-                                               bool current_is_object_stream,
-                                               uint8_t new_type) {
-  uint8_t output = 0;
-  if (!pdfium_rust_cross_ref_merge_action(
-          has_new, current_type, current_is_object_stream, new_type, &output) ||
-      output > 2) {
-    return std::nullopt;
-  }
-  return output;
-}
-
-std::optional<uint8_t> RustCrossRefTableAddAction(uint8_t object_type,
-                                                  uint16_t current_generation,
-                                                  bool current_is_object_stream,
-                                                  uint16_t new_generation) {
-  uint8_t output = 0;
-  if (!pdfium_rust_cross_ref_table_add_action(object_type, current_generation,
-                                              current_is_object_stream,
-                                              new_generation, &output) ||
-      output > 2) {
-    return std::nullopt;
-  }
-  return output;
 }
 
 std::optional<CrossRefIndexPair> RustCrossRefIndexPair(int32_t start,

@@ -39,48 +39,6 @@ fn cross_ref_entry_action(
     }
 }
 
-fn cross_ref_merge_action(
-    has_new: bool,
-    current_type: u8,
-    current_is_object_stream: bool,
-    new_type: u8,
-) -> Option<u8> {
-    const KEEP_NEW: u8 = 0;
-    const INSERT_CURRENT: u8 = 1;
-    const PRESERVE_OBJECT_STREAM: u8 = 2;
-    if current_type > 2 || new_type > 2 {
-        return None;
-    }
-    if !has_new {
-        return Some(INSERT_CURRENT);
-    }
-    Some(if current_type == 1 && new_type == 1 && current_is_object_stream {
-        PRESERVE_OBJECT_STREAM
-    } else {
-        KEEP_NEW
-    })
-}
-
-fn cross_ref_table_add_action(
-    object_type: u8,
-    current_generation: u16,
-    current_is_object_stream: bool,
-    new_generation: u16,
-) -> Option<u8> {
-    const SKIP: u8 = 0;
-    const APPLY: u8 = 1;
-    const APPLY_AND_MARK_ARCHIVE: u8 = 2;
-    match object_type {
-        1 => Some(if current_generation > new_generation { SKIP } else { APPLY }),
-        2 => Some(if current_generation > 0 || current_is_object_stream {
-            SKIP
-        } else {
-            APPLY_AND_MARK_ARCHIVE
-        }),
-        _ => None,
-    }
-}
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct CrossRefObjectInfo {
     object_type: u8,
@@ -324,7 +282,6 @@ fn scan_pdf_token(input: &[u8], position: usize) -> PdfTokenScan {
 }
 
 type CrossRefSegmentCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> bool;
-type CrossRefMapSizeCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u8, u32) -> bool;
 type CrossRefMutationCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u8) -> bool;
 
 /// Reads a variable-width big-endian cross-reference field.
@@ -465,95 +422,6 @@ pub unsafe extern "C" fn pdfium_rust_run_cross_ref_entry_mutation(
     // SAFETY: The caller guarantees a live context and synchronous callback
     // for this single selected mutation.
     unsafe { callback(context, action) }
-}
-
-/// Runs the ordered mutations that resize a cross-reference object map.
-///
-/// A zero size clears the map. A nonzero size first removes object numbers at
-/// or above the limit and then ensures that the final in-range object exists.
-///
-/// # Safety
-///
-/// `context` and `callback` must remain valid for the synchronous calls.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfium_rust_run_cross_ref_map_size(
-    size: u32,
-    context: *mut core::ffi::c_void,
-    callback: Option<CrossRefMapSizeCallback>,
-) -> bool {
-    const CLEAR: u8 = 0;
-    const TRUNCATE: u8 = 1;
-    const ENSURE_LAST: u8 = 2;
-
-    if context.is_null() {
-        return false;
-    }
-    let Some(callback) = callback else {
-        return false;
-    };
-    if size == 0 {
-        // SAFETY: The caller guarantees a live context and synchronous callback.
-        return unsafe { callback(context, CLEAR, 0) };
-    }
-    // SAFETY: The caller guarantees a live context and synchronous callback.
-    unsafe { callback(context, TRUNCATE, size) && callback(context, ENSURE_LAST, size - 1) }
-}
-
-/// Selects how one current cross-reference entry participates in an overlay.
-///
-/// # Safety
-///
-/// `output` must point to one writable action byte.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfium_rust_cross_ref_merge_action(
-    has_new: bool,
-    current_type: u8,
-    current_is_object_stream: bool,
-    new_type: u8,
-    output: *mut u8,
-) -> bool {
-    if output.is_null() {
-        return false;
-    }
-    let Some(action) =
-        cross_ref_merge_action(has_new, current_type, current_is_object_stream, new_type)
-    else {
-        return false;
-    };
-    // SAFETY: The checked output pointer refers to one writable action byte.
-    unsafe {
-        *output = action;
-    }
-    true
-}
-
-/// Selects whether a normal or compressed cross-reference entry is admitted.
-///
-/// # Safety
-///
-/// `output` must point to one writable action byte.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfium_rust_cross_ref_table_add_action(
-    object_type: u8,
-    current_generation: u16,
-    current_is_object_stream: bool,
-    new_generation: u16,
-    output: *mut u8,
-) -> bool {
-    if output.is_null() {
-        return false;
-    }
-    let Some(action) = cross_ref_table_add_action(
-        object_type,
-        current_generation,
-        current_is_object_stream,
-        new_generation,
-    ) else {
-        return false;
-    };
-    // SAFETY: The checked output pointer refers to one writable action byte.
-    unsafe { *output = action };
-    true
 }
 
 type CrossRefSnapshotCallback =
@@ -1009,12 +877,6 @@ mod tests {
         calls: usize,
     }
 
-    struct MapSizeState {
-        actions: [(u8, u32); 2],
-        calls: usize,
-        fail_at: Option<usize>,
-    }
-
     struct SnapshotState {
         object_numbers: [u32; 4],
         count: usize,
@@ -1026,19 +888,6 @@ mod tests {
         state.action = action;
         state.calls += 1;
         true
-    }
-
-    unsafe extern "C" fn record_map_size(
-        context: *mut core::ffi::c_void,
-        action: u8,
-        value: u32,
-    ) -> bool {
-        // SAFETY: The test passes one live `MapSizeState` for the call.
-        let state = unsafe { &mut *context.cast::<MapSizeState>() };
-        let call = state.calls;
-        state.actions[call] = (action, value);
-        state.calls += 1;
-        state.fail_at != Some(call)
     }
 
     unsafe extern "C" fn record_snapshot(
@@ -1168,95 +1017,6 @@ mod tests {
             )
         });
         assert_eq!(0, state.calls);
-    }
-
-    #[test]
-    fn cross_ref_map_size_should_sequence_clear_truncate_and_ensure() {
-        let mut state = MapSizeState { actions: [(u8::MAX, u32::MAX); 2], calls: 0, fail_at: None };
-        // SAFETY: The context remains live for the synchronous callback.
-        assert!(unsafe {
-            pdfium_rust_run_cross_ref_map_size(
-                0,
-                (&mut state as *mut MapSizeState).cast(),
-                Some(record_map_size),
-            )
-        });
-        assert_eq!([(0, 0), (u8::MAX, u32::MAX)], state.actions);
-        assert_eq!(1, state.calls);
-
-        state.calls = 0;
-        // SAFETY: The context remains live for both synchronous callbacks.
-        assert!(unsafe {
-            pdfium_rust_run_cross_ref_map_size(
-                7,
-                (&mut state as *mut MapSizeState).cast(),
-                Some(record_map_size),
-            )
-        });
-        assert_eq!([(1, 7), (2, 6)], state.actions);
-        assert_eq!(2, state.calls);
-
-        state.calls = 0;
-        state.fail_at = Some(0);
-        // SAFETY: The context remains live; failure stops before ensure-last.
-        assert!(!unsafe {
-            pdfium_rust_run_cross_ref_map_size(
-                u32::MAX,
-                (&mut state as *mut MapSizeState).cast(),
-                Some(record_map_size),
-            )
-        });
-        assert_eq!([(1, u32::MAX), (2, 6)], state.actions);
-        assert_eq!(1, state.calls);
-
-        assert!(!unsafe {
-            pdfium_rust_run_cross_ref_map_size(1, core::ptr::null_mut(), Some(record_map_size))
-        });
-        assert!(!unsafe {
-            pdfium_rust_run_cross_ref_map_size(1, (&mut state as *mut MapSizeState).cast(), None)
-        });
-    }
-
-    #[test]
-    fn cross_ref_merge_action_should_preserve_overlay_precedence_and_stream_flag() {
-        assert_eq!(Some(1), cross_ref_merge_action(false, 0, false, 0));
-        assert_eq!(Some(0), cross_ref_merge_action(true, 0, true, 1));
-        assert_eq!(Some(0), cross_ref_merge_action(true, 1, false, 1));
-        assert_eq!(Some(2), cross_ref_merge_action(true, 1, true, 1));
-        assert_eq!(Some(0), cross_ref_merge_action(true, 1, true, 2));
-        assert_eq!(None, cross_ref_merge_action(true, 3, false, 0));
-        assert_eq!(None, cross_ref_merge_action(true, 0, false, 3));
-
-        let mut output = u8::MAX;
-        // SAFETY: The output remains live for both calls.
-        assert!(unsafe { pdfium_rust_cross_ref_merge_action(true, 1, true, 1, &mut output) });
-        assert_eq!(2, output);
-        assert!(!unsafe { pdfium_rust_cross_ref_merge_action(true, 3, false, 0, &mut output) });
-        assert_eq!(2, output);
-        assert!(!unsafe {
-            pdfium_rust_cross_ref_merge_action(true, 1, true, 1, core::ptr::null_mut())
-        });
-    }
-
-    #[test]
-    fn cross_ref_table_add_action_should_preserve_generation_and_stream_guards() {
-        assert_eq!(Some(1), cross_ref_table_add_action(1, 4, false, 4));
-        assert_eq!(Some(1), cross_ref_table_add_action(1, 4, true, 5));
-        assert_eq!(Some(0), cross_ref_table_add_action(1, 5, false, 4));
-        assert_eq!(Some(2), cross_ref_table_add_action(2, 0, false, 0));
-        assert_eq!(Some(0), cross_ref_table_add_action(2, 1, false, 0));
-        assert_eq!(Some(0), cross_ref_table_add_action(2, 0, true, 0));
-        assert_eq!(None, cross_ref_table_add_action(0, 0, false, 0));
-
-        let mut output = u8::MAX;
-        // SAFETY: The output remains live for both calls.
-        assert!(unsafe { pdfium_rust_cross_ref_table_add_action(2, 0, false, 0, &mut output) });
-        assert_eq!(2, output);
-        assert!(!unsafe { pdfium_rust_cross_ref_table_add_action(0, 0, false, 0, &mut output) });
-        assert_eq!(2, output);
-        assert!(!unsafe {
-            pdfium_rust_cross_ref_table_add_action(1, 0, false, 0, core::ptr::null_mut())
-        });
     }
 
     #[test]
