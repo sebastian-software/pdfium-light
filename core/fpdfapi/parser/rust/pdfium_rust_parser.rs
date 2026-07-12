@@ -860,6 +860,12 @@ struct NameTreeSearchNode {
     kid_count: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NameTreeInsertionPlan {
+    Duplicate,
+    Insert { node: usize, pair_index: usize },
+}
+
 fn name_tree_admit_array(
     node: usize,
     array_kind: u8,
@@ -961,6 +967,158 @@ fn name_tree_lookup(
         }
     }
     Some(0)
+}
+
+fn name_tree_plan_insertion_visit(
+    node: usize,
+    depth: usize,
+    visited: &mut std::collections::HashSet<u32>,
+    candidate: &mut Option<(usize, usize)>,
+    describe: &mut impl FnMut(usize) -> Option<NameTreeSearchNode>,
+    read_token: &mut impl FnMut(usize, u8, usize) -> Option<u32>,
+    compare_limits: &mut impl FnMut(usize) -> Option<(i32, i32)>,
+    read_name: &mut impl FnMut(usize, usize) -> Option<i32>,
+    read_kid: &mut impl FnMut(usize, usize) -> Option<(usize, u32)>,
+) -> Option<bool> {
+    if node == 0 || depth > 32 {
+        return None;
+    }
+    let mut description = describe(node)?;
+    if description.has_names
+        && !name_tree_admit_array(
+            node,
+            1,
+            description.names_token,
+            description.names_item_count,
+            visited,
+            read_token,
+        )?
+    {
+        description.has_names = false;
+    }
+    if description.has_limits
+        && !name_tree_admit_array(
+            node,
+            0,
+            description.limits_token,
+            description.limits_item_count,
+            visited,
+            read_token,
+        )?
+    {
+        description.has_limits = false;
+    }
+    if description.has_limits {
+        let (query_to_lower, query_to_upper) = compare_limits(node)?;
+        if query_to_lower < 0 {
+            return Some(false);
+        }
+        if query_to_upper > 0 && description.has_names {
+            *candidate = Some((node, description.name_count));
+            return Some(false);
+        }
+    }
+    if description.has_names {
+        for index in 0..description.name_count {
+            let name_to_query = read_name(node, index)?;
+            if name_to_query > 0 {
+                break;
+            }
+            *candidate = Some((node, index.checked_add(1)?));
+            if name_to_query == 0 {
+                return Some(true);
+            }
+        }
+        return Some(false);
+    }
+    if description.kid_count == 0
+        || (description.kids_token != 0 && !visited.insert(description.kids_token))
+    {
+        return Some(false);
+    }
+    for index in 0..description.kid_count {
+        let (kid, token) = read_kid(node, index)?;
+        if kid == 0 || (token != 0 && !visited.insert(token)) {
+            continue;
+        }
+        if name_tree_plan_insertion_visit(
+            kid,
+            depth + 1,
+            visited,
+            candidate,
+            describe,
+            read_token,
+            compare_limits,
+            read_name,
+            read_kid,
+        )? {
+            return Some(true);
+        }
+    }
+    Some(false)
+}
+
+fn name_tree_leftmost_leaf(
+    node: usize,
+    depth: usize,
+    describe: &mut impl FnMut(usize) -> Option<NameTreeSearchNode>,
+    read_kid: &mut impl FnMut(usize, usize) -> Option<(usize, u32)>,
+) -> Option<Option<usize>> {
+    if node == 0 || depth > 32 {
+        return None;
+    }
+    let description = describe(node)?;
+    if description.has_names {
+        return Some((description.name_count > 0).then_some(node));
+    }
+    for index in 0..description.kid_count {
+        let (kid, _) = read_kid(node, index)?;
+        if kid == 0 {
+            continue;
+        }
+        let found = name_tree_leftmost_leaf(kid, depth + 1, describe, read_kid)?;
+        if found.is_some() {
+            return Some(found);
+        }
+    }
+    Some(None)
+}
+
+fn name_tree_plan_insertion(
+    root: usize,
+    describe: &mut impl FnMut(usize) -> Option<NameTreeSearchNode>,
+    read_token: &mut impl FnMut(usize, u8, usize) -> Option<u32>,
+    compare_limits: &mut impl FnMut(usize) -> Option<(i32, i32)>,
+    read_name: &mut impl FnMut(usize, usize) -> Option<i32>,
+    read_kid: &mut impl FnMut(usize, usize) -> Option<(usize, u32)>,
+) -> Option<NameTreeInsertionPlan> {
+    let root_description = describe(root)?;
+    if root_description.has_names
+        && root_description.name_count == 0
+        && root_description.kid_count == 0
+    {
+        return Some(NameTreeInsertionPlan::Insert { node: root, pair_index: 0 });
+    }
+
+    let mut candidate = None;
+    if name_tree_plan_insertion_visit(
+        root,
+        0,
+        &mut std::collections::HashSet::new(),
+        &mut candidate,
+        describe,
+        read_token,
+        compare_limits,
+        read_name,
+        read_kid,
+    )? {
+        return Some(NameTreeInsertionPlan::Duplicate);
+    }
+    if let Some((node, pair_index)) = candidate {
+        return Some(NameTreeInsertionPlan::Insert { node, pair_index });
+    }
+    let node = name_tree_leftmost_leaf(root, 0, describe, read_kid)??;
+    Some(NameTreeInsertionPlan::Insert { node, pair_index: 0 })
 }
 
 fn find_link_at_point(
@@ -4183,6 +4341,102 @@ pub unsafe extern "C" fn pdfium_rust_name_tree_find_index(
     true
 }
 
+/// Plans a decoded-name insertion into a borrowed PDF name tree.
+///
+/// # Safety
+/// Callbacks, context, and outputs must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_name_tree_plan_insertion(
+    root: usize,
+    context: *mut core::ffi::c_void,
+    describe: NameTreeSearchDescribeCallback,
+    read_token: NameTreeSearchTokenCallback,
+    compare_limits: NameTreeSearchLimitsCallback,
+    read_name: NameTreeSearchNameCallback,
+    read_kid: NameTreeSearchKidCallback,
+    duplicate: *mut bool,
+    node: *mut usize,
+    pair_index: *mut usize,
+) -> bool {
+    let (Some(duplicate), Some(node), Some(pair_index)) =
+        (unsafe { duplicate.as_mut() }, unsafe { node.as_mut() }, unsafe { pair_index.as_mut() })
+    else {
+        return false;
+    };
+    let mut describe_node = |node| {
+        let mut result = NameTreeSearchNode {
+            has_limits: false,
+            limits_token: 0,
+            limits_item_count: 0,
+            has_names: false,
+            names_token: 0,
+            names_item_count: 0,
+            name_count: 0,
+            kids_token: 0,
+            kid_count: 0,
+        };
+        unsafe {
+            describe(
+                context,
+                node,
+                &mut result.has_limits,
+                &mut result.limits_token,
+                &mut result.limits_item_count,
+                &mut result.has_names,
+                &mut result.names_token,
+                &mut result.names_item_count,
+                &mut result.name_count,
+                &mut result.kids_token,
+                &mut result.kid_count,
+            )
+        }
+        .then_some(result)
+    };
+    let mut read_object_token = |node, array_kind, index| {
+        let mut token = 0;
+        unsafe { read_token(context, node, array_kind, index, &mut token) }.then_some(token)
+    };
+    let mut compare_node_limits = |node| {
+        let mut lower = 0;
+        let mut upper = 0;
+        unsafe { compare_limits(context, node, &mut lower, &mut upper) }.then_some((lower, upper))
+    };
+    let mut read_name_entry = |node, index| {
+        let mut comparison = 0;
+        let mut value = 0;
+        unsafe { read_name(context, node, index, &mut comparison, &mut value) }
+            .then_some(comparison)
+    };
+    let mut read_kid_node = |node, index| {
+        let mut kid = 0;
+        let mut token = 0;
+        unsafe { read_kid(context, node, index, &mut kid, &mut token) }.then_some((kid, token))
+    };
+    let Some(result) = name_tree_plan_insertion(
+        root,
+        &mut describe_node,
+        &mut read_object_token,
+        &mut compare_node_limits,
+        &mut read_name_entry,
+        &mut read_kid_node,
+    ) else {
+        return false;
+    };
+    match result {
+        NameTreeInsertionPlan::Duplicate => {
+            *duplicate = true;
+            *node = 0;
+            *pair_index = 0;
+        }
+        NameTreeInsertionPlan::Insert { node: result_node, pair_index: result_index } => {
+            *duplicate = false;
+            *node = result_node;
+            *pair_index = result_index;
+        }
+    }
+    true
+}
+
 /// Looks up a decoded name in a borrowed PDF name tree.
 ///
 /// # Safety
@@ -6430,6 +6684,183 @@ mod tests {
                 &mut |_| Some((0, 0)),
                 &mut |_, _| Some((0, 1)),
                 &mut |_, _| Some((0, 0)),
+            )
+        );
+    }
+
+    #[test]
+    fn name_tree_insertion_should_plan_empty_prepend_middle_append_and_duplicate() {
+        let plan_leaf = |comparisons: &[i32], limits: Option<(i32, i32)>| {
+            name_tree_plan_insertion(
+                1,
+                &mut |_| {
+                    Some(NameTreeSearchNode {
+                        has_limits: limits.is_some(),
+                        limits_token: 0,
+                        limits_item_count: 0,
+                        has_names: true,
+                        names_token: 0,
+                        names_item_count: comparisons.len() * 2,
+                        name_count: comparisons.len(),
+                        kids_token: 0,
+                        kid_count: 0,
+                    })
+                },
+                &mut |_, _, _| Some(0),
+                &mut |_| limits,
+                &mut |_, index| comparisons.get(index).copied(),
+                &mut |_, _| None,
+            )
+        };
+
+        assert_eq!(
+            Some(NameTreeInsertionPlan::Insert { node: 1, pair_index: 0 }),
+            plan_leaf(&[], None)
+        );
+        assert_eq!(
+            Some(NameTreeInsertionPlan::Insert { node: 1, pair_index: 0 }),
+            plan_leaf(&[1, 1], None)
+        );
+        assert_eq!(
+            Some(NameTreeInsertionPlan::Insert { node: 1, pair_index: 1 }),
+            plan_leaf(&[-1, 1], None)
+        );
+        assert_eq!(
+            Some(NameTreeInsertionPlan::Insert { node: 1, pair_index: 2 }),
+            plan_leaf(&[-1, -1], None)
+        );
+        assert_eq!(Some(NameTreeInsertionPlan::Duplicate), plan_leaf(&[-1, 0], None));
+        assert_eq!(
+            Some(NameTreeInsertionPlan::Insert { node: 1, pair_index: 2 }),
+            plan_leaf(&[1, 1], Some((1, 1)))
+        );
+    }
+
+    #[test]
+    fn name_tree_insertion_should_preserve_leftmost_order_and_object_admission() {
+        let describe = |node| {
+            Some(match node {
+                1 => NameTreeSearchNode {
+                    has_limits: false,
+                    limits_token: 0,
+                    limits_item_count: 0,
+                    has_names: false,
+                    names_token: 0,
+                    names_item_count: 0,
+                    name_count: 0,
+                    kids_token: 10,
+                    kid_count: 2,
+                },
+                2 | 3 => NameTreeSearchNode {
+                    has_limits: true,
+                    limits_token: 0,
+                    limits_item_count: 0,
+                    has_names: true,
+                    names_token: 0,
+                    names_item_count: 2,
+                    name_count: 1,
+                    kids_token: 0,
+                    kid_count: 0,
+                },
+                _ => return None,
+            })
+        };
+        assert_eq!(
+            Some(NameTreeInsertionPlan::Insert { node: 2, pair_index: 0 }),
+            name_tree_plan_insertion(
+                1,
+                &mut { describe },
+                &mut |_, _, _| Some(0),
+                &mut |_| Some((-1, 0)),
+                &mut |_, _| Some(1),
+                &mut |_, index| Some(if index == 0 { (2, 0) } else { (3, 0) }),
+            )
+        );
+        assert_eq!(
+            Some(NameTreeInsertionPlan::Duplicate),
+            name_tree_plan_insertion(
+                1,
+                &mut { describe },
+                &mut |_, _, _| Some(0),
+                &mut |_| Some((0, 0)),
+                &mut |node, _| Some(if node == 2 { -1 } else { 0 }),
+                &mut |_, index| Some(if index == 0 { (2, 0) } else { (3, 0) }),
+            )
+        );
+        assert_eq!(
+            Some(NameTreeInsertionPlan::Insert { node: 2, pair_index: 1 }),
+            name_tree_plan_insertion(
+                1,
+                &mut { describe },
+                &mut |_, _, _| Some(0),
+                &mut |_| Some((0, 0)),
+                &mut |node, _| Some(if node == 2 { -1 } else { 0 }),
+                &mut |_, index| Some(if index == 0 { (2, 40) } else { (3, 40) }),
+            )
+        );
+
+        let mut admitted = Vec::new();
+        let result = name_tree_plan_insertion(
+            2,
+            &mut |_| {
+                Some(NameTreeSearchNode {
+                    has_limits: true,
+                    limits_token: 20,
+                    limits_item_count: 2,
+                    has_names: true,
+                    names_token: 30,
+                    names_item_count: 2,
+                    name_count: 1,
+                    kids_token: 0,
+                    kid_count: 0,
+                })
+            },
+            &mut |_, kind, index| {
+                admitted.push((kind, index));
+                Some(100 + u32::from(kind) * 10 + index as u32)
+            },
+            &mut |_| Some((0, 0)),
+            &mut |_, _| Some(-1),
+            &mut |_, _| None,
+        );
+        assert_eq!(Some(NameTreeInsertionPlan::Insert { node: 2, pair_index: 1 }), result);
+        assert_eq!(vec![(1, 0), (1, 1), (0, 0), (0, 1)], admitted);
+    }
+
+    #[test]
+    fn name_tree_insertion_should_reject_callback_and_depth_failures() {
+        assert_eq!(
+            None,
+            name_tree_plan_insertion(
+                1,
+                &mut |_| None,
+                &mut |_, _, _| Some(0),
+                &mut |_| Some((0, 0)),
+                &mut |_, _| Some(0),
+                &mut |_, _| Some((0, 0)),
+            )
+        );
+        assert_eq!(
+            None,
+            name_tree_plan_insertion(
+                1,
+                &mut |_node| {
+                    Some(NameTreeSearchNode {
+                        has_limits: false,
+                        limits_token: 0,
+                        limits_item_count: 0,
+                        has_names: false,
+                        names_token: 0,
+                        names_item_count: 0,
+                        name_count: 0,
+                        kids_token: 0,
+                        kid_count: 1,
+                    })
+                },
+                &mut |_, _, _| Some(0),
+                &mut |_| Some((0, 0)),
+                &mut |_, _| Some(0),
+                &mut |node, _| Some((node + 1, 0)),
             )
         );
     }

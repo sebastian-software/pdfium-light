@@ -388,6 +388,17 @@ extern "C" bool pdfium_rust_name_tree_find_index(
     bool* found,
     uintptr_t* node,
     size_t* pair_index);
+extern "C" bool pdfium_rust_name_tree_plan_insertion(
+    uintptr_t root,
+    void* context,
+    pdfium::rust::RustNameTreeSearchDescribeCallback describe,
+    pdfium::rust::RustNameTreeSearchTokenCallback read_token,
+    pdfium::rust::RustNameTreeSearchLimitsCallback compare_limits,
+    pdfium::rust::RustNameTreeSearchNameCallback read_name,
+    pdfium::rust::RustNameTreeSearchKidCallback read_kid,
+    bool* duplicate,
+    uintptr_t* node,
+    size_t* pair_index);
 extern "C" bool pdfium_rust_name_tree_lookup(
     uintptr_t root,
     void* context,
@@ -1344,6 +1355,23 @@ std::optional<RustNameTreeIndexResult> RustNameTreeFindIndex(
   if (!pdfium_rust_name_tree_find_index(
           root, target, context, describe, read_kid, &result.found,
           &result.node, &result.pair_index)) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<RustNameTreeInsertionResult> RustNameTreePlanInsertion(
+    uintptr_t root,
+    void* context,
+    RustNameTreeSearchDescribeCallback describe,
+    RustNameTreeSearchTokenCallback read_token,
+    RustNameTreeSearchLimitsCallback compare_limits,
+    RustNameTreeSearchNameCallback read_name,
+    RustNameTreeSearchKidCallback read_kid) {
+  RustNameTreeInsertionResult result = {};
+  if (!pdfium_rust_name_tree_plan_insertion(
+          root, context, describe, read_token, compare_limits, read_name,
+          read_kid, &result.duplicate, &result.node, &result.pair_index)) {
     return std::nullopt;
   }
   return result;

@@ -149,6 +149,20 @@ bool CompareNameTreeSearchLimits(void* opaque,
   return true;
 }
 
+bool NormalizeAndCompareNameTreeSearchLimits(void* opaque,
+                                             uintptr_t node,
+                                             int32_t* query_to_lower,
+                                             int32_t* query_to_upper) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> limits = dictionary->GetMutableArrayFor("Limits");
+  if (!limits) {
+    return false;
+  }
+  TrimNodeLimits(limits.Get());
+  return CompareNameTreeSearchLimits(opaque, node, query_to_lower,
+                                     query_to_upper);
+}
+
 bool ReadNameTreeSearchName(void* opaque,
                             uintptr_t node,
                             size_t index,
@@ -694,18 +708,41 @@ size_t CPDF_NameTree::GetCount() const {
 bool CPDF_NameTree::AddValueAndName(RetainPtr<CPDF_Object> pObj,
                                     const WideString& name) {
   NodeToInsert node_to_insert;
-  // Handle the corner case where the root node is empty. i.e. No kids and no
-  // names. In which case, just insert into it and skip all the searches.
-  RetainPtr<CPDF_Array> pNames =
-      root_->GetMutableArrayFor(pdfium::catalog::kNames);
-  if (pNames && pNames->IsEmpty() && !root_->GetArrayFor("Kids")) {
-    node_to_insert.names = pNames;
+  if (pdfium::rust::UseRustParserCandidate()) {
+    NameTreeSearchContext context = {&name};
+    std::optional<pdfium::rust::RustNameTreeInsertionResult> result =
+        pdfium::rust::RustNameTreePlanInsertion(
+            reinterpret_cast<uintptr_t>(root_.Get()), &context,
+            DescribeNameTreeSearchNode, ReadNameTreeSearchToken,
+            NormalizeAndCompareNameTreeSearchLimits, ReadNameTreeSearchName,
+            ReadNameTreeSearchKid);
+    if (result.has_value()) {
+      if (result->duplicate) {
+        return false;
+      }
+      auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(result->node);
+      RetainPtr<CPDF_Array> names =
+          dictionary ? dictionary->GetMutableArrayFor("Names") : nullptr;
+      if (names && result->pair_index <= names->size() / 2) {
+        node_to_insert.names = std::move(names);
+        node_to_insert.index =
+            pdfium::checked_cast<int32_t>(result->pair_index) - 1;
+      }
+    }
   }
 
   if (!node_to_insert.names) {
-    // Fail if the tree already contains this name or if the tree is too deep.
-    if (SearchNameNodeByName(root_, name, &node_to_insert)) {
-      return false;
+    // Handle the corner case where the root node is empty. i.e. No kids and no
+    // names. In which case, just insert into it and skip all the searches.
+    RetainPtr<CPDF_Array> names =
+        root_->GetMutableArrayFor(pdfium::catalog::kNames);
+    if (names && names->IsEmpty() && !root_->GetArrayFor("Kids")) {
+      node_to_insert.names = std::move(names);
+    } else {
+      // Fail if the tree already contains this name or if the tree is too deep.
+      if (SearchNameNodeByName(root_, name, &node_to_insert)) {
+        return false;
+      }
     }
   }
 

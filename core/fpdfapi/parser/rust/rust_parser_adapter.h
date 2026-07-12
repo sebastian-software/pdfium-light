@@ -592,6 +592,19 @@ using RustNameTreeSearchKidCallback = bool (*)(void* context,
                                                size_t index,
                                                uintptr_t* kid,
                                                uint32_t* token);
+struct RustNameTreeInsertionResult {
+  bool duplicate;
+  uintptr_t node;
+  size_t pair_index;
+};
+std::optional<RustNameTreeInsertionResult> RustNameTreePlanInsertion(
+    uintptr_t root,
+    void* context,
+    RustNameTreeSearchDescribeCallback describe,
+    RustNameTreeSearchTokenCallback read_token,
+    RustNameTreeSearchLimitsCallback compare_limits,
+    RustNameTreeSearchNameCallback read_name,
+    RustNameTreeSearchKidCallback read_kid);
 std::optional<uintptr_t> RustNameTreeLookup(
     uintptr_t root,
     void* context,
