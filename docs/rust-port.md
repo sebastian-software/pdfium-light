@@ -170,6 +170,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `99e2c736d` Phase 7 public-link-enumeration slice | 24,581 | 17,770 | 241 | 6,969 | 6,570 | 293,570 | 8.37% | 8.27% | Rust owns public annotation-cursor normalization, forward scan, first-link selection, and miss/error state; C++ retains annotation arrays, dictionary/subtype access, selected handles, and the separately selected oracle loop |
 | `8f97a67d8` Phase 7 document-number-tree slice | 24,924 | 18,113 | 241 | 7,054 | 6,570 | 294,097 | 8.47% | 8.41% | Rust owns exact and greatest-key-at-most traversal, limits pruning, forward/reverse ordering, and cycle guarding; C++ retains dictionaries, arrays, object lifetimes, borrowed callbacks, and the separately selected oracle traversals |
 | `b15eef798` Phase 7 public-destination-page slice | 24,983 | 18,172 | 241 | 7,085 | 6,570 | 294,209 | 8.49% | 8.44% | Rust owns numeric/dictionary/invalid destination-target routing and callback admission; C++ retains destination objects, document page indexing, borrowed lookup, and the separately selected oracle branches |
+| `202e134a3` Phase 7 document-name-tree-index slice | 25,202 | 18,391 | 241 | 7,153 | 6,570 | 294,599 | 8.55% | 8.52% | Rust owns name-tree pair counting, depth-first index traversal, cumulative leaf offsets, the depth bound, and count-cycle guarding; C++ retains dictionaries, arrays, decoded names, values, borrowed callbacks, and the separately selected oracle traversals |
 
 ## Toolchain
 
@@ -1884,6 +1885,24 @@ page indices for a direct number, valid page reference, alternate number, and
 invalid reference. The three page-cache regressions and public link-target path
 also pass. All seven focused cases, all 52 parser-native tests, all 1,071 unit
 tests, and `pdfium_all` pass.
+
+The forty-fifth Phase 7 slice moves read-only name-tree counting and indexed
+lookup into Rust. Rust owns leaf-pair counting, depth-first child order,
+cumulative pair offsets, target-leaf/pair selection, the historical 32-level
+bound, and cycle guarding for count traversal. C++ retains dictionaries,
+arrays, decoded name strings and values, supplies synchronous borrowed node and
+child callbacks, and preserves the complete original count and index
+traversals as separately selected oracles. Name-based lookup and all
+insert/delete mutation remain C++ for the next slices.
+
+Both operations remain O(nodes) in time. Indexed lookup uses O(depth) stack;
+counting also uses O(nodes) visited-set storage, matching its retained cycle
+guard. One parser-native test covers multiple leaves, exact pair order,
+out-of-range lookup, depth cutoff, and a count cycle. A same-process unit
+differential compares total count, all five values/names, and two misses in the
+three-level fixture. All seven NameTree unit cases and all twelve public
+Attachment cases, including mutation and save/reload, pass. Evidence also
+includes all 53 parser-native tests, all 1,072 unit tests, and `pdfium_all`.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
