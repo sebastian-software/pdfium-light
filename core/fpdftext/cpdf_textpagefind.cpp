@@ -19,7 +19,6 @@
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
 #include "core/fxcrt/fx_unicode.h"
-#include "core/fxcrt/numerics/safe_conversions.h"
 #include "core/fxcrt/ptr_util.h"
 #include "core/fxcrt/stl_util.h"
 
@@ -396,7 +395,7 @@ int CPDF_TextPageFind::GetCurOrder() const {
   }
   std::optional<std::pair<size_t, size_t>> result = rust_find_->GetResult();
   CHECK(result.has_value());
-  return GetCharIndex(pdfium::checked_cast<int>(result->first));
+  return GetCharIndex(static_cast<int>(result->first));
 }
 
 int CPDF_TextPageFind::GetMatchedCount() const {
@@ -408,8 +407,8 @@ int CPDF_TextPageFind::GetMatchedCount() const {
     result_start = result->first;
     result_end = result->second;
   }
-  int resStart = GetCharIndex(pdfium::checked_cast<int>(result_start));
-  int resEnd = GetCharIndex(pdfium::checked_cast<int>(result_end));
+  int resStart = GetCharIndex(static_cast<int>(result_start));
+  int resEnd = GetCharIndex(static_cast<int>(result_end));
   return resEnd - resStart + 1;
 }
 
