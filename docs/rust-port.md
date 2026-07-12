@@ -158,6 +158,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `f0a4139db` Phase 7 duplicate-character slice | 23,243 | 16,432 | 241 | 6,455 | 6,570 | 290,615 | 8.00% | 7.73% | Rust owns the seven-character reverse scan, code/font/origin equality, threshold comparison, suppression, and first-item space-trim action; C++ retains character/font lifetimes, buffer mutation, and the separately selected oracle |
 | `ddf10ee58` Phase 7 text-object-grouping slice | 23,393 | 16,582 | 241 | 6,504 | 6,570 | 290,954 | 8.04% | 7.79% | Rust owns zero-width/duplicate/empty-item actions, line-change thresholding, flush/append selection, and stable horizontal insertion index; C++ retains object/font/matrix lifetimes, transformed geometry callbacks, native vector mutation, and the separately selected oracle |
 | `01e74216d` Phase 7 public-redaction slice | 23,638 | 16,827 | 241 | 6,591 | 6,570 | 291,422 | 8.11% | 7.90% | Rust owns public redaction rectangle validation, intersection/containment policy, supported-object checks, atomic removal-index planning, and result status selection; C++ retains page/object lifetimes, applies the validated mutation, and preserves the complete separately selected oracle |
+| `764015ee2` Phase 7 indexed-object-insertion slice | 23,724 | 16,913 | 241 | 6,630 | 6,570 | 291,637 | 8.13% | 7.93% | Rust owns insertion-index validation, lazy neighbor lookup, content-stream inheritance, and dirty-stream selection; C++ retains page-object lifetimes, applies the validated deque/stream mutation, and preserves the complete separately selected oracle |
 
 ## Toolchain
 
@@ -1667,6 +1668,25 @@ parser-native tests, all 1,069 unit tests, and `pdfium_all` pass. The retained
 save/render regression reaches the expected object and text state under both
 implementations; its four-pixel macOS golden mismatch is identical in the C++
 oracle and Rust candidate.
+
+The thirty-third Phase 7 slice moves indexed page-object insertion planning
+into Rust. Rust owns bounds validation for the requested index, lazy lookup of
+the following object's content-stream number, stream inheritance for new
+streamless objects, and the decision to dirty an inherited stream. C++ retains
+page-object ownership, supplies the neighboring stream through a synchronous
+callback, and applies the validated content-stream, dirty-set, and deque
+mutations; the complete original implementation remains the separately
+selected oracle.
+
+The candidate remains O(1) outside the retained deque insertion and uses O(1)
+auxiliary storage, matching the oracle. One parser-native test covers invalid,
+append, inherited-stream, and already-assigned-stream plans. The public
+same-process differential compares rejected and successful insertions, object
+types, content-stream IDs, and extracted text on identical split-stream pages,
+then repeats the comparison after content generation, save, and reload. The
+existing cross-stream regression independently proves exact stream ordering.
+All 40 parser-native tests, both focused public cases, all 1,069 unit tests,
+and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
