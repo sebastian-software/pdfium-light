@@ -129,6 +129,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `0b3f209ba` Phase 7 document-page-index slice | 18,341 | 11,530 | 241 | 4,708 | 6,570 | 282,125 | 6.50% | 5.60% | Rust owns the document page object-number cache, unloaded slots, lookup, resize, insertion, removal, and membership; C++ retains page-tree traversal and tree-dictionary mutation |
 | `3eac0d9c0` Phase 7 page-move-planning slice | 18,414 | 11,603 | 241 | 4,732 | 6,570 | 282,204 | 6.53% | 5.64% | Rust validates public page-move cardinality, ranges, destination, and uniqueness and produces descending deletion order; C++ retains page dictionaries, extension callbacks, and tree mutation |
 | `fa444d71e` Phase 7 page-tree-count slice | 18,682 | 11,871 | 241 | 4,780 | 6,570 | 282,590 | 6.61% | 5.76% | Rust owns page-tree count traversal, active-path cycle guarding, malformed-type and count normalization, checked totals, and a bounded candidate depth; C++ retains borrowed dictionaries and the exact fallback traversal |
+| `53f150f66` Phase 7 page-index-traversal slice | 18,901 | 12,090 | 241 | 4,823 | 6,570 | 282,912 | 6.68% | 5.86% | Rust owns page-object-number lookup traversal, cached-prefix skipping, count shortcuts, direct-reference lookup, and the depth bound; C++ retains borrowed dictionaries and exact fallback traversal |
 
 ## Toolchain
 
@@ -1180,6 +1181,17 @@ All 32 parser-native Rust tests, all nine `DocumentTest` cases (including bad
 counts and missing kids), six public delete/save cases, the complete public
 page-move case, the object-graph save/reload case, all 1,067 unit tests, and
 `pdfium_all` pass in the full light build.
+
+The fourth Phase 7 slice moves uncached page-object-number lookup traversal
+into Rust. It preserves the loaded-prefix skip count, valid subtree-count skip,
+direct-reference fast path, leaf index advancement, self-reference rejection,
+and 1,024-level bound. C++ lends dictionary/array/reference views synchronously
+and retains the unchanged `FindPageIndex()` fallback on boundary rejection.
+
+The same-process document scenario now clears every cache slot after its
+create/move/delete sequence and compares the index resolved for every remaining
+page under Oracle and Candidate. All 33 parser-native tests, all nine document
+tests, all 1,067 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.

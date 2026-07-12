@@ -114,6 +114,7 @@ ACTIVE_SURFACES = (
     "document page object-number indexing, caching, insertion, removal, and lookup",
     "public document page-move validation and deletion-order planning",
     "document page-tree count traversal, cycle guarding, normalization, and limits",
+    "document page-tree object-number lookup and skip-count traversal",
 )
 CANDIDATE_SURFACES = (
     "Phase 7 edit, document, and SDK behavior plus Phase 8 fxcrt consolidation",
