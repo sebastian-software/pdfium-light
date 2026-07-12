@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "public/fpdf_edit.h"
+#include "public/fpdf_text.h"
 
 #include <array>
 
@@ -480,6 +481,58 @@ TEST_F(FPDFEditPageEmbedderTest,
 
   ASSERT_TRUE(set_matrix(oracle_page.get(), false));
   ASSERT_TRUE(set_matrix(candidate_page.get(), true));
+  EXPECT_EQ(snapshot(oracle_page.get(), false),
+            snapshot(candidate_page.get(), true));
+
+  ASSERT_TRUE(FPDFPage_GenerateContent(oracle_page.get()));
+  ASSERT_TRUE(FPDFPage_GenerateContent(candidate_page.get()));
+  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_document);
+  ScopedSavedPage saved_oracle_page = LoadScopedSavedPage(0);
+  ScopedSavedPage saved_candidate_page = LoadScopedSavedPage(1);
+  ASSERT_TRUE(saved_oracle_page);
+  ASSERT_TRUE(saved_candidate_page);
+  EXPECT_EQ(snapshot(saved_oracle_page.get(), false),
+            snapshot(saved_candidate_page.get(), true));
+}
+
+TEST_F(FPDFEditPageEmbedderTest,
+       RustPageObjectActiveStateMatchesCppOracleAndSavedText) {
+  ASSERT_TRUE(OpenDocument("hello_world_2_pages.pdf"));
+  ScopedPage oracle_page = LoadScopedPage(0);
+  ScopedPage candidate_page = LoadScopedPage(1);
+  ASSERT_TRUE(oracle_page);
+  ASSERT_TRUE(candidate_page);
+
+  struct Snapshot {
+    bool first_object_active;
+    int object_count;
+    int text_character_count;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [](FPDF_PAGE page, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    FPDF_BOOL active = false;
+    EXPECT_TRUE(FPDFPageObj_GetIsActive(FPDFPage_GetObject(page, 0), &active));
+    ScopedFPDFTextPage text_page(FPDFText_LoadPage(page));
+    EXPECT_TRUE(text_page);
+    return Snapshot{!!active, FPDFPage_CountObjects(page),
+                    FPDFText_CountChars(text_page.get())};
+  };
+  auto deactivate = [](FPDF_PAGE page, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    FPDF_PAGEOBJECT object = FPDFPage_GetObject(page, 0);
+    return FPDFPageObj_SetIsActive(object, false) &&
+           FPDFPageObj_SetIsActive(object, false);
+  };
+
+  EXPECT_EQ(snapshot(oracle_page.get(), false),
+            snapshot(candidate_page.get(), true));
+  ASSERT_TRUE(deactivate(oracle_page.get(), false));
+  ASSERT_TRUE(deactivate(candidate_page.get(), true));
   EXPECT_EQ(snapshot(oracle_page.get(), false),
             snapshot(candidate_page.get(), true));
 
