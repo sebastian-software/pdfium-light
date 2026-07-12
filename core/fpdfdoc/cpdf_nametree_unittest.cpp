@@ -4,11 +4,14 @@
 
 #include "core/fpdfdoc/cpdf_nametree.h"
 
+#include <vector>
+
 #include "constants/catalog.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -176,6 +179,38 @@ TEST(CPDFNameTreeTest, GetFromTreeWithLimitsArrayWith4Items) {
                                          L"1a.txt"));
   EXPECT_EQ(2u, pGrandKid2Limits->size());
   EXPECT_EQ(2u, pGrandKid3Limits->size());
+}
+
+TEST(CPDFNameTreeTest, RustCountAndIndexMatchCppOracle) {
+  auto root = pdfium::MakeRetain<CPDF_Dictionary>();
+  FillNameTreeDict(root.Get());
+  std::unique_ptr<CPDF_NameTree> name_tree =
+      CPDF_NameTree::CreateForTesting(root.Get());
+
+  struct Entry {
+    WideString name;
+    const CPDF_Object* value;
+    bool operator==(const Entry&) const = default;
+  };
+  struct Snapshot {
+    size_t count;
+    std::vector<Entry> entries;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [&](bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    Snapshot result = {name_tree->GetCount(), {}};
+    for (size_t index = 0; index < 7; ++index) {
+      WideString name = L"sentinel";
+      RetainPtr<CPDF_Object> value =
+          name_tree->LookupValueAndName(index, &name);
+      result.entries.push_back({std::move(name), value.Get()});
+    }
+    return result;
+  };
+
+  EXPECT_EQ(snapshot(false), snapshot(true));
 }
 
 TEST(CPDFNameTreeTest, AddIntoNames) {
