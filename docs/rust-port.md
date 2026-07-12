@@ -154,6 +154,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `1c8ed33b2` Phase 7 text-space-threshold slice | 22,753 | 15,942 | 241 | 6,247 | 6,570 | 289,674 | 7.85% | 7.53% | Rust owns space-glyph threshold calculation, the one-third cap, halving, fallback-width request, and 300/500/700 normalization; C++ retains font character-code/width lookup, the synchronous fallback callback, and the separately selected oracle |
 | `6d6566673` Phase 7 text-item-spacing slice | 22,866 | 16,055 | 241 | 6,298 | 6,570 | 289,902 | 7.89% | 7.58% | Rust owns per-item kerning/base-space composition, prior-text/space suppression, threshold request, and generated-space decision; C++ retains font and text buffers, native character creation, validated writes, and the separately selected oracle |
 | `f19b313b9` Phase 7 duplicate-text-object slice | 23,059 | 16,248 | 241 | 6,365 | 6,570 | 290,248 | 7.94% | 7.66% | Rust owns empty/overlap rectangle policy, width/font/item equality, character comparison, and position tolerances; C++ retains text-object/font access, the bounded prior-object scan, synchronous item callback, and the separately selected oracle |
+| `d822f622b` Phase 7 generated-character-origin slice | 23,125 | 16,314 | 241 | 6,403 | 6,570 | 290,377 | 7.96% | 7.69% | Rust owns prior-width admission, text-object/box font-size selection, zero-size fallback, and origin advancement; C++ retains prior-character/font access, matrix and native `CharInfo` construction, and the separately selected oracle |
 
 ## Toolchain
 
@@ -1595,6 +1596,18 @@ proves sensitivity by expanding from nine to nineteen characters when duplicate
 filtering is disabled, then compares the candidate's Unicode, origins, and
 character boxes exactly against the C++ oracle. All seven search-extension
 tests, all 74 public text tests, all 1,069 unit tests, and `pdfium_all` pass.
+
+The twenty-ninth Phase 7 slice moves generated-character origin planning into
+Rust. Rust owns valid-character width admission, text-object versus character-
+box font-size selection, the default size for zero-height generated content,
+and horizontal origin advancement. C++ retains prior-character and font
+access, the form matrix, and native `CharInfo` construction; the complete
+original helper remains the separately selected oracle.
+
+The candidate remains O(1) in time and auxiliary storage. Twenty-four native
+Rust text tests cover ordinary advancement, invalid characters, missing text
+objects, and the size fallback. All seven search-extension tests, all 74 public
+text tests, all 1,069 unit tests, and `pdfium_all` pass.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
