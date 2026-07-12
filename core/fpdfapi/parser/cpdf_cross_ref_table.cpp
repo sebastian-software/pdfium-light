@@ -11,6 +11,7 @@
 #include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/check_op.h"
 #include "core/fxcrt/containers/contains.h"
+#include "core/fxcrt/notreached.h"
 
 // static
 std::unique_ptr<CPDF_CrossRefTable> CPDF_CrossRefTable::MergeUp(
@@ -150,6 +151,33 @@ void CPDF_CrossRefTable::UpdateInfo(
   }
 
   if (objects_info_.empty()) {
+    objects_info_ = std::move(new_objects_info);
+    return;
+  }
+
+  if (pdfium::rust::UseRustParserCandidate()) {
+    for (const auto& [object_number, current_info] : objects_info_) {
+      auto new_it = new_objects_info.find(object_number);
+      const bool has_new = new_it != new_objects_info.end();
+      const ObjectType new_type =
+          has_new ? new_it->second.type : ObjectType::kFree;
+      const auto action = pdfium::rust::RustCrossRefMergeAction(
+          has_new, static_cast<uint8_t>(current_info.type),
+          current_info.is_object_stream_flag, static_cast<uint8_t>(new_type));
+      CHECK(action.has_value());
+      switch (*action) {
+        case 0:
+          break;
+        case 1:
+          new_objects_info.emplace(object_number, current_info);
+          break;
+        case 2:
+          new_it->second.is_object_stream_flag = true;
+          break;
+        default:
+          NOTREACHED();
+      }
+    }
     objects_info_ = std::move(new_objects_info);
     return;
   }

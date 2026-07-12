@@ -31,6 +31,10 @@ using CrossRefMapSizeCallback = bool (*)(void* context,
 bool RunRustCrossRefMapSize(uint32_t size,
                             void* context,
                             CrossRefMapSizeCallback callback);
+std::optional<uint8_t> RustCrossRefMergeAction(bool has_new,
+                                               uint8_t current_type,
+                                               bool current_is_object_stream,
+                                               uint8_t new_type);
 struct CrossRefIndexPair {
   uint32_t start;
   uint32_t count;

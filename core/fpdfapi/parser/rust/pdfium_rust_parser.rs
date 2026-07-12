@@ -37,6 +37,28 @@ fn cross_ref_entry_action(
     }
 }
 
+fn cross_ref_merge_action(
+    has_new: bool,
+    current_type: u8,
+    current_is_object_stream: bool,
+    new_type: u8,
+) -> Option<u8> {
+    const KEEP_NEW: u8 = 0;
+    const INSERT_CURRENT: u8 = 1;
+    const PRESERVE_OBJECT_STREAM: u8 = 2;
+    if current_type > 2 || new_type > 2 {
+        return None;
+    }
+    if !has_new {
+        return Some(INSERT_CURRENT);
+    }
+    Some(if current_type == 1 && new_type == 1 && current_is_object_stream {
+        PRESERVE_OBJECT_STREAM
+    } else {
+        KEEP_NEW
+    })
+}
+
 fn cross_ref_index_pair(start: i32, count: i32) -> Option<(u32, u32)> {
     if start < 0 || count <= 0 {
         return None;
@@ -361,6 +383,34 @@ pub unsafe extern "C" fn pdfium_rust_run_cross_ref_map_size(
     }
     // SAFETY: The caller guarantees a live context and synchronous callback.
     unsafe { callback(context, TRUNCATE, size) && callback(context, ENSURE_LAST, size - 1) }
+}
+
+/// Selects how one current cross-reference entry participates in an overlay.
+///
+/// # Safety
+///
+/// `output` must point to one writable action byte.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_cross_ref_merge_action(
+    has_new: bool,
+    current_type: u8,
+    current_is_object_stream: bool,
+    new_type: u8,
+    output: *mut u8,
+) -> bool {
+    if output.is_null() {
+        return false;
+    }
+    let Some(action) =
+        cross_ref_merge_action(has_new, current_type, current_is_object_stream, new_type)
+    else {
+        return false;
+    };
+    // SAFETY: The checked output pointer refers to one writable action byte.
+    unsafe {
+        *output = action;
+    }
+    true
 }
 
 /// Validates and normalizes one `/Index` start/count pair.
@@ -810,6 +860,27 @@ mod tests {
         });
         assert!(!unsafe {
             pdfium_rust_run_cross_ref_map_size(1, (&mut state as *mut MapSizeState).cast(), None)
+        });
+    }
+
+    #[test]
+    fn cross_ref_merge_action_should_preserve_overlay_precedence_and_stream_flag() {
+        assert_eq!(Some(1), cross_ref_merge_action(false, 0, false, 0));
+        assert_eq!(Some(0), cross_ref_merge_action(true, 0, true, 1));
+        assert_eq!(Some(0), cross_ref_merge_action(true, 1, false, 1));
+        assert_eq!(Some(2), cross_ref_merge_action(true, 1, true, 1));
+        assert_eq!(Some(0), cross_ref_merge_action(true, 1, true, 2));
+        assert_eq!(None, cross_ref_merge_action(true, 3, false, 0));
+        assert_eq!(None, cross_ref_merge_action(true, 0, false, 3));
+
+        let mut output = u8::MAX;
+        // SAFETY: The output remains live for both calls.
+        assert!(unsafe { pdfium_rust_cross_ref_merge_action(true, 1, true, 1, &mut output) });
+        assert_eq!(2, output);
+        assert!(!unsafe { pdfium_rust_cross_ref_merge_action(true, 3, false, 0, &mut output) });
+        assert_eq!(2, output);
+        assert!(!unsafe {
+            pdfium_rust_cross_ref_merge_action(true, 1, true, 1, core::ptr::null_mut())
         });
     }
 
