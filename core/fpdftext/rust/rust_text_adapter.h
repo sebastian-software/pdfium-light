@@ -86,6 +86,41 @@ struct RustTextLinkRange {
   size_t count;
 };
 
+using RustTextSelectionRectCallback = bool (*)(void* context,
+                                               size_t index,
+                                               bool* generated,
+                                               uintptr_t* text_object,
+                                               float* left,
+                                               float* bottom,
+                                               float* right,
+                                               float* top);
+
+struct RustTextRect {
+  float left;
+  float bottom;
+  float right;
+  float top;
+};
+
+class RustTextSelectionRects final {
+ public:
+  RustTextSelectionRects(size_t character_count,
+                         int start,
+                         int count,
+                         void* context,
+                         RustTextSelectionRectCallback get_character);
+  RustTextSelectionRects(const RustTextSelectionRects&) = delete;
+  RustTextSelectionRects& operator=(const RustTextSelectionRects&) = delete;
+  ~RustTextSelectionRects();
+
+  bool valid() const { return state_ != nullptr; }
+  size_t size() const;
+  std::optional<RustTextRect> GetRect(size_t index) const;
+
+ private:
+  void* state_;
+};
+
 class RustTextLinkExtract final {
  public:
   RustTextLinkExtract();

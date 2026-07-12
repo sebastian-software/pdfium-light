@@ -457,8 +457,48 @@ int CPDF_TextPage::TextIndexFromCharIndex(int char_index) const {
   return -1;
 }
 
+bool CPDF_TextPage::GetRustSelectionCharacter(
+    void* context,
+    size_t index,
+    bool* generated,
+    uintptr_t* text_object,
+    float* left,
+    float* bottom,
+    float* right,
+    float* top) {
+  const auto* text_page = static_cast<const CPDF_TextPage*>(context);
+  if (index >= text_page->char_list_.size()) {
+    return false;
+  }
+  const CharInfo& info = text_page->char_list_[index];
+  const CFX_FloatRect& rect = info.char_box();
+  *generated = info.char_type() == CharType::kGenerated;
+  *text_object = reinterpret_cast<uintptr_t>(info.text_object());
+  *left = rect.left;
+  *bottom = rect.bottom;
+  *right = rect.right;
+  *top = rect.top;
+  return true;
+}
+
 std::vector<CFX_FloatRect> CPDF_TextPage::GetRectArray(int start,
                                                        int count) const {
+  if (use_rust_) {
+    pdfium::rust::RustTextSelectionRects rust_rects(
+        char_list_.size(), start, count, const_cast<CPDF_TextPage*>(this),
+        GetRustSelectionCharacter);
+    std::vector<CFX_FloatRect> rects;
+    rects.reserve(rust_rects.size());
+    for (size_t i = 0; i < rust_rects.size(); ++i) {
+      const auto rect = rust_rects.GetRect(i);
+      if (!rect.has_value()) {
+        return {};
+      }
+      rects.emplace_back(rect->left, rect->bottom, rect->right, rect->top);
+    }
+    return rects;
+  }
+
   std::vector<CFX_FloatRect> rects;
   if (start < 0 || count == 0) {
     return rects;
@@ -685,11 +725,29 @@ int CPDF_TextPage::CountRects(int start, int count) {
     return -1;
   }
 
+  if (use_rust_) {
+    rust_sel_rects_ = std::make_unique<pdfium::rust::RustTextSelectionRects>(
+        char_list_.size(), start, count, this, GetRustSelectionCharacter);
+    return pdfium::checked_cast<int>(rust_sel_rects_->size());
+  }
+
   sel_rects_ = GetRectArray(start, count);
   return fxcrt::CollectionSize<int>(sel_rects_);
 }
 
 bool CPDF_TextPage::GetRect(int rectIndex, CFX_FloatRect* pRect) const {
+  if (use_rust_) {
+    if (rectIndex < 0 || !rust_sel_rects_) {
+      return false;
+    }
+    const auto rect = rust_sel_rects_->GetRect(rectIndex);
+    if (!rect.has_value()) {
+      return false;
+    }
+    *pRect = CFX_FloatRect(rect->left, rect->bottom, rect->right, rect->top);
+    return true;
+  }
+
   if (!fxcrt::IndexInBounds(sel_rects_, rectIndex)) {
     return false;
   }

@@ -14,6 +14,16 @@ type TextRectCallback = unsafe extern "C" fn(
     *mut f32,
     *mut f32,
 ) -> bool;
+type TextSelectionRectCallback = unsafe extern "C" fn(
+    *mut core::ffi::c_void,
+    usize,
+    *mut bool,
+    *mut usize,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+    *mut f32,
+) -> bool;
 
 #[derive(Clone)]
 pub struct TextFindState {
@@ -40,6 +50,10 @@ pub struct TextLinkExtractState {
 
 pub struct TextIndexMapState {
     segments: Vec<(i32, i32)>,
+}
+
+pub struct TextSelectionRectState {
+    rects: Vec<[f32; 4]>,
 }
 
 impl TextIndexMapState {
@@ -681,6 +695,66 @@ fn contains_point(rect: &[f32; 4], x: f32, y: f32) -> bool {
     x <= rect[2] && x >= rect[0] && y <= rect[3] && y >= rect[1]
 }
 
+fn union_rect(rect: &mut [f32; 4], mut other: [f32; 4]) {
+    normalize_rect(rect);
+    normalize_rect(&mut other);
+    rect[0] = if other[0] < rect[0] { other[0] } else { rect[0] };
+    rect[1] = if other[1] < rect[1] { other[1] } else { rect[1] };
+    rect[2] = if rect[2] < other[2] { other[2] } else { rect[2] };
+    rect[3] = if rect[3] < other[3] { other[3] } else { rect[3] };
+}
+
+fn selection_rects(
+    character_count: usize,
+    start: i32,
+    count: i32,
+    mut get_character: impl FnMut(usize) -> Option<(bool, usize, [f32; 4])>,
+) -> Option<Vec<[f32; 4]>> {
+    let mut rects = Vec::new();
+    if start < 0 || count == 0 {
+        return Some(rects);
+    }
+    let start = start as usize;
+    if start >= character_count {
+        return Some(rects);
+    }
+    let end = if count < 0 {
+        character_count
+    } else {
+        start.saturating_add(count as usize).min(character_count)
+    };
+
+    let mut text_object = 0;
+    let mut rect = [0.0; 4];
+    let mut is_new_rect = true;
+    for position in start..end {
+        let (generated, character_object, character_rect) = get_character(position)?;
+        if generated
+            || character_rect[2] - character_rect[0] < 0.01
+            || character_rect[3] - character_rect[1] < 0.01
+        {
+            continue;
+        }
+        if text_object == 0 {
+            text_object = character_object;
+        }
+        if text_object != character_object {
+            rects.push(rect);
+            text_object = character_object;
+            is_new_rect = true;
+        }
+        if is_new_rect {
+            is_new_rect = false;
+            rect = character_rect;
+            normalize_rect(&mut rect);
+        } else {
+            union_rect(&mut rect, character_rect);
+        }
+    }
+    rects.push(rect);
+    Some(rects)
+}
+
 fn index_at_position(
     character_count: usize,
     point_x: f32,
@@ -764,6 +838,90 @@ pub unsafe extern "C" fn pdfium_rust_text_index_at_position(
         return false;
     };
     *output = result;
+    true
+}
+
+/// Builds and owns the selected character rectangles.
+///
+/// # Safety
+/// The callback and context must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_selection_rects_new(
+    character_count: usize,
+    start: i32,
+    count: i32,
+    context: *mut core::ffi::c_void,
+    get_character: Option<TextSelectionRectCallback>,
+) -> *mut TextSelectionRectState {
+    let Some(get_character) = get_character else {
+        return core::ptr::null_mut();
+    };
+    let rects = selection_rects(character_count, start, count, |position| {
+        let mut generated = false;
+        let mut text_object = 0;
+        let mut rect = [0.0; 4];
+        unsafe {
+            get_character(
+                context,
+                position,
+                &mut generated,
+                &mut text_object,
+                &mut rect[0],
+                &mut rect[1],
+                &mut rect[2],
+                &mut rect[3],
+            )
+        }
+        .then_some((generated, text_object, rect))
+    });
+    let Some(rects) = rects else {
+        return core::ptr::null_mut();
+    };
+    Box::into_raw(Box::new(TextSelectionRectState { rects }))
+}
+
+/// # Safety
+/// `state` must be null or returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_selection_rects_free(state: *mut TextSelectionRectState) {
+    if !state.is_null() {
+        drop(unsafe { Box::from_raw(state) });
+    }
+}
+
+/// # Safety
+/// `state` must remain readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_selection_rects_count(
+    state: *const TextSelectionRectState,
+) -> usize {
+    unsafe { state.as_ref() }.map_or(0, |state| state.rects.len())
+}
+
+/// # Safety
+/// State and rectangle outputs must remain readable/writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_text_selection_rects_get(
+    state: *const TextSelectionRectState,
+    index: usize,
+    left: *mut f32,
+    bottom: *mut f32,
+    right: *mut f32,
+    top: *mut f32,
+) -> bool {
+    let (Some(rect), Some(left), Some(bottom), Some(right), Some(top)) = (
+        unsafe { state.as_ref() }.and_then(|state| state.rects.get(index)),
+        unsafe { left.as_mut() },
+        unsafe { bottom.as_mut() },
+        unsafe { right.as_mut() },
+        unsafe { top.as_mut() },
+    ) else {
+        return false;
+    };
+    *left = rect[0];
+    *bottom = rect[1];
+    *right = rect[2];
+    *top = rect[3];
     true
 }
 
@@ -1058,6 +1216,20 @@ mod tests {
         assert_eq!(
             Some(1),
             index_at_position(rects.len(), 18.0, 5.0, 6.0, 0.0, |i| rects.get(i).copied())
+        );
+    }
+
+    #[test]
+    fn selection_rects_should_skip_and_group_characters_by_text_object() {
+        let characters = [
+            (false, 1, [0.0, 0.0, 5.0, 10.0]),
+            (true, 1, [5.0, 0.0, 6.0, 10.0]),
+            (false, 1, [5.0, 0.0, 10.0, 10.0]),
+            (false, 2, [20.0, 0.0, 30.0, 10.0]),
+        ];
+        assert_eq!(
+            Some(vec![[0.0, 0.0, 10.0, 10.0], [20.0, 0.0, 30.0, 10.0]]),
+            selection_rects(characters.len(), 0, -1, |index| characters.get(index).copied())
         );
     }
 

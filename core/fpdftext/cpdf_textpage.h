@@ -28,6 +28,7 @@ class CPDF_TextObject;
 
 namespace pdfium::rust {
 class RustTextIndexMap;
+class RustTextSelectionRects;
 }
 
 struct TextPageCharSegment {
@@ -183,10 +184,19 @@ class CPDF_TextPage {
   void SwapTempTextBuf(size_t iCharListStartAppend, size_t iBufStartAppend);
   WideString GetTextByPredicate(
       const std::function<bool(const CharInfo&)>& predicate) const;
+  static bool GetRustSelectionCharacter(void* context,
+                                        size_t index,
+                                        bool* generated,
+                                        uintptr_t* text_object,
+                                        float* left,
+                                        float* bottom,
+                                        float* right,
+                                        float* top);
 
   UnownedPtr<const CPDF_Page> const page_;
   const bool use_rust_;
   std::unique_ptr<pdfium::rust::RustTextIndexMap> rust_index_map_;
+  std::unique_ptr<pdfium::rust::RustTextSelectionRects> rust_sel_rects_;
   DataVector<TextPageCharSegment> char_indices_;
   std::vector<CharInfo> char_list_;
   std::vector<CharInfo> temp_char_list_;

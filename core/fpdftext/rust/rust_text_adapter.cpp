@@ -26,6 +26,20 @@ extern "C" int32_t pdfium_rust_text_index_map_character_from_text(
 extern "C" int32_t pdfium_rust_text_index_map_text_from_character(
     const void* state,
     int32_t character_index);
+extern "C" void* pdfium_rust_text_selection_rects_new(
+    size_t character_count,
+    int32_t start,
+    int32_t count,
+    void* context,
+    pdfium::rust::RustTextSelectionRectCallback get_character);
+extern "C" void pdfium_rust_text_selection_rects_free(void* state);
+extern "C" size_t pdfium_rust_text_selection_rects_count(const void* state);
+extern "C" bool pdfium_rust_text_selection_rects_get(const void* state,
+                                                      size_t index,
+                                                      float* left,
+                                                      float* bottom,
+                                                      float* right,
+                                                      float* top);
 extern "C" void* pdfium_rust_text_find_new(const uint32_t* page_text,
                                            size_t page_text_len,
                                            const uint32_t* query,
@@ -117,6 +131,34 @@ int RustTextIndexMap::TextFromCharacter(int character_index) const {
   return state_ ? pdfium_rust_text_index_map_text_from_character(
                       state_, character_index)
                 : -1;
+}
+
+RustTextSelectionRects::RustTextSelectionRects(
+    size_t character_count,
+    int start,
+    int count,
+    void* context,
+    RustTextSelectionRectCallback get_character)
+    : state_(pdfium_rust_text_selection_rects_new(
+          character_count, start, count, context, get_character)) {}
+
+RustTextSelectionRects::~RustTextSelectionRects() {
+  pdfium_rust_text_selection_rects_free(state_);
+}
+
+size_t RustTextSelectionRects::size() const {
+  return state_ ? pdfium_rust_text_selection_rects_count(state_) : 0;
+}
+
+std::optional<RustTextRect> RustTextSelectionRects::GetRect(
+    size_t index) const {
+  RustTextRect rect = {};
+  if (!state_ || !pdfium_rust_text_selection_rects_get(
+                     state_, index, &rect.left, &rect.bottom, &rect.right,
+                     &rect.top)) {
+    return std::nullopt;
+  }
+  return rect;
 }
 
 RustTextPageFind::RustTextPageFind(WideStringView page_text,
