@@ -271,6 +271,8 @@ type RedactionObjectCallback = unsafe extern "C" fn(
     *mut f32,
     *mut f32,
 ) -> bool;
+type PageObjectStreamCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut i32) -> bool;
 
 #[derive(Clone, Copy)]
 struct RedactionRect {
@@ -342,6 +344,35 @@ fn redaction_plan(
     }
     let status = if removals.is_empty() { 3 } else { 0 };
     Some(RedactionPlanState { status, removals })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PageObjectInsertPlan {
+    allowed: bool,
+    content_stream: i32,
+    mark_dirty: bool,
+}
+
+fn page_object_insert_plan(
+    index: usize,
+    object_count: usize,
+    content_stream: i32,
+    mut get_neighbor_stream: impl FnMut(usize) -> Option<i32>,
+) -> Option<PageObjectInsertPlan> {
+    if index > object_count {
+        return Some(PageObjectInsertPlan { allowed: false, content_stream, mark_dirty: false });
+    }
+    if index < object_count && content_stream == -1 {
+        let neighbor_stream = get_neighbor_stream(index)?;
+        if neighbor_stream != -1 {
+            return Some(PageObjectInsertPlan {
+                allowed: true,
+                content_stream: neighbor_stream,
+                mark_dirty: true,
+            });
+        }
+    }
+    Some(PageObjectInsertPlan { allowed: true, content_stream, mark_dirty: false })
 }
 
 impl Default for PdfNumberState {
@@ -2834,6 +2865,41 @@ pub unsafe extern "C" fn pdfium_rust_redaction_plan_index(
     true
 }
 
+/// Plans indexed page-object insertion and content-stream inheritance.
+///
+/// # Safety
+/// The callback, context, and outputs must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_page_object_insert_plan(
+    index: usize,
+    object_count: usize,
+    content_stream: i32,
+    context: *mut core::ffi::c_void,
+    get_neighbor_stream: PageObjectStreamCallback,
+    allowed: *mut bool,
+    planned_content_stream: *mut i32,
+    mark_dirty: *mut bool,
+) -> bool {
+    let (Some(allowed), Some(planned_content_stream), Some(mark_dirty)) =
+        (unsafe { allowed.as_mut() }, unsafe { planned_content_stream.as_mut() }, unsafe {
+            mark_dirty.as_mut()
+        })
+    else {
+        return false;
+    };
+    let Some(plan) = page_object_insert_plan(index, object_count, content_stream, |neighbor| {
+        let mut stream = -1;
+        // SAFETY: The caller guarantees synchronous callback validity.
+        unsafe { get_neighbor_stream(context, neighbor, &mut stream) }.then_some(stream)
+    }) else {
+        return false;
+    };
+    *allowed = plan.allowed;
+    *planned_content_stream = plan.content_stream;
+    *mark_dirty = plan.mark_dirty;
+    true
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -4413,5 +4479,25 @@ mod tests {
         .expect("callbacks are complete");
         assert_eq!(4, unsupported.status);
         assert!(unsupported.removals.is_empty());
+    }
+
+    #[test]
+    fn page_object_insert_plan_should_validate_and_inherit_streams() {
+        assert_eq!(
+            Some(PageObjectInsertPlan { allowed: false, content_stream: -1, mark_dirty: false }),
+            page_object_insert_plan(3, 2, -1, |_| None)
+        );
+        assert_eq!(
+            Some(PageObjectInsertPlan { allowed: true, content_stream: 4, mark_dirty: true }),
+            page_object_insert_plan(1, 2, -1, |index| (index == 1).then_some(4))
+        );
+        assert_eq!(
+            Some(PageObjectInsertPlan { allowed: true, content_stream: -1, mark_dirty: false }),
+            page_object_insert_plan(2, 2, -1, |_| None)
+        );
+        assert_eq!(
+            Some(PageObjectInsertPlan { allowed: true, content_stream: 7, mark_dirty: false }),
+            page_object_insert_plan(0, 2, 7, |_| None)
+        );
     }
 }

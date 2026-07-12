@@ -379,6 +379,21 @@ class RustRedactionPlan final {
   void* state_;
 };
 
+using RustPageObjectStreamCallback = bool (*)(void* context,
+                                              size_t index,
+                                              int32_t* stream);
+struct RustPageObjectInsertPlan {
+  bool allowed;
+  int32_t content_stream;
+  bool mark_dirty;
+};
+std::optional<RustPageObjectInsertPlan> RustPlanPageObjectInsert(
+    size_t index,
+    size_t object_count,
+    int32_t content_stream,
+    void* context,
+    RustPageObjectStreamCallback get_neighbor_stream);
+
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,
                                                           size_t* child_count);

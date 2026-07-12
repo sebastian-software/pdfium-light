@@ -262,6 +262,15 @@ extern "C" size_t pdfium_rust_redaction_plan_count(const void* state);
 extern "C" bool pdfium_rust_redaction_plan_index(const void* state,
                                                  size_t index,
                                                  size_t* output);
+extern "C" bool pdfium_rust_page_object_insert_plan(
+    size_t index,
+    size_t object_count,
+    int32_t content_stream,
+    void* context,
+    pdfium::rust::RustPageObjectStreamCallback get_neighbor_stream,
+    bool* allowed,
+    int32_t* planned_content_stream,
+    bool* mark_dirty);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -936,6 +945,21 @@ std::optional<size_t> RustRedactionPlan::GetIndex(size_t index) const {
     return std::nullopt;
   }
   return output;
+}
+
+std::optional<RustPageObjectInsertPlan> RustPlanPageObjectInsert(
+    size_t index,
+    size_t object_count,
+    int32_t content_stream,
+    void* context,
+    RustPageObjectStreamCallback get_neighbor_stream) {
+  RustPageObjectInsertPlan plan = {};
+  if (!pdfium_rust_page_object_insert_plan(
+          index, object_count, content_stream, context, get_neighbor_stream,
+          &plan.allowed, &plan.content_stream, &plan.mark_dirty)) {
+    return std::nullopt;
+  }
+  return plan;
 }
 
 std::optional<std::vector<size_t>> RustDocumentPageMutationPath(
