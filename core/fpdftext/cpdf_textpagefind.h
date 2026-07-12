@@ -19,6 +19,10 @@
 
 class CPDF_TextPage;
 
+namespace pdfium::rust {
+class RustTextPageFind;
+}
+
 class CPDF_TextPageFind {
  public:
   struct Options {
@@ -50,8 +54,16 @@ class CPDF_TextPageFind {
   bool FindFirst();
 
   int GetCharIndex(int index) const;
+  static bool TextIndexToCharacterIndex(void* context,
+                                        int32_t input,
+                                        int32_t* output);
+  static bool CharacterIndexToTextIndex(void* context,
+                                        int32_t input,
+                                        int32_t* output);
 
   UnownedPtr<const CPDF_TextPage> const text_page_;
+  const bool use_rust_;
+  std::unique_ptr<pdfium::rust::RustTextPageFind> rust_find_;
   const WideString str_text_;
   const std::vector<WideString> find_what_array_;
   std::optional<size_t> find_next_start_;

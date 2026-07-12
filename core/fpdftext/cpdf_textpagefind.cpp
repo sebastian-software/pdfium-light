@@ -10,13 +10,16 @@
 
 #include <vector>
 
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fpdftext/cpdf_textpage.h"
+#include "core/fpdftext/rust/rust_text_adapter.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/compiler_specific.h"
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
 #include "core/fxcrt/fx_unicode.h"
+#include "core/fxcrt/numerics/safe_conversions.h"
 #include "core/fxcrt/ptr_util.h"
 #include "core/fxcrt/stl_util.h"
 
@@ -207,9 +210,22 @@ CPDF_TextPageFind::CPDF_TextPageFind(
     const Options& options,
     std::optional<size_t> startPos)
     : text_page_(pTextPage),
-      str_text_(GetStringCase(pTextPage->GetAllPageText(), options.bMatchCase)),
-      find_what_array_(findwhat_array),
+      use_rust_(pdfium::rust::UseRustParserCandidate()),
+      str_text_(use_rust_ ? WideString()
+                          : GetStringCase(pTextPage->GetAllPageText(),
+                                          options.bMatchCase)),
+      find_what_array_(use_rust_ ? std::vector<WideString>() : findwhat_array),
       options_(options) {
+  if (use_rust_) {
+    WideString page_text =
+        GetStringCase(pTextPage->GetAllPageText(), options.bMatchCase);
+    rust_find_ = std::make_unique<pdfium::rust::RustTextPageFind>(
+        page_text.AsStringView(), findwhat_array, options.bMatchWholeWord,
+        options.bConsecutive, startPos, const_cast<CPDF_TextPage*>(pTextPage),
+        TextIndexToCharacterIndex, CharacterIndexToTextIndex);
+    CHECK(rust_find_->valid());
+    return;
+  }
   if (!str_text_.IsEmpty()) {
     find_next_start_ = startPos;
     find_pre_start_ = startPos.value_or(str_text_.GetLength() - 1);
@@ -223,10 +239,18 @@ int CPDF_TextPageFind::GetCharIndex(int index) const {
 }
 
 bool CPDF_TextPageFind::FindFirst() {
+  if (use_rust_) {
+    return rust_find_->FindFirst();
+  }
   return str_text_.IsEmpty() || !find_what_array_.empty();
 }
 
 bool CPDF_TextPageFind::FindNext() {
+  if (use_rust_) {
+    std::optional<bool> result = rust_find_->FindNext();
+    CHECK(result.has_value());
+    return *result;
+  }
   if (str_text_.IsEmpty() || !find_next_start_.has_value()) {
     return false;
   }
@@ -323,6 +347,11 @@ bool CPDF_TextPageFind::FindNext() {
 }
 
 bool CPDF_TextPageFind::FindPrev() {
+  if (use_rust_) {
+    std::optional<bool> result = rust_find_->FindPrevious();
+    CHECK(result.has_value());
+    return *result;
+  }
   if (str_text_.IsEmpty() || !find_pre_start_.has_value()) {
     return false;
   }
@@ -362,11 +391,48 @@ bool CPDF_TextPageFind::FindPrev() {
 }
 
 int CPDF_TextPageFind::GetCurOrder() const {
-  return GetCharIndex(res_start_);
+  if (!use_rust_) {
+    return GetCharIndex(res_start_);
+  }
+  std::optional<std::pair<size_t, size_t>> result = rust_find_->GetResult();
+  CHECK(result.has_value());
+  return GetCharIndex(pdfium::checked_cast<int>(result->first));
 }
 
 int CPDF_TextPageFind::GetMatchedCount() const {
-  int resStart = GetCharIndex(res_start_);
-  int resEnd = GetCharIndex(res_end_);
+  size_t result_start = res_start_;
+  size_t result_end = res_end_;
+  if (use_rust_) {
+    std::optional<std::pair<size_t, size_t>> result = rust_find_->GetResult();
+    CHECK(result.has_value());
+    result_start = result->first;
+    result_end = result->second;
+  }
+  int resStart = GetCharIndex(pdfium::checked_cast<int>(result_start));
+  int resEnd = GetCharIndex(pdfium::checked_cast<int>(result_end));
   return resEnd - resStart + 1;
+}
+
+// static
+bool CPDF_TextPageFind::TextIndexToCharacterIndex(void* context,
+                                                  int32_t input,
+                                                  int32_t* output) {
+  auto* text_page = static_cast<CPDF_TextPage*>(context);
+  if (!text_page || !output) {
+    return false;
+  }
+  *output = text_page->CharIndexFromTextIndex(input);
+  return true;
+}
+
+// static
+bool CPDF_TextPageFind::CharacterIndexToTextIndex(void* context,
+                                                  int32_t input,
+                                                  int32_t* output) {
+  auto* text_page = static_cast<CPDF_TextPage*>(context);
+  if (!text_page || !output) {
+    return false;
+  }
+  *output = text_page->TextIndexFromCharIndex(input);
+  return true;
 }
