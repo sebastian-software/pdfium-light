@@ -10,6 +10,7 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/bytestring.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxge/cfx_renderdevice.h"
@@ -85,7 +86,7 @@ TEST_F(FPDFDocEmbedderTest, MultipleSamePage) {
     ref.reset(FPDF_LoadPage(document(), 0));
     unique_pages.insert(ref.get());
   }
-EXPECT_EQ(4u, unique_pages.size());
+  EXPECT_EQ(4u, unique_pages.size());
   EXPECT_EQ(4u, doc->GetParsedPageCountForTesting());
 }
 
@@ -510,6 +511,58 @@ TEST_F(FPDFDocEmbedderTest, ActionNonesuch) {
   EXPECT_FALSE(FPDFAction_GetDest(document(), action));
   EXPECT_EQ(0u, FPDFAction_GetFilePath(action, buf, sizeof(buf)));
   EXPECT_EQ(0u, FPDFAction_GetURIPath(document(), action, buf, sizeof(buf)));
+}
+
+TEST_F(FPDFDocEmbedderTest, RustActionRoutingMatchesCppOracle) {
+  struct Snapshot {
+    unsigned long type;
+    bool has_destination;
+    std::vector<uint8_t> file_path;
+    std::vector<uint8_t> uri;
+    bool operator==(const Snapshot&) const = default;
+  };
+  auto snapshot = [&](FPDF_ACTION action, bool use_rust) {
+    pdfium::rust::ScopedRustParserImplementationForTesting implementation(
+        use_rust);
+    Snapshot result = {FPDFAction_GetType(action),
+                       !!FPDFAction_GetDest(document(), action),
+                       {},
+                       {}};
+    const unsigned long file_size = FPDFAction_GetFilePath(action, nullptr, 0);
+    result.file_path.resize(file_size);
+    if (file_size != 0) {
+      EXPECT_EQ(file_size,
+                FPDFAction_GetFilePath(action, result.file_path.data(),
+                                       result.file_path.size()));
+    }
+    const unsigned long uri_size =
+        FPDFAction_GetURIPath(document(), action, nullptr, 0);
+    result.uri.resize(uri_size);
+    if (uri_size != 0) {
+      EXPECT_EQ(uri_size,
+                FPDFAction_GetURIPath(document(), action, result.uri.data(),
+                                      result.uri.size()));
+    }
+    return result;
+  };
+
+  static constexpr const char* kFiles[] = {
+      "launch_action.pdf", "uri_action.pdf",   "uri_action_nonascii.pdf",
+      "goto_action.pdf",   "gotoe_action.pdf", "nonesuch_action.pdf",
+  };
+  for (const char* filename : kFiles) {
+    ASSERT_TRUE(OpenDocument(filename)) << filename;
+    {
+      ScopedPage page = LoadScopedPage(0);
+      ASSERT_TRUE(page) << filename;
+      FPDF_LINK link = FPDFLink_GetLinkAtPoint(page.get(), 100, 100);
+      ASSERT_TRUE(link) << filename;
+      FPDF_ACTION action = FPDFLink_GetAction(link);
+      ASSERT_TRUE(action) << filename;
+      EXPECT_EQ(snapshot(action, false), snapshot(action, true)) << filename;
+    }
+    CloseDocument();
+  }
 }
 
 TEST_F(FPDFDocEmbedderTest, NoBookmarks) {
