@@ -115,10 +115,12 @@ corpus, and the retained parser fuzzer source:
 ninja -C out/light \
   pdfium_rust_parser_unittests \
   pdfium_unittests \
-  testing/fuzzers:pdf_parser_fuzzer_src
+  testing/fuzzers:pdf_parser_fuzzer_src \
+  testing/fuzzers:pdf_parser_fuzzer_corpus
 out/light/pdfium_rust_parser_unittests
 out/light/pdfium_unittests \
   --gtest_filter='ParserTest.RustCandidateMatchesCppCrossRefObjectSnapshots:SimpleParserTest.*'
+out/light/pdf_parser_fuzzer_corpus
 ```
 
 The versioned corpus in `testing/resources/rust_parser_corpus.inc` compares
@@ -126,7 +128,21 @@ parse status, rebuild decisions, trailer object number, and every
 cross-reference object entry for normal, defaulted, unknown, and truncated
 streams. `pdf_parser_fuzzer` performs allocation-free token and consumed-offset
 differential checks before sending the same bounded input through the public
-in-memory document parser. `pdfium_all` must continue to compile the fuzzer.
+in-memory document parser. The standalone corpus executable runs the same
+fuzzer entry point over every versioned input, including public Oracle/Candidate
+load errors, document metadata, and bounded page geometry. `pdfium_all` must
+continue to compile the fuzzer source.
+
+Run the bounded parser corpus under AddressSanitizer as the Phase 6 resource
+gate. `out/light-rust-asan/args.gn` uses the normal light arguments plus
+`is_asan = true`:
+
+```bash
+gn gen out/light-rust-asan
+ninja -C out/light-rust-asan testing/fuzzers:pdf_parser_fuzzer_corpus
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+  out/light-rust-asan/pdf_parser_fuzzer_corpus
+```
 
 For Rust DIB changes, build and run the native Rust target and the exhaustive
 C++/Rust blend and row parity cases:

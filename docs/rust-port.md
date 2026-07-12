@@ -123,6 +123,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `71b66ee13` Phase 6 PDF-string-value slice | 18,097 | 11,286 | 241 | 4,570 | 6,570 | 281,334 | 6.43% | 5.50% | Rust owns binary string bytes and hex-mode state; C++ retains a checked `ByteString` ABI view so pool and clone buffer-sharing behavior remains exact |
 | `6717f6c26` Phase 6 PDF-name-value slice | 18,097 | 11,286 | 241 | 4,570 | 6,570 | 281,423 | 6.43% | 5.50% | Rust owns binary name bytes and mutation through the shared string-state boundary; C++ retains a checked pooled `ByteString` ABI view for native encoding and clone sharing |
 | `7abc76905` Phase 6 PDF-stream-memory slice | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,637 | 6.45% | 5.52% | Rust owns complete in-memory stream bytes and size; C++ retains file-backed stream and dictionary lifetime adapters plus encode/encrypt/archive orchestration |
+| `76017a44f` Phase 6 public object-graph fuzzer gate | 18,155 | 11,344 | 241 | 4,605 | 6,570 | 281,637 | 6.45% | 5.52% | Versioned inputs execute token and public document Oracle/Candidate comparisons for exact errors, metadata, page bounds, and boundary-page geometry in normal and ASan corpus runners |
 
 ## Toolchain
 
@@ -1069,6 +1070,20 @@ The same-process scenario compares construction, raw bytes and size,
 parser-native Rust tests, the stream differential test, all 1,066 unit tests,
 the retained parser fuzzer build, and `pdfium_all` pass in the full GN
 configuration.
+
+The Phase 6 retained fuzzer now opens every bounded input independently with
+the C++ oracle and Rust candidate. It compares load success, exact public error
+code, page count, file-version status and value, permissions, security-handler
+revision, and first/last page load success and float geometry. Token bytes and
+consumed offsets remain exact differential checks before document loading.
+
+`pdf_parser_fuzzer_corpus` links the real fuzzer entry point into a standalone
+runner over the versioned valid, truncated, default-width, and unknown-entry
+inputs. This makes the retained fuzzer executable locally rather than proving
+only that its source compiles. The normal light runner and a separate
+`is_asan=true` build with leak detection and immediate failure both complete
+without a mismatch or sanitizer finding. Inputs remain capped at 1 MiB and
+only the first and last pages are loaded, bounding per-input page work.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
