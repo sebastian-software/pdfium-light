@@ -368,6 +368,21 @@ extern "C" bool pdfium_rust_destination_page_index(
     void* context,
     pdfium::rust::RustDestinationPageCallback lookup_page,
     int32_t* output);
+extern "C" bool pdfium_rust_name_tree_count(
+    uintptr_t root,
+    void* context,
+    pdfium::rust::RustNameTreeDescribeCallback describe,
+    pdfium::rust::RustNameTreeKidCallback read_kid,
+    size_t* output);
+extern "C" bool pdfium_rust_name_tree_find_index(
+    uintptr_t root,
+    size_t target,
+    void* context,
+    pdfium::rust::RustNameTreeDescribeCallback describe,
+    pdfium::rust::RustNameTreeKidCallback read_kid,
+    bool* found,
+    uintptr_t* node,
+    size_t* pair_index);
 extern "C" bool pdfium_rust_document_page_mutation_path(
     uintptr_t root_handle,
     int32_t pages_to_go,
@@ -1274,6 +1289,34 @@ std::optional<int32_t> RustDestinationPageIndex(
     return std::nullopt;
   }
   return output;
+}
+
+std::optional<size_t> RustNameTreeCount(
+    uintptr_t root,
+    void* context,
+    RustNameTreeDescribeCallback describe,
+    RustNameTreeKidCallback read_kid) {
+  size_t output = 0;
+  if (!pdfium_rust_name_tree_count(root, context, describe, read_kid,
+                                   &output)) {
+    return std::nullopt;
+  }
+  return output;
+}
+
+std::optional<RustNameTreeIndexResult> RustNameTreeFindIndex(
+    uintptr_t root,
+    size_t target,
+    void* context,
+    RustNameTreeDescribeCallback describe,
+    RustNameTreeKidCallback read_kid) {
+  RustNameTreeIndexResult result = {};
+  if (!pdfium_rust_name_tree_find_index(
+          root, target, context, describe, read_kid, &result.found,
+          &result.node, &result.pair_index)) {
+    return std::nullopt;
+  }
+  return result;
 }
 
 std::optional<std::vector<size_t>> RustDocumentPageMutationPath(

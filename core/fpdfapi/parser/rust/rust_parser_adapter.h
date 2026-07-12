@@ -534,6 +534,31 @@ std::optional<int32_t> RustDestinationPageIndex(
     uint32_t object_number,
     void* context,
     RustDestinationPageCallback lookup_page);
+using RustNameTreeDescribeCallback = bool (*)(void* context,
+                                              uintptr_t node,
+                                              bool* has_names,
+                                              size_t* name_count,
+                                              size_t* kid_count);
+using RustNameTreeKidCallback = bool (*)(void* context,
+                                         uintptr_t node,
+                                         size_t index,
+                                         uintptr_t* kid);
+struct RustNameTreeIndexResult {
+  bool found;
+  uintptr_t node;
+  size_t pair_index;
+};
+std::optional<size_t> RustNameTreeCount(
+    uintptr_t root,
+    void* context,
+    RustNameTreeDescribeCallback describe,
+    RustNameTreeKidCallback read_kid);
+std::optional<RustNameTreeIndexResult> RustNameTreeFindIndex(
+    uintptr_t root,
+    size_t target,
+    void* context,
+    RustNameTreeDescribeCallback describe,
+    RustNameTreeKidCallback read_kid);
 
 using RustDocumentPageMutationDescribeCallback = bool (*)(void* context,
                                                           uintptr_t handle,

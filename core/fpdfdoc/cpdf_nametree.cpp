@@ -16,6 +16,7 @@
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
+#include "core/fpdfapi/parser/rust/rust_parser_adapter.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/ptr_util.h"
 #include "core/fxcrt/stl_util.h"
@@ -24,6 +25,34 @@
 namespace {
 
 constexpr int kNameTreeMaxRecursion = 32;
+
+bool DescribeNameTreeNode(void*,
+                          uintptr_t node,
+                          bool* has_names,
+                          size_t* name_count,
+                          size_t* kid_count) {
+  const auto* dictionary =
+      reinterpret_cast<const CPDF_Dictionary*>(node);
+  RetainPtr<const CPDF_Array> names = dictionary->GetArrayFor("Names");
+  *has_names = !!names;
+  *name_count = names ? names->size() / 2 : 0;
+  RetainPtr<const CPDF_Array> kids = dictionary->GetArrayFor("Kids");
+  *kid_count = kids ? kids->size() : 0;
+  return true;
+}
+
+bool ReadNameTreeKid(void*,
+                     uintptr_t node,
+                     size_t index,
+                     uintptr_t* kid) {
+  auto* dictionary = reinterpret_cast<CPDF_Dictionary*>(node);
+  RetainPtr<CPDF_Array> kids = dictionary->GetMutableArrayFor("Kids");
+  if (!kids || index >= kids->size()) {
+    return false;
+  }
+  *kid = reinterpret_cast<uintptr_t>(kids->GetMutableDictAt(index).Get());
+  return true;
+}
 
 // The node where a new name should be inserted at `index`.
 struct NodeToInsert {
@@ -554,6 +583,14 @@ RetainPtr<const CPDF_Array> CPDF_NameTree::LookupNamedDest(
 }
 
 size_t CPDF_NameTree::GetCount() const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    std::optional<size_t> result = pdfium::rust::RustNameTreeCount(
+        reinterpret_cast<uintptr_t>(root_.Get()), nullptr,
+        DescribeNameTreeNode, ReadNameTreeKid);
+    if (result.has_value()) {
+      return result.value();
+    }
+  }
   absl::flat_hash_set<const CPDF_Dictionary*> seen;
   return CountNamesInternal(root_.Get(), 0, seen);
 }
@@ -642,6 +679,34 @@ bool CPDF_NameTree::DeleteValueAndName(size_t nIndex) {
 RetainPtr<CPDF_Object> CPDF_NameTree::LookupValueAndName(
     size_t nIndex,
     WideString* csName) const {
+  if (pdfium::rust::UseRustParserCandidate()) {
+    std::optional<pdfium::rust::RustNameTreeIndexResult> result =
+        pdfium::rust::RustNameTreeFindIndex(
+            reinterpret_cast<uintptr_t>(root_.Get()), nIndex, nullptr,
+            DescribeNameTreeNode, ReadNameTreeKid);
+    if (result.has_value()) {
+      if (!result->found) {
+        csName->clear();
+        return nullptr;
+      }
+      auto* dictionary =
+          reinterpret_cast<CPDF_Dictionary*>(result->node);
+      RetainPtr<CPDF_Array> names = dictionary->GetMutableArrayFor("Names");
+      if (!names || result->pair_index >= names->size() / 2) {
+        csName->clear();
+        return nullptr;
+      }
+      const size_t key_index = result->pair_index * 2;
+      RetainPtr<CPDF_Object> value =
+          names->GetMutableDirectObjectAt(key_index + 1);
+      if (!value) {
+        csName->clear();
+        return nullptr;
+      }
+      *csName = names->GetUnicodeTextAt(key_index);
+      return value;
+    }
+  }
   std::optional<IndexSearchResult> result =
       SearchNameNodeByIndex(root_.Get(), nIndex);
   if (!result) {

@@ -297,6 +297,10 @@ type NumberTreeNumberCallback =
 type NumberTreeKidCallback =
     unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut usize) -> bool;
 type DestinationPageCallback = unsafe extern "C" fn(*mut core::ffi::c_void, u32, *mut i32) -> bool;
+type NameTreeDescribeCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, *mut bool, *mut usize, *mut usize) -> bool;
+type NameTreeKidCallback =
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, *mut usize) -> bool;
 
 #[derive(Clone, Copy)]
 struct RedactionRect {
@@ -738,6 +742,65 @@ fn destination_page_index(
         2 => lookup_page(object_number),
         _ => Some(-1),
     }
+}
+
+#[derive(Clone, Copy)]
+struct NameTreeNode {
+    has_names: bool,
+    name_count: usize,
+    kid_count: usize,
+}
+
+fn name_tree_count(
+    node: usize,
+    depth: usize,
+    visited: &mut std::collections::HashSet<usize>,
+    describe: &mut impl FnMut(usize) -> Option<NameTreeNode>,
+    read_kid: &mut impl FnMut(usize, usize) -> Option<usize>,
+) -> Option<usize> {
+    if node == 0 || depth > 32 || !visited.insert(node) {
+        return Some(0);
+    }
+    let description = describe(node)?;
+    if description.has_names {
+        return Some(description.name_count);
+    }
+    let mut count = 0usize;
+    for index in 0..description.kid_count {
+        let kid = read_kid(node, index)?;
+        count = count.checked_add(name_tree_count(kid, depth + 1, visited, describe, read_kid)?)?;
+    }
+    Some(count)
+}
+
+fn name_tree_find_index(
+    node: usize,
+    target: usize,
+    depth: usize,
+    current: &mut usize,
+    describe: &mut impl FnMut(usize) -> Option<NameTreeNode>,
+    read_kid: &mut impl FnMut(usize, usize) -> Option<usize>,
+) -> Option<Option<(usize, usize)>> {
+    if node == 0 || depth > 32 {
+        return Some(None);
+    }
+    let description = describe(node)?;
+    if description.has_names {
+        let end = current.checked_add(description.name_count)?;
+        if target >= end {
+            *current = end;
+            return Some(None);
+        }
+        return Some(Some((node, target - *current)));
+    }
+    for index in 0..description.kid_count {
+        let kid = read_kid(node, index)?;
+        let found = name_tree_find_index(kid, target, depth + 1, current, describe, read_kid)?;
+        if found.is_some() {
+            return Some(found);
+        }
+    }
+    Some(None)
 }
 
 impl Default for PdfNumberState {
@@ -3831,6 +3894,94 @@ pub unsafe extern "C" fn pdfium_rust_destination_page_index(
     true
 }
 
+fn name_tree_callbacks(
+    context: *mut core::ffi::c_void,
+    describe: NameTreeDescribeCallback,
+    read_kid: NameTreeKidCallback,
+) -> (impl FnMut(usize) -> Option<NameTreeNode>, impl FnMut(usize, usize) -> Option<usize>) {
+    let describe_node = move |node| {
+        let mut result = NameTreeNode { has_names: false, name_count: 0, kid_count: 0 };
+        unsafe {
+            describe(
+                context,
+                node,
+                &mut result.has_names,
+                &mut result.name_count,
+                &mut result.kid_count,
+            )
+        }
+        .then_some(result)
+    };
+    let read_kid_node = move |node, index| {
+        let mut kid = 0;
+        unsafe { read_kid(context, node, index, &mut kid) }.then_some(kid)
+    };
+    (describe_node, read_kid_node)
+}
+
+/// Counts key/value pairs in a borrowed PDF name tree.
+///
+/// # Safety
+/// Callbacks, context, and output must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_name_tree_count(
+    root: usize,
+    context: *mut core::ffi::c_void,
+    describe: NameTreeDescribeCallback,
+    read_kid: NameTreeKidCallback,
+    output: *mut usize,
+) -> bool {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return false;
+    };
+    let (mut describe_node, mut read_kid_node) = name_tree_callbacks(context, describe, read_kid);
+    let Some(result) = name_tree_count(
+        root,
+        0,
+        &mut std::collections::HashSet::new(),
+        &mut describe_node,
+        &mut read_kid_node,
+    ) else {
+        return false;
+    };
+    *output = result;
+    true
+}
+
+/// Finds the leaf and pair offset for a borrowed PDF name-tree index.
+///
+/// # Safety
+/// Callbacks, context, and outputs must remain valid synchronously.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfium_rust_name_tree_find_index(
+    root: usize,
+    target: usize,
+    context: *mut core::ffi::c_void,
+    describe: NameTreeDescribeCallback,
+    read_kid: NameTreeKidCallback,
+    found: *mut bool,
+    node: *mut usize,
+    pair_index: *mut usize,
+) -> bool {
+    let (Some(found), Some(node), Some(pair_index)) =
+        (unsafe { found.as_mut() }, unsafe { node.as_mut() }, unsafe { pair_index.as_mut() })
+    else {
+        return false;
+    };
+    let (mut describe_node, mut read_kid_node) = name_tree_callbacks(context, describe, read_kid);
+    let mut current = 0;
+    let Some(result) =
+        name_tree_find_index(root, target, 0, &mut current, &mut describe_node, &mut read_kid_node)
+    else {
+        return false;
+    };
+    *found = result.is_some();
+    let (result_node, result_index) = result.unwrap_or_default();
+    *node = result_node;
+    *pair_index = result_index;
+    true
+}
+
 struct DocumentPageMutationCallbacks {
     context: *mut core::ffi::c_void,
     describe: DocumentPageMutationDescribeCallback,
@@ -5758,5 +5909,73 @@ mod tests {
         assert_eq!(Some(-1), destination_page_index(0, 11, 42, &mut lookup));
         assert_eq!(vec![42], *requested.borrow());
         assert_eq!(None, destination_page_index(2, 0, 42, &mut |_| None));
+    }
+
+    #[test]
+    fn name_tree_count_and_index_should_preserve_leaf_order_depth_and_cycles() {
+        let mut describe = |node| {
+            Some(match node {
+                1 => NameTreeNode { has_names: false, name_count: 0, kid_count: 2 },
+                2 => NameTreeNode { has_names: true, name_count: 2, kid_count: 0 },
+                3 => NameTreeNode { has_names: true, name_count: 1, kid_count: 0 },
+                _ => return None,
+            })
+        };
+        let mut read_kid = |node, index| {
+            Some(match (node, index) {
+                (1, 0) => 2,
+                (1, 1) => 3,
+                _ => return None,
+            })
+        };
+        assert_eq!(
+            Some(3),
+            name_tree_count(
+                1,
+                0,
+                &mut std::collections::HashSet::new(),
+                &mut describe,
+                &mut read_kid,
+            )
+        );
+        for (target, expected) in
+            [(0, Some((2, 0))), (1, Some((2, 1))), (2, Some((3, 0))), (3, None)]
+        {
+            let mut current = 0;
+            assert_eq!(
+                Some(expected),
+                name_tree_find_index(1, target, 0, &mut current, &mut describe, &mut read_kid,)
+            );
+        }
+
+        let mut cycle_description =
+            |_| Some(NameTreeNode { has_names: false, name_count: 0, kid_count: 1 });
+        assert_eq!(
+            Some(0),
+            name_tree_count(
+                1,
+                0,
+                &mut std::collections::HashSet::new(),
+                &mut cycle_description,
+                &mut |_, _| Some(1),
+            )
+        );
+        let mut current = 0;
+        assert_eq!(
+            Some(None),
+            name_tree_find_index(1, 0, 33, &mut current, &mut cycle_description, &mut |_, _| Some(
+                1
+            ),)
+        );
+        assert_eq!(
+            None,
+            name_tree_count(
+                1,
+                0,
+                &mut std::collections::HashSet::new(),
+                &mut |_| None,
+                &mut |_, _| Some(0),
+            )
+        );
     }
 }
