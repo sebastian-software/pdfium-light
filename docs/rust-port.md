@@ -121,6 +121,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `d9bd92b8b` Phase 6 PDF-dictionary-container slice | 17,908 | 11,097 | 241 | 4,439 | 6,570 | 280,871 | 6.38% | 5.42% | Rust owns binary key bytes, sorted mapping, and mutations; C++ retains object values in an opaque-handle registry and derives the pooled legacy iterator view |
 | `91ad4cb4e` Phase 6 byte-string-pool foundation | 18,005 | 11,194 | 241 | 4,518 | 6,570 | 281,070 | 6.41% | 5.46% | Rust owns the binary string-to-handle interning index; C++ retains shared `ByteString` buffers in a handle registry so existing copy-on-write identity remains exact |
 | `71b66ee13` Phase 6 PDF-string-value slice | 18,097 | 11,286 | 241 | 4,570 | 6,570 | 281,334 | 6.43% | 5.50% | Rust owns binary string bytes and hex-mode state; C++ retains a checked `ByteString` ABI view so pool and clone buffer-sharing behavior remains exact |
+| `6717f6c26` Phase 6 PDF-name-value slice | 18,097 | 11,286 | 241 | 4,570 | 6,570 | 281,423 | 6.43% | 5.50% | Rust owns binary name bytes and mutation through the shared string-state boundary; C++ retains a checked pooled `ByteString` ABI view for native encoding and clone sharing |
 
 ## Toolchain
 
@@ -1033,6 +1034,19 @@ arbitrary binary bytes, mutation, encoding, serialization, clone content, and
 exact clone buffer sharing. All 27 parser-native Rust tests, the string test,
 all 1,064 unit tests, the retained parser fuzzer build, and `pdfium_all` pass in
 the full GN configuration.
+
+The twenty-fifth Phase 6 slice applies the same Rust-owned binary state to
+`CPDF_Name`. Rust accepts construction and `SetString()` bytes first, including
+embedded NULs, while every native read verifies the pooled `ByteString` ABI
+view byte-for-byte before Unicode decoding, name encoding, serialization, or
+cloning. No new Rust data model is introduced: names reuse the already tested
+binary string state with hex mode disabled.
+
+The same-process scenario compares bytes requiring PDF name escaping,
+embedded NULs, mutation, encoded serialization, clone content, and exact clone
+buffer sharing. Both name and string differential tests pass, as do all 1,065
+unit tests, the retained parser fuzzer build, and `pdfium_all` in the full GN
+configuration.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
