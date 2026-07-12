@@ -157,6 +157,7 @@ the reference selector remains test-only and unchanged until the slice passes.
 | `d822f622b` Phase 7 generated-character-origin slice | 23,125 | 16,314 | 241 | 6,403 | 6,570 | 290,377 | 7.96% | 7.69% | Rust owns prior-width admission, text-object/box font-size selection, zero-size fallback, and origin advancement; C++ retains prior-character/font access, matrix and native `CharInfo` construction, and the separately selected oracle |
 | `f0a4139db` Phase 7 duplicate-character slice | 23,243 | 16,432 | 241 | 6,455 | 6,570 | 290,615 | 8.00% | 7.73% | Rust owns the seven-character reverse scan, code/font/origin equality, threshold comparison, suppression, and first-item space-trim action; C++ retains character/font lifetimes, buffer mutation, and the separately selected oracle |
 | `ddf10ee58` Phase 7 text-object-grouping slice | 23,393 | 16,582 | 241 | 6,504 | 6,570 | 290,954 | 8.04% | 7.79% | Rust owns zero-width/duplicate/empty-item actions, line-change thresholding, flush/append selection, and stable horizontal insertion index; C++ retains object/font/matrix lifetimes, transformed geometry callbacks, native vector mutation, and the separately selected oracle |
+| `01e74216d` Phase 7 public-redaction slice | 23,638 | 16,827 | 241 | 6,591 | 6,570 | 291,422 | 8.11% | 7.90% | Rust owns public redaction rectangle validation, intersection/containment policy, supported-object checks, atomic removal-index planning, and result status selection; C++ retains page/object lifetimes, applies the validated mutation, and preserves the complete separately selected oracle |
 
 ## Toolchain
 
@@ -1644,6 +1645,28 @@ the production grouping path. A dedicated `B`, `A`, then next-line `C` fixture
 proves `A`, `B`, `C` output order with exact generated flags, origins, and boxes.
 All seven search-extension tests, all 76 public text tests, all 1,069 unit
 tests, and `pdfium_all` pass.
+
+The thirty-second Phase 7 slice moves public redaction validation and atomic
+removal planning into Rust. Rust validates every requested rectangle, scans
+active page objects, preserves strict intersection and full-containment
+semantics, rejects unsupported or partially covered objects before mutation,
+and returns the exact public status plus stable removal indexes. C++ retains
+page and object lifetimes, supplies borrowed geometry through synchronous
+callbacks, validates the returned indexes, and applies removals only after the
+complete plan succeeds; the original implementation remains the separately
+selected oracle and the invalid-page check remains at the public ABI boundary.
+
+For `r` rectangles, `o` page objects, and `k` selected removals, both paths use
+O(r + o*r) time and O(r + k) auxiliary storage. Two parser-native Rust tests
+cover successful selection, inactive and disjoint objects, invalid input,
+partial intersection, unsupported objects, and no partial mutation. A
+same-process public differential compares invalid-rectangle, no-content, and
+success statuses on identical pages, then compares object count and extracted
+text before and after content generation, save, and reload. All 39
+parser-native tests, all 1,069 unit tests, and `pdfium_all` pass. The retained
+save/render regression reaches the expected object and text state under both
+implementations; its four-pixel macOS golden mismatch is identical in the C++
+oracle and Rust candidate.
 
 Palette storage remains a C++ `DataVector`, while Rust fills default 1-bpp and
 8-bpp ARGB entries, resolves default entries, and searches exact custom colors.
